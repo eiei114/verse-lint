@@ -40,6 +40,14 @@ same-line top-level nodes: the pinned grammar can split an inline binary
 function body into unrelated nodes without ERROR. Vendored grammar bytes remain
 unchanged. Map literals and this ambiguity have explicit negative regressions.
 
+Read-only practical inspection additionally exposed dotted local imports,
+comma-separated braced enums and typed local constants as coverage gaps.
+`tests/coverage-gaps.rs` uses newly authored minimal examples, not project source.
+An adjacent-top-level error can reflect lost enclosing structure in recovery;
+it is not a reliable classification of the original Verse construct. These
+refusals block broad project readiness and require parser work, not weaker
+success criteria or removal of the independent safety guard.
+
 ## Windows adapter snapshot (L05)
 
 `src/write.rs` was imported from the same formatter commit. Import SHA-256:
@@ -50,3 +58,12 @@ replacement. The DELETE fix was also applied to the formatter with a regression
 test. Adapter fault-injection tests are retained; linter additionally tests
 mid-batch accounting and remaining diagnostic positions. This source copy is
 not a runtime dependency. Both adapters require future fixes to be cross-reviewed.
+
+The subsequent Windows audit added owner/primary-group equality checks before
+staged bytes are written and again before replacement, synchronized in both
+tools. Non-matching ownership is refused, not forcibly changed. Writes accept
+only normal/hidden/system/archive/not-content-indexed attributes; unverified
+compressed/encrypted/sparse/temporary/cloud-managed flags are refused. Tests cover
+an actual non-default primary group, basic attributes, >260-character Unicode
+paths, oversized sources and closed stdout. These are not complete SACL,
+adversarial filesystem or network-share guarantees.
