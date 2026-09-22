@@ -15,6 +15,12 @@ The pinned scanner also misclassifies some strings beginning with an unescaped
 `#` (for example `A := "# text"`); these fail with a coverage error, not a
 suppression/rule error. This is recorded as an upstream parser limitation, not
 silently worked around by changing literal bytes.
+Map literals such as `map{"x" => 1}` are also unsupported by the pinned parser.
+It can split a top-level inline binary function body (`Add(X:int,Y:int):int =
+X+Y`) into a function returning X and a sibling unary +Y without ERROR. A shared
+guard now rejects unseparated adjacent top-level nodes on one physical line.
+Nested/spaced binary bodies remain supported where their CST is complete;
+this is not a ban on all binary expressions or a compiler diagnosis.
 Some are valid Verse: rejection means tool coverage is incomplete, not that
 UEFN would reject them. Unicode inside literals/comments is supported.
 

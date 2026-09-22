@@ -39,6 +39,12 @@ pub struct Report {
     pub diagnostics: Vec<Diagnostic>,
     pub execution_errors: Vec<ExecutionError>,
     pub summary: Summary,
+    #[serde(skip)]
+    pub stdin: bool,
+    #[serde(skip)]
+    pub source_root: Option<String>,
+    #[serde(skip)]
+    pub exit_code: u8,
 }
 
 impl Default for Report {
@@ -52,6 +58,9 @@ impl Default for Report {
             diagnostics: vec![],
             execution_errors: vec![],
             summary: Summary::default(),
+            stdin: false,
+            source_root: None,
+            exit_code: 0,
         }
     }
 }
@@ -83,11 +92,12 @@ impl Report {
             .filter(|d| d.severity == "warning")
             .count();
         self.summary.complete = self.execution_errors.is_empty();
-        if !self.summary.complete {
+        self.exit_code = if !self.summary.complete {
             2
         } else {
             u8::from(self.summary.errors > 0 || (deny_warnings && self.summary.warnings > 0))
-        }
+        };
+        self.exit_code
     }
 
     pub fn emit(&self, format: OutputFormat, color: Color) -> Result<(), String> {
@@ -123,7 +133,9 @@ impl Report {
                 }
             }
             OutputFormat::Sarif => {
-                return Err("SARIF output is not implemented in this slice".into());
+                serde_json::to_writer_pretty(&mut out, &crate::sarif::render(self))
+                    .map_err(|e| e.to_string())?;
+                writeln!(out).map_err(|e| e.to_string())?;
             }
         }
         if !self.execution_errors.is_empty() {

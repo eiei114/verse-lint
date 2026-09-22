@@ -3,8 +3,8 @@
 Linter for Epic Games' Verse language and UEFN projects.
 
 > Unreleased alpha with five style rules, line suppression, file/stdin/project
-> input, configuration, text/JSON and guarded Windows safe fixes. SARIF remains
-> unimplemented and fails with exit 2. Corpus, UEFN and distribution acceptance
+> input, configuration, text/JSON/SARIF and guarded Windows safe fixes.
+> Corpus, UEFN and distribution acceptance
 > are still pending. This is not a Verse compiler or a supported stable release.
 
 ## Current usage
@@ -13,6 +13,7 @@ Linter for Epic Games' Verse language and UEFN projects.
 verse-lint .
 verse-lint Content/device.verse --select V1001
 verse-lint . --output-format json
+verse-lint . --output-format sarif
 verse-lint . --fix
 verse-lint . --select V2001,V2002 --deny-warnings
 verse-lint --show-config
@@ -35,6 +36,9 @@ See [CLI/config and JSON contract](docs/cli.md), [rule index](docs/rules.md),
 [safe fixes](docs/fixes.md) and
 [pinned independent syntax snapshot](docs/syntax-snapshot.md). No installed
 formatter, Node.js or runtime network access is needed.
+
+[SARIF 2.1.0](docs/sarif.md) is validated against the pinned official OASIS
+schema. Emitting SARIF does not upload source/results or enable code scanning.
 
 ## Development
 

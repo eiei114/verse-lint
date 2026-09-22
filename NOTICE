@@ -12,3 +12,8 @@ The full license is retained in vendor/tree-sitter-verse/LICENSE and must be
 included alongside the program in binary distributions.
 
 Tree-sitter and the Rust dependencies are used under their respective licenses.
+
+Test resources include the unmodified OASIS SARIF 2.1.0 JSON Schema.
+Copyright OASIS Open 2020. All Rights Reserved.
+See tests/schemas/oasis-notices.md for the complete applicable notices and
+tests/schemas/provenance.md for its official source URL and SHA-256.

@@ -3,8 +3,8 @@
 Shared toolchain contract version **1**. Five [style rules](rules.md) and
 [suppression](suppressions.md) are implemented. Defaults are V1001/V1002/V1003;
 V2001/V2002 are opt-in warnings. `--fix` applies only validated V1001/V1002 edits
-using guarded Windows replacement; see [fixes](fixes.md). SARIF remains pending
-and explicitly fails with exit 2. Compiler/UEFN acceptance is not established.
+using guarded Windows replacement; see [fixes](fixes.md). [SARIF 2.1.0](sarif.md)
+is supported and schema-validated. Compiler/UEFN acceptance is not established.
 
 `verse-lint` defaults to CWD; file and directory paths can be combined. `-` must
 be used alone; `--stdin-filepath` is a virtual Unicode path, not a write target.
@@ -80,5 +80,6 @@ including suppressed findings. An exceeding file produces an execution error ins
 diagnostics complete. Previously completed files remain in output. No fixing
 begins on limit failure. Parser limits are in [parser-design.md](parser-design.md).
 
-`scripts/verify-json.ps1` validates real release-binary JSON for exit 0, 1,
-I/O failure and argument failure with PowerShell 7's JSON Schema validator.
+`scripts/verify-json.ps1` validates real release-binary JSON and SARIF for exit
+0/1/2, fixes, suppression, Unicode paths, virtual stdin, I/O and argument failure
+with PowerShell 7's JSON Schema validator. An invalid version must be rejected.

@@ -38,6 +38,33 @@ impl Document {
                 Some(ParseOptions::new().progress_callback(&mut cancel)),
             )
             .ok_or_else(|| Failure::new(0, "parse budget exceeded; source was not changed"))?;
+        // Same guard as formatter: upstream may split inline X+Y into sibling
+        // statements without ERROR; no safe lint/fix claim for that structure.
+        let mut children = tree.root_node().walk();
+        let mut previous: Option<tree_sitter::Node<'_>> = None;
+        for node in tree.root_node().named_children(&mut children) {
+            if node.is_extra() {
+                continue;
+            }
+            if let Some(left) = previous {
+                let end = left.end_byte() + source.body_start();
+                let start = node.start_byte() + source.body_start();
+                if source.position(end.saturating_sub(1)).0 == source.position(start).0 {
+                    let first = tokens.partition_point(|t| t.range.end <= end);
+                    let separated = tokens[first..]
+                        .iter()
+                        .take_while(|t| t.range.start < start)
+                        .any(|t| t.kind == lex::Kind::Code && t.text(source) == ";");
+                    if !separated {
+                        return Err(Failure::new(
+                            start,
+                            "ambiguous adjacent top-level statements; inline binary function bodies are unsupported by the pinned grammar",
+                        ));
+                    }
+                }
+            }
+            previous = Some(node);
+        }
         let mut shape = Vec::new();
         let mut cursor = tree.walk();
         let mut depth = 0;
@@ -124,6 +151,8 @@ mod tests {
             "A := <p>text</p>\n",
             "得点 := 1\n",
             "A:int=1\n",
+            "Add(X:int,Y:int):int = X+Y\n",
+            "A := map{\"x\" => 1}\n",
         ] {
             let source = Source::from_bytes(text.as_bytes()).unwrap();
             assert!(Document::parse(&source).is_err(), "{text}");

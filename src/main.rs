@@ -7,6 +7,7 @@ mod fix_run;
 mod lex;
 mod report;
 mod rules;
+mod sarif;
 mod source;
 mod suppressions;
 mod syntax;
@@ -43,6 +44,7 @@ fn main() -> ExitCode {
         }
     };
     let mut report = report::Report::default();
+    report.stdin = cli.paths.iter().any(|p| p.as_os_str() == "-");
     match cli.validate().and_then(|()| run(&cli, &mut report)) {
         Ok(Some(config)) => {
             return match std::io::stdout().lock().write_all(config.as_bytes()) {
@@ -94,10 +96,14 @@ fn requested_machine_format(args: &[OsString]) -> Option<cli::OutputFormat> {
 }
 
 fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, String> {
-    if matches!(cli.output_format, cli::OutputFormat::Sarif) {
-        return Err("SARIF output is not implemented in this slice".into());
-    }
     let mut config = config::resolve(cli.config.as_deref(), cli.stdin_filepath.as_deref())?;
+    report.source_root = Some(
+        config
+            .root
+            .to_str()
+            .ok_or("config root must be Unicode")?
+            .replace('\\', "/"),
+    );
     if let Some(select) = &cli.select {
         config.settings.lint.select = select.clone();
     }

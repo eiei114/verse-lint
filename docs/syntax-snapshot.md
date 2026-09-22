@@ -35,6 +35,10 @@ share the imported contract. Vendored recovery-parser success alone is never
 sufficient. Unsupported/incomplete inputs become execution failures, not lint
 rules and not claims of compiler invalidity. See [parser design](parser-design.md).
 Corpus updates require a new pinned source revision, hashes and regression tests.
+During corpus expansion, both tools gained an independent guard for unseparated
+same-line top-level nodes: the pinned grammar can split an inline binary
+function body into unrelated nodes without ERROR. Vendored grammar bytes remain
+unchanged. Map literals and this ambiguity have explicit negative regressions.
 
 ## Windows adapter snapshot (L05)
 
