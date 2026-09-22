@@ -2,9 +2,31 @@
 
 Linter for Epic Games' Verse language and UEFN projects.
 
-> Unreleased alpha under active implementation. Only CLI validation is implemented
-> in this foundation commit. Source processing currently fails with exit code 2;
-> it does not claim to lint or compile Verse. No files are modified.
+> Unreleased, incomplete alpha. The current slice implements V1001 trailing
+> whitespace, file/stdin/project input, configuration and text/JSON output.
+> The other four planned rules, suppression, safe fixes and SARIF are next;
+> requesting them fails with exit 2 instead of pretending they ran. No files
+> are modified. This is not the finished v0.1 rule set or a Verse compiler.
+
+## Current usage
+
+```powershell
+verse-lint .
+verse-lint Content/device.verse --select V1001
+verse-lint . --output-format json
+verse-lint --show-config
+```
+
+No arguments inspects CWD. Exit 0 means inspection completed without selected
+errors; 1 means lint violations; 2 means incomplete inspection/config/I/O failure.
+Readable-file diagnostics survive failures in other files. Strings/comments are
+protected. Unknown/incomplete syntax is an execution error, not a claim that the
+UEFN compiler rejects it. Prefer file input in Windows PowerShell 5.1 because
+text pipelines can recode bytes before the tool receives them.
+
+See [CLI/config and JSON contract](docs/cli.md), [V1001](docs/rules/v1001.md) and
+[pinned independent syntax snapshot](docs/syntax-snapshot.md). No installed
+formatter, Node.js or runtime network access is needed.
 
 ## Development
 
