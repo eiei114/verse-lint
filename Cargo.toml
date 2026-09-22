@@ -1,13 +1,15 @@
 [package]
 name = "verse-lint"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 edition = "2024"
+rust-version = "1.97"
 description = "A linter for Epic Games' Verse language."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/eiei114/verse-lint"
-homepage = "https://verse-lint.dev"
+homepage = "https://github.com/eiei114/verse-lint"
 readme = "README.md"
 keywords = ["verse", "uefn", "linter"]
 categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
+clap = { version = "4.5", features = ["derive"] }
