@@ -15,7 +15,6 @@ unsafe extern "C" {
 #[derive(Debug)]
 pub struct Document {
     pub tokens: Vec<Token>,
-    #[cfg(test)]
     shape: Vec<(u16, bool)>,
 }
 
@@ -67,18 +66,13 @@ impl Document {
                     break;
                 }
                 if !cursor.goto_parent() {
-                    return Ok(Self {
-                        tokens,
-                        #[cfg(test)]
-                        shape,
-                    });
+                    return Ok(Self { tokens, shape });
                 }
                 depth -= 1;
             }
         }
     }
 
-    #[cfg(test)]
     pub fn equivalent(&self, source: &Source, other: &Self, output: &Source) -> bool {
         self.shape == other.shape
             && self

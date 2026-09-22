@@ -139,6 +139,18 @@ impl Report {
                 .map_err(|e| e.to_string())?;
             }
         }
+        if matches!(format, OutputFormat::Text)
+            && (self.summary.files_changed > 0 || self.summary.suppressed > 0)
+        {
+            writeln!(
+                std::io::stderr().lock(),
+                "checked {} file(s), changed {}, suppressed {} diagnostic(s)",
+                self.summary.files_checked,
+                self.summary.files_changed,
+                self.summary.suppressed
+            )
+            .map_err(|e| e.to_string())?;
+        }
         Ok(())
     }
 }

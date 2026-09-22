@@ -9,9 +9,12 @@ try {
     [IO.File]::WriteAllText((Join-Path $temp 'verse.toml'), "schema-version = 1`n")
     [IO.File]::WriteAllText((Join-Path $temp 'clean.verse'), "A := 1`n")
     [IO.File]::WriteAllText((Join-Path $temp 'bad.verse'), "A := 1  `n")
+    [IO.File]::WriteAllText((Join-Path $temp 'suppressed.verse'), "# verse-lint: disable-next-line V1001 -- test`nA := 1  `n")
     foreach ($case in @(
         @{ Arguments = @('clean.verse'); Exit = 0 },
         @{ Arguments = @('bad.verse'); Exit = 1 },
+        @{ Arguments = @('bad.verse', '--fix'); Exit = 0 },
+        @{ Arguments = @('suppressed.verse'); Exit = 0 },
         @{ Arguments = @('missing.verse'); Exit = 2 },
         @{ Arguments = @('--invalid-flag'); Exit = 2 }
     )) {
@@ -33,7 +36,7 @@ try {
         $process.Dispose()
         if (-not (Test-Json -Json $json -SchemaFile $schema)) { throw 'Output failed JSON schema validation' }
     }
-    Write-Output 'JSON Schema: success, violation, I/O failure and CLI failure passed.'
+    Write-Output 'JSON Schema: success, violation, fix, suppression, I/O failure and CLI failure passed.'
 } finally {
     [IO.Directory]::Delete($temp, $true)
 }

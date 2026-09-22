@@ -1,10 +1,10 @@
 # CLI, configuration and JSON
 
-Shared toolchain contract version **1**. This is the intermediate L01–L03 slice,
-not the finished default rule set: only V1001 is currently implemented and
-selected by default. Planned V1002/V1003/V2001/V2002, suppression, `--fix` and
-SARIF explicitly fail rather than silently under-inspect. L04 restores the
-planned three-rule default when those rules are actually implemented.
+Shared toolchain contract version **1**. Five [style rules](rules.md) and
+[suppression](suppressions.md) are implemented. Defaults are V1001/V1002/V1003;
+V2001/V2002 are opt-in warnings. `--fix` applies only validated V1001/V1002 edits
+using guarded Windows replacement; see [fixes](fixes.md). SARIF remains pending
+and explicitly fails with exit 2. Compiler/UEFN acceptance is not established.
 
 `verse-lint` defaults to CWD; file and directory paths can be combined. `-` must
 be used alone; `--stdin-filepath` is a virtual Unicode path, not a write target.
@@ -20,9 +20,9 @@ schema-version = 1
 [files]
 exclude = ["Vendor/**"]
 [lint]
-select = ["V1001"] # intermediate implementation; do not claim other rules ran
+select = ["V1001", "V1002", "V1003"]
 ignore = []
-max-line-length = 120 # validated, used when V2001 is implemented
+max-line-length = 120 # used only when V2001 is selected
 ```
 
 `--config` wins. Otherwise search CWD upwards, including but not crossing the
@@ -57,16 +57,18 @@ Help/version bypass config. JSON never contains ANSI color or progress logs.
 - Range is half-open. Start/end contain zero-based UTF-8 byteOffset including
   BOM, and one-based line/Unicode-scalar column excluding initial BOM. Columns
   are not visual widths or UTF-16 units. CRLF counts as one line ending.
-- `fixable` marks the rule's planned safe-edit capability, not that `--fix` is
-  implemented or that anything was written in this intermediate slice.
+- `fixable` marks the rule's safe-edit capability, not that an edit was applied.
+  Successful `--fix` reports remaining diagnostics at their saved-source positions.
 - Paths use `/`, relative to config root; another Windows volume may require
   an absolute path. Stdin uses its virtual path or `<stdin>`, never a fake file.
 - Diagnostics sort by path, byte offset, then rule ID. No timestamps or unstable
   run IDs. Same arguments/input yield identical JSON apart from external errors.
 - Execution errors contain a message and optional path. They are not lint rules.
 - `filesChecked` counts successfully analyzed files, not failed attempts.
-  `errors`/`warnings` count reported diagnostics. `filesChanged` and `suppressed`
-  remain zero in this slice. `complete=false` if any execution error occurred.
+  `errors`/`warnings` count reported diagnostics. `filesChanged` counts successful
+  writes only; `suppressed` counts otherwise emitted active-rule diagnostics
+  removed by directives. Text mode reports nonzero changed/suppressed counts on
+  stderr. `complete=false` if any execution error occurred.
 - Partial inspection retains diagnostics from successfully analyzed files but
   exits 2. Otherwise errors (or warnings with deny-warnings) exit 1; clean is 0.
   Failure to write stdout also exits 2.
@@ -74,7 +76,7 @@ Help/version bypass config. JSON never contains ANSI color or progress logs.
 Limits: 8 MiB/source, 64 MiB total successfully read input, 10,000 source files,
 100,000 visited entries, 128 directory levels, 256 KiB config/ignore file,
 256 exclude globs of up to 4,096 bytes. At most 10,000 diagnostics per invocation;
-an exceeding file produces an execution error instead of claiming its partial
+including suppressed findings. An exceeding file produces an execution error instead of claiming its partial
 diagnostics complete. Previously completed files remain in output. No fixing
 begins on limit failure. Parser limits are in [parser-design.md](parser-design.md).
 

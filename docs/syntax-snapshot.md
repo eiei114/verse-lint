@@ -24,9 +24,9 @@ Grammar revision/hashes are in [upstream.md](../vendor/tree-sitter-verse/upstrea
 All Verse examples are self-authored; no Epic assets/digests/proprietary code.
 
 Local adaptations: config validates `[lint]` and tolerates sibling `[format]`;
-syntax removes formatter-only spacing/call offsets. CST shape is still walked
-and bounded, with equivalent-tree regression checks retained in tests; its
-production use for fix revalidation is a subsequent slice. Formatter indentation
+syntax removes formatter-only spacing/call offsets. CST shape is walked
+and bounded, with equivalent-tree regression checks and production fix
+revalidation. Formatter indentation
 normalization is not imported: linter must be able to diagnose tabs without
 guessing their visual width. Rules/reports/orchestration are independent.
 
@@ -35,3 +35,14 @@ share the imported contract. Vendored recovery-parser success alone is never
 sufficient. Unsupported/incomplete inputs become execution failures, not lint
 rules and not claims of compiler invalidity. See [parser design](parser-design.md).
 Corpus updates require a new pinned source revision, hashes and regression tests.
+
+## Windows adapter snapshot (L05)
+
+`src/write.rs` was imported from the same formatter commit. Import SHA-256:
+`596fb99e28a8295392cfb339063e24d12908cec3cb7fb42b2c95902172301833`.
+Local changes: remove unused stdin constructor (stdin fixing is prohibited),
+request DELETE access during preflight to detect a readable handle that denies
+replacement. The DELETE fix was also applied to the formatter with a regression
+test. Adapter fault-injection tests are retained; linter additionally tests
+mid-batch accounting and remaining diagnostic positions. This source copy is
+not a runtime dependency. Both adapters require future fixes to be cross-reviewed.

@@ -2,11 +2,15 @@ mod cli;
 mod config;
 mod diagnostic;
 mod files;
+mod fix;
+mod fix_run;
 mod lex;
 mod report;
 mod rules;
 mod source;
+mod suppressions;
 mod syntax;
+mod write;
 
 use std::{
     ffi::OsString,
@@ -90,9 +94,6 @@ fn requested_machine_format(args: &[OsString]) -> Option<cli::OutputFormat> {
 }
 
 fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, String> {
-    if cli.fix {
-        return Err("safe fixes are not implemented in this slice; no files were changed".into());
-    }
     if matches!(cli.output_format, cli::OutputFormat::Sarif) {
         return Err("SARIF output is not implemented in this slice".into());
     }
@@ -115,7 +116,13 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
                 .replace('\\', "/"),
             None => "<stdin>".into(),
         };
-        inspect(read(std::io::stdin()), &label, &active, report);
+        inspect(
+            read(std::io::stdin()),
+            &label,
+            &active,
+            config.settings.lint.max_line_length,
+            report,
+        );
     } else {
         let paths = if cli.paths.is_empty() {
             vec![PathBuf::from(".")]
@@ -131,6 +138,16 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
         }
         for error in discovered.errors {
             report.error(None, error);
+        }
+        if cli.fix {
+            fix_run::run(
+                discovered.paths,
+                &config.root,
+                &active,
+                config.settings.lint.max_line_length,
+                report,
+            );
+            return Ok(None);
         }
         let mut total = 0;
         for path in discovered.paths {
@@ -148,7 +165,13 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
                 );
                 break;
             }
-            inspect(bytes, &label, &active, report);
+            inspect(
+                bytes,
+                &label,
+                &active,
+                config.settings.lint.max_line_length,
+                report,
+            );
         }
     }
     Ok(None)
@@ -170,6 +193,7 @@ fn inspect(
     bytes: Result<Vec<u8>, String>,
     label: &str,
     active: &std::collections::BTreeSet<String>,
+    max_line_length: usize,
     report: &mut report::Report,
 ) {
     let result = bytes.and_then(|bytes| {
@@ -178,7 +202,8 @@ fn inspect(
             &source,
             label,
             active,
-            rules::MAX_DIAGNOSTICS - report.diagnostics.len(),
+            max_line_length,
+            rules::MAX_DIAGNOSTICS - report.diagnostics.len() - report.summary.suppressed,
         )
         .map_err(|e| {
             let (line, column) = source.position(e.offset);
@@ -186,9 +211,10 @@ fn inspect(
         })
     });
     match result {
-        Ok(diagnostics) => {
+        Ok(result) => {
             report.summary.files_checked += 1;
-            report.diagnostics.extend(diagnostics);
+            report.diagnostics.extend(result.diagnostics);
+            report.summary.suppressed += result.suppressed;
         }
         Err(error) => report.error(Some(label.into()), error),
     }

@@ -89,6 +89,19 @@ impl Source {
         if self.crlf { "\r\n" } else { "\n" }
     }
 
+    /// Start of the containing physical line, excluding an initial BOM.
+    pub fn line_start(&self, offset: usize) -> usize {
+        let line = self
+            .lines
+            .partition_point(|start| *start <= offset)
+            .saturating_sub(1);
+        if line == 0 {
+            self.body_start()
+        } else {
+            self.lines[line]
+        }
+    }
+
     /// Byte offsets include the BOM; human columns count Unicode scalars without it.
     pub fn position(&self, offset: usize) -> (usize, usize) {
         let offset = self.text.floor_char_boundary(offset.min(self.text.len()));

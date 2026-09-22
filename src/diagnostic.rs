@@ -2,9 +2,9 @@ use std::ops::Range;
 
 use serde::Serialize;
 
-use crate::source::Source;
+use crate::{rules::Rule, source::Source};
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Position {
     pub byte_offset: usize,
@@ -23,13 +23,13 @@ impl Position {
     }
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct SourceRange {
     pub start: Position,
     pub end: Position,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Diagnostic {
     pub path: String,
@@ -41,17 +41,17 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
-    pub fn trailing_whitespace(path: &str, source: &Source, range: Range<usize>) -> Self {
+    pub fn new(path: &str, source: &Source, range: Range<usize>, rule: &Rule) -> Self {
         Self {
             path: path.into(),
-            rule_id: "V1001",
-            severity: "error",
-            message: "Trailing whitespace",
+            rule_id: rule.id,
+            severity: rule.severity,
+            message: rule.message,
             range: SourceRange {
                 start: Position::at(source, range.start),
                 end: Position::at(source, range.end),
             },
-            fixable: true,
+            fixable: rule.fixable,
         }
     }
 }

@@ -2,11 +2,10 @@
 
 Linter for Epic Games' Verse language and UEFN projects.
 
-> Unreleased, incomplete alpha. The current slice implements V1001 trailing
-> whitespace, file/stdin/project input, configuration and text/JSON output.
-> The other four planned rules, suppression, safe fixes and SARIF are next;
-> requesting them fails with exit 2 instead of pretending they ran. No files
-> are modified. This is not the finished v0.1 rule set or a Verse compiler.
+> Unreleased alpha with five style rules, line suppression, file/stdin/project
+> input, configuration, text/JSON and guarded Windows safe fixes. SARIF remains
+> unimplemented and fails with exit 2. Corpus, UEFN and distribution acceptance
+> are still pending. This is not a Verse compiler or a supported stable release.
 
 ## Current usage
 
@@ -14,6 +13,8 @@ Linter for Epic Games' Verse language and UEFN projects.
 verse-lint .
 verse-lint Content/device.verse --select V1001
 verse-lint . --output-format json
+verse-lint . --fix
+verse-lint . --select V2001,V2002 --deny-warnings
 verse-lint --show-config
 ```
 
@@ -24,7 +25,14 @@ protected. Unknown/incomplete syntax is an execution error, not a claim that the
 UEFN compiler rejects it. Prefer file input in Windows PowerShell 5.1 because
 text pipelines can recode bytes before the tool receives them.
 
-See [CLI/config and JSON contract](docs/cli.md), [V1001](docs/rules/v1001.md) and
+Defaults: V1001 trailing whitespace, V1002 final newline, V1003 tab indentation.
+V2001 line length and V2002 bare TODO comments are opt-in warnings. Safe fixes
+only remove unprotected trailing trivia and add a final newline; they never
+guess tab widths, rename symbols or reflow comments. Use version control and
+avoid simultaneous editor/UEFN saves during `--fix`.
+
+See [CLI/config and JSON contract](docs/cli.md), [rule index](docs/rules.md),
+[safe fixes](docs/fixes.md) and
 [pinned independent syntax snapshot](docs/syntax-snapshot.md). No installed
 formatter, Node.js or runtime network access is needed.
 
