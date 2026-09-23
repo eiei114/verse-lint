@@ -66,6 +66,23 @@ shapes without project source. An adjacent-top-level error may still reflect
 lost enclosing structure in recovery; it is not a reliable classification of
 the original Verse construct. Broad project readiness remains unproven.
 
+## Independently retained block-comment boundary guard
+
+The local syntax adapter now requires each lexer `BlockComment` token to match
+an exact CST `block_comment` span, accounting for the UTF-8 BOM. This guard is
+retained independently in both tools; no formatter runtime dependency or vendor
+grammar/scanner change is introduced. Matching runs within the existing bounded
+CST traversal with a token-limit-bounded span set. The earliest unmatched span
+deterministically reports exit 2. All-input validation prevents fixes when a
+later input has a mismatch.
+
+This is one-way lexical block-comment coverage, not full semantic or all-token
+validation. Strings/interpolation stay opaque. Some previously accepted
+ambiguous comments are intentionally refused, not repaired. P2 newline-if
+support remains absent. Original `tests/comment-boundary.rs` cases verify
+inspection/fix refusal, unchanged bytes, positive nested/multiple comments,
+opaque literals, BOM/CRLF, stable positions and batch write prevention.
+
 ## Windows adapter snapshot (L05)
 
 `src/write.rs` was imported from the same formatter commit. Import SHA-256:

@@ -1,4 +1,7 @@
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashSet,
+    time::{Duration, Instant},
+};
 
 use tree_sitter::{Language, ParseOptions, Parser};
 use tree_sitter_language::LanguageFn;
@@ -66,10 +69,23 @@ impl Document {
             previous = Some(node);
         }
         let mut shape = Vec::new();
+        // Require exact CST spans for independently lexed block comments.
+        // Opaque string/interpolation tokens are intentionally not included.
+        let mut unmatched_comments: HashSet<_> = tokens
+            .iter()
+            .filter(|token| token.kind == lex::Kind::BlockComment)
+            .map(|token| (token.range.start, token.range.end))
+            .collect();
         let mut cursor = tree.walk();
         let mut depth = 0;
         loop {
             let node = cursor.node();
+            if node.kind() == "block_comment" {
+                unmatched_comments.remove(&(
+                    node.start_byte() + source.body_start(),
+                    node.end_byte() + source.body_start(),
+                ));
+            }
             if node.is_error() || node.is_missing() {
                 return Err(Failure::new(
                     node.start_byte() + source.body_start(),
@@ -93,6 +109,12 @@ impl Document {
                     break;
                 }
                 if !cursor.goto_parent() {
+                    if let Some((start, _)) = unmatched_comments.into_iter().min() {
+                        return Err(Failure::new(
+                            start,
+                            "unsupported block comment boundary: lexer and CST disagree; source was not changed",
+                        ));
+                    }
                     return Ok(Self { tokens, shape });
                 }
                 depth -= 1;
