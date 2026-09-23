@@ -4,8 +4,10 @@ Linter for Epic Games' Verse language and UEFN projects.
 
 > Unreleased alpha with five style rules, line suppression, file/stdin/project
 > input, configuration, text/JSON/SARIF and guarded Windows safe fixes.
-> Corpus, UEFN and distribution acceptance
-> are still pending. This is not a Verse compiler or a supported stable release.
+> A paired 52-case formatter convergence check and PowerShell/cmd smoke matrix
+> pass locally. UEFN compiler acceptance, broad-project readiness and
+> distribution checks remain pending. This is not a Verse compiler or a
+> supported stable release.
 
 ## Current usage
 
@@ -34,7 +36,8 @@ avoid simultaneous editor/UEFN saves during `--fix`.
 
 See [CLI/config and JSON contract](docs/cli.md), [rule index](docs/rules.md),
 [safe fixes](docs/fixes.md) and
-[pinned independent syntax snapshot](docs/syntax-snapshot.md). No installed
+[pinned independent syntax snapshot](docs/syntax-snapshot.md) and
+[paired/shell integration checks](docs/integration-testing.md). No installed
 formatter, Node.js or runtime network access is needed.
 
 [SARIF 2.1.0](docs/sarif.md) is validated against the pinned official OASIS
