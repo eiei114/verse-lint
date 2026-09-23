@@ -1,9 +1,12 @@
 # Local Windows package and mise example
 
-`scripts/package.py` creates a deterministic local ZIP from a pinned Windows
-release binary. It does not create a tag, GitHub Release, crate, or published
-artifact. It refuses dirty source trees and existing outputs. From a committed
-checkout, build/verify first and then package:
+`scripts/package.py` creates a deterministic local ZIP from a fresh Windows
+release build. It does not create a tag, GitHub Release, crate, or published
+artifact. It refuses dirty source trees and existing outputs, resolves the
+Rust channel pinned in `rust-toolchain.toml`, rebuilds the default binary, and
+stages the archive until CRC/content/smoke/checksum checks pass. Custom
+`--binary` inputs are rejected because their source provenance cannot be
+established. Run from a committed checkout:
 
 ```powershell
 pwsh -NoProfile -File scripts/verify.ps1
@@ -13,7 +16,7 @@ python scripts/package.py
 The archive is written under ignored `target/packages/` and named
 `verse-lint-v<VERSION>-x86_64-pc-windows-msvc.zip`. It contains
 `verse-lint.exe` at ZIP root, `README.md`, `BUILD-INFO.txt`, licenses,
-`NOTICE`, and the linter documentation. A sibling `.sha256` is generated and
+`NOTICE`, both vendored Tree-sitter license files, and the linter documentation. A sibling `.sha256` is generated and
 verified against the exact ZIP. Entry order and timestamps are normalized;
 the script checks CRC, entry list, every archived byte, and the checksum.
 The checksum identifies the artifact but is not a signature or trust claim.

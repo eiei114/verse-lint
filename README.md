@@ -4,7 +4,7 @@ Linter for Epic Games' Verse language and UEFN projects.
 
 > Unreleased alpha with five style rules, line suppression, file/stdin/project
 > input, configuration, text/JSON/SARIF and guarded Windows safe fixes.
-> A paired 52-case formatter convergence check and PowerShell/cmd smoke matrix
+> A paired 58-case formatter convergence check and PowerShell/cmd smoke matrix
 > pass locally. UEFN compiler acceptance, broad-project readiness and
 > distribution checks remain pending. This is not a Verse compiler or a
 > supported stable release.

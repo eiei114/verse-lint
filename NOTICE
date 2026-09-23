@@ -1,9 +1,10 @@
 verse-lint is a community project, not affiliated with Epic Games.
+Copyright 2026 eiei114
 
 Source/lexer/parser validation, discovery/config base, build and self-authored
 fixtures derive from verse-fmt by eiei114, revision
 08a9e6abc3cf7cdb762fdeea2b6448b31baa22e1, MIT OR Apache-2.0.
-The project license files retain the original copyright notices.
+The project MIT license retains the original copyright notice.
 See docs/syntax-snapshot.md for the exact provenance and local adaptations.
 
 This distribution contains tree-sitter-verse by taku25, licensed under MIT.
