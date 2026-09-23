@@ -59,6 +59,19 @@ fn default_project_is_sorted_deduplicated_and_obeys_exclusions() {
 }
 
 #[test]
+fn project_nested_under_saved_parent_is_not_itself_protected() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("Saved").join("MyIsland");
+    fs::create_dir_all(&root).unwrap();
+    fs::write(root.join("device.verse"), "A := 1 \n").unwrap();
+
+    let (out, report) = json(&root, &["."]);
+    assert_eq!(out.status.code(), Some(1), "{report}");
+    assert_eq!(report["summary"]["filesChecked"], 1);
+    assert_eq!(report["diagnostics"][0]["path"], "device.verse");
+}
+
+#[test]
 fn partial_failures_keep_readable_diagnostics_but_never_claim_complete() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();

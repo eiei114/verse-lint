@@ -119,7 +119,7 @@ pub struct Discovery {
 struct Walker<'a> {
     root: &'a Path,
     excludes: GlobSet,
-    seen: HashSet<same_file::Handle>,
+    seen: HashSet<PathBuf>,
     visited: usize,
     result: Discovery,
 }
@@ -142,7 +142,7 @@ impl Walker<'_> {
         let mut reason = None;
         if is_link(&metadata) {
             reason = Some("symlink/junction/reparse point");
-        } else if protected(path) {
+        } else if protected(Path::new(&shown)) {
             reason = Some("generated file/directory or Git metadata protection");
         } else if self.excludes.is_match(&shown) {
             reason = Some("verse.toml exclude");
@@ -200,13 +200,11 @@ impl Walker<'_> {
                 .extension()
                 .is_some_and(|e| e.eq_ignore_ascii_case("verse"))
         {
-            let identity =
-                same_file::Handle::from_path(path).map_err(|e| format!("{shown}: {e}"))?;
-            if !self.seen.contains(&identity) {
+            if !self.seen.contains(path) {
                 if self.result.paths.len() >= 10_000 {
                     return Err("at most 10000 source files are supported".into());
                 }
-                self.seen.insert(identity);
+                self.seen.insert(path.to_path_buf());
                 self.result.paths.push(path.to_path_buf());
             }
         } else if explicit {

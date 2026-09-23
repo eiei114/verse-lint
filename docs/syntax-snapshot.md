@@ -19,7 +19,10 @@ third crate, latest-main fetch or build-time upstream download.
 | tests/fixtures/device.expected.verse | 3d62fd67d28cb69f8ef2c8a511af181f65d43b8fe64ea33442f935049525320d |
 
 Also imported: build.rs, byte-preserving .gitattributes, fixture provenance and
-unmodified MIT tree-sitter-verse grammar/generated C/scanner/headers/license.
+the MIT-licensed tree-sitter-verse snapshot. Its grammar/parser are locally
+patched/regenerated, and scanner.c later gained a serialization-bound fix;
+headers and license remain upstream bytes. Exact base/local hashes are in
+[`upstream.md`](../vendor/tree-sitter-verse/upstream.md).
 Grammar revision/hashes are in [upstream.md](../vendor/tree-sitter-verse/upstream.md).
 All Verse examples are self-authored; no Epic assets/digests/proprietary code.
 
@@ -48,8 +51,9 @@ notices are pinned in `vendor/tree-sitter-verse/hashes.json`. Run
 Node/npm or live grammar checkout.
 During corpus expansion, both tools gained an independent guard for unseparated
 same-line top-level nodes: the pinned grammar can split an inline binary
-function body into unrelated nodes without ERROR. Vendored grammar bytes remain
-unchanged. Map literals and this ambiguity have explicit negative regressions.
+function body into unrelated nodes without ERROR. The grammar delta does not
+address this ambiguity. Map literals and this ambiguity have explicit negative
+regressions.
 
 Read-only practical inspection additionally exposed those grammar gaps. The
 newly authored minimal regressions in `tests/coverage-gaps.rs` now cover those

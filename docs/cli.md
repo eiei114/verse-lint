@@ -37,7 +37,10 @@ Local parent/nested `.gitignore` rules and negation apply during discovery;
 global Git ignores do not. Hidden entries, `.git`, `Saved`, `Intermediate` and
 `*.digest.verse` are skipped. An explicit file bypasses gitignore/hidden rules,
 not generated-file or config exclusion protections. Recursive links/junctions
-are skipped; explicit reparse paths or parents fail. Input identity is deduplicated.
+are skipped; explicit reparse paths or parents fail. Repeated canonical paths
+are deduplicated (including tested Windows case aliases).
+Distinct hard-link paths are separate read-only inputs; `--fix` refuses hard-linked
+sources before writing.
 There is no CLI glob expansion. Zero sources is exit 2, not successful inspection.
 `--verbose` explains exclusions on stderr.
 
