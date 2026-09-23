@@ -1,13 +1,31 @@
 [package]
 name = "verse-lint"
-version = "0.1.0"
+version = "0.1.0-alpha.1"
 edition = "2024"
+rust-version = "1.97"
 description = "A linter for Epic Games' Verse language."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/eiei114/verse-lint"
-homepage = "https://verse-lint.dev"
+homepage = "https://github.com/eiei114/verse-lint"
 readme = "README.md"
 keywords = ["verse", "uefn", "linter"]
 categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
+clap = { version = "4.5", features = ["derive"] }
+tree-sitter = "0.25.10"
+tree-sitter-language = "0.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+toml = "0.8"
+globset = "0.4"
+ignore = "0.4"
+pathdiff = "0.2"
+tempfile = "3"
+sha2 = "0.10"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_Security_Authorization"] }
+
+[build-dependencies]
+cc = "1"
