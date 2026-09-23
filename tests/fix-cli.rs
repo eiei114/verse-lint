@@ -57,6 +57,38 @@ fn all_file_analysis_prevents_any_fix_on_syntax_directive_or_limit_failure() {
         assert_eq!(fs::read(p).unwrap(), b"A := 1  ");
     }
 }
+
+#[test]
+fn aggregate_input_limit_prevents_inspection_success_and_every_fix() {
+    let dir = tempfile::tempdir().unwrap();
+    let first = dir.path().join("00-first.verse");
+    fs::write(&first, b"A := 1  \n").unwrap();
+    for index in 0..8 {
+        let path = dir.path().join(format!("{:02}-large.verse", index + 1));
+        fs::File::create(path)
+            .unwrap()
+            .set_len(8 * 1024 * 1024)
+            .unwrap();
+    }
+
+    for args in [&["."][..], &[".", "--fix"][..]] {
+        let (code, report) = run(dir.path(), args);
+        assert_eq!(code, 2, "{report}");
+        assert_eq!(report["summary"]["complete"], false);
+        assert!(
+            report["executionErrors"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|error| error["message"]
+                    .as_str()
+                    .unwrap()
+                    .contains("64 MiB total limit"))
+        );
+        assert_eq!(fs::read(&first).unwrap(), b"A := 1  \n");
+    }
+}
+
 #[test]
 fn eof_and_suppressed_fix_cases_converge() {
     for (input, expected) in [
