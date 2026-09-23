@@ -17,6 +17,10 @@ The archive is written under ignored `target/packages/` and named
 verified against the exact ZIP. Entry order and timestamps are normalized;
 the script checks CRC, entry list, every archived byte, and the checksum.
 The checksum identifies the artifact but is not a signature or trust claim.
+It extracts the executable and runs `--version` plus a JSON lint smoke test
+with the child process PATH reduced to Windows system directories. This local
+check confirms no developer-tool PATH dependency; it is not a clean-machine or
+MSVC-runtime dependency test.
 
 The linter archive contains no installed Formatter, Rust toolchain, or runtime
 network requirement. Its syntax snapshot and runtime dependencies are built

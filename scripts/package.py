@@ -2,10 +2,12 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
 import sys
+import tempfile
 import zipfile
 
 TOOL = "verse-lint"
@@ -81,13 +83,38 @@ def main() -> int:
             raise RuntimeError("archive file list differs from staged files")
         if {name: check.read(name) for name in check.namelist()} != files:
             raise RuntimeError("archive contents differ from source inputs")
+        with tempfile.TemporaryDirectory(prefix="verse-lint-package-smoke-") as temporary:
+            smoke_root = Path(temporary)
+            check.extract(f"{TOOL}.exe", smoke_root)
+            smoke_binary = smoke_root / f"{TOOL}.exe"
+            system_root = os.environ.get("SystemRoot", r"C:\Windows")
+            smoke_env = {
+                "SystemRoot": system_root,
+                "WINDIR": system_root,
+                "PATH": str(Path(system_root) / "System32") + os.pathsep + system_root,
+            }
+            smoke_version = subprocess.run([str(smoke_binary), "--version"], cwd=smoke_root,
+                                            env=smoke_env, capture_output=True, check=True)
+            if smoke_version.stdout.decode("utf-8", errors="strict").strip() != version_text:
+                raise RuntimeError("extracted binary version differs from packaged binary")
+            smoke_source = smoke_root / "smoke.verse"
+            smoke_source.write_bytes(b"A := 1\n")
+            smoke_check = subprocess.run([str(smoke_binary), "--output-format", "json",
+                                          str(smoke_source)], cwd=smoke_root, env=smoke_env,
+                                         capture_output=True)
+            if smoke_check.returncode != 0:
+                raise RuntimeError("extracted binary failed direct lint smoke test")
+            smoke_report = json.loads(smoke_check.stdout)
+            if not smoke_report["summary"]["complete"]:
+                raise RuntimeError("extracted linter reported incomplete inspection")
     if checksum_path.read_text(encoding="ascii") != f"{sha256(archive_path.read_bytes())}  {archive_name}\n":
         raise RuntimeError("checksum verification failed")
 
     print(json.dumps({
         "tool": TOOL, "version": version, "target": TARGET, "sourceCommit": commit,
         "archive": str(archive_path), "archiveSha256": sha256(archive_path.read_bytes()),
-        "entries": sorted(files), "published": False,
+        "entries": sorted(files), "extractedBinarySmoke": "passed with developer-tool PATH removed",
+        "published": False,
     }, ensure_ascii=False))
     return 0
 
