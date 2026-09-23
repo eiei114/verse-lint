@@ -1,7 +1,10 @@
 # Test source provenance
 
-All `.verse` fixtures and inline snippets in this project's Rust tests were
-authored for verse-fmt. They use public Verse syntax and API names; no Epic
+The original `.verse` fixtures were authored for verse-fmt and imported with
+the independent snapshot. Later linter inline tests, including range-binding
+refusal/fix tests, are independently authored; the original structural
+range-binding regressions are retained in both tools. They use public Verse
+syntax and API names; no Epic
 sample project, assets, generated digest, or proprietary source was copied.
 They use the project's MIT OR Apache-2.0 license.
 

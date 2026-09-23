@@ -16,7 +16,7 @@ python scripts/verify-pair.py `
   --output target\verification\paired\convergence.json
 ```
 
-The script pins the corpus SHA-256 and requires its 58 golden-success inputs.
+The script pins the corpus SHA-256 and requires its 64 golden-success inputs.
 It locates the formatter checkout from the tracked corpus path, so the release
 binary may live under `target/release` or an external `CARGO_TARGET_DIR`.
 For each case it runs `verse-lint --fix`, then `verse-fmt --write`, checks the
@@ -42,8 +42,14 @@ corpus SHA-256
 `f5e44fbb19e017bf7caf242ab2275fab991169e7fb22c325cef462ec48452c94`.
 
 Iteration 12 adds self-authored coverage for failable indexed `set` conditions
-and key/value `for` iterators. The paired harness validates 58 golden cases;
+and key/value `for` iterators. That paired run validated 58 golden cases;
 the corpus SHA-256 is `68918abdf3f7b574ccdc803c4af34bc1f5ebeaf1cc0637e8330fcfa6f1465f28`.
+
+P1 extends the corpus to 87 cases (64 goldens and 23 refusals), adding bounded
+`:=` range generators. The current harness pins SHA-256
+`27e0497bbccaba2bed56dfc93efcda762887f3888c9cd0c5707f0ae670050b47`.
+Historical runs above do not validate the six new goldens; run the current
+harness against rebuilt clean checkouts before claiming current convergence.
 
 ## Shell matrix
 

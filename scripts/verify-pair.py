@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 
-EXPECTED_CORPUS_SHA256 = "68918abdf3f7b574ccdc803c4af34bc1f5ebeaf1cc0637e8330fcfa6f1465f28"
+EXPECTED_CORPUS_SHA256 = "27e0497bbccaba2bed56dfc93efcda762887f3888c9cd0c5707f0ae670050b47"
 
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -60,8 +60,8 @@ def main():
         raise SystemExit(f"formatter corpus revision/hash mismatch: {corpus_sha}")
     cases = json.loads(corpus_bytes)
     positives = [item for item in cases["cases"] if "expected" in item]
-    if len(positives) != 58:
-        raise SystemExit(f"expected 58 golden cases, got {len(positives)}")
+    if len(positives) != 64:
+        raise SystemExit(f"expected 64 golden cases, got {len(positives)}")
     report = {
         "corpus_sha256": corpus_sha,
         "formatter_version": run([str(formatter), "--version"], corpus_path.parent).stdout.decode().strip(),

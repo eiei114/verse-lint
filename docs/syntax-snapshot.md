@@ -8,6 +8,11 @@ copyright 2026 eiei114. Both license texts and NOTICE are retained. This is an
 independent source snapshot: no path dependency, formatter binary invocation,
 third crate, latest-main fetch or build-time upstream download.
 
+P1 adds an independently retained `:=` range-generator grammar branch and
+structural regression tests to this snapshot. Parser artifacts are regenerated
+locally with pinned Tree-sitter CLI 0.25.10; no scanner or production guard
+changes. See [range-binding scope](range-binding.md) and the vendor hash manifest.
+
 | Original path | SHA-256 at import |
 |---|---|
 | src/source.rs | 71d35cbd2cc7aa0a9a58119875580ccb937d6cf99574c0474bab5546b718745d |
