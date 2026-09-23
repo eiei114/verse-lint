@@ -37,8 +37,9 @@ avoid simultaneous editor/UEFN saves during `--fix`.
 See [CLI/config and JSON contract](docs/cli.md), [rule index](docs/rules.md),
 [safe fixes](docs/fixes.md) and
 [pinned independent syntax snapshot](docs/syntax-snapshot.md) and
-[paired/shell integration checks](docs/integration-testing.md). No installed
-formatter, Node.js or runtime network access is needed.
+[paired/shell integration checks](docs/integration-testing.md), plus
+[local packaging and future mise usage](docs/packaging-and-mise.md). No
+installed formatter, Node.js or runtime network access is needed.
 
 [SARIF 2.1.0](docs/sarif.md) is validated against the pinned official OASIS
 schema. Emitting SARIF does not upload source/results or enable code scanning.
