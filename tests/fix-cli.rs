@@ -166,6 +166,40 @@ fn too_many_exclude_globs_prevent_every_fix() {
 }
 
 #[test]
+fn source_file_limit_prevents_every_fix() {
+    let dir = tempfile::tempdir().unwrap();
+    for index in 0..10_001 {
+        let path = dir.path().join(format!("source-{index:05}.verse"));
+        fs::write(
+            &path,
+            if index == 0 {
+                &b"A := 1  \n"[..]
+            } else {
+                &b""[..]
+            },
+        )
+        .unwrap();
+    }
+
+    let first = dir.path().join("source-00000.verse");
+    let (code, report) = run(dir.path(), &[".", "--fix"]);
+    assert_eq!(code, 2, "{report}");
+    assert_eq!(report["summary"]["complete"], false);
+    assert_eq!(report["summary"]["filesChanged"], 0);
+    assert!(
+        report["executionErrors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|error| error["message"]
+                .as_str()
+                .unwrap()
+                .contains("at most 10000 source files"))
+    );
+    assert_eq!(fs::read(first).unwrap(), b"A := 1  \n");
+}
+
+#[test]
 fn eof_and_suppressed_fix_cases_converge() {
     for (input, expected) in [
         ("A:=1  ", "A:=1\n"),
