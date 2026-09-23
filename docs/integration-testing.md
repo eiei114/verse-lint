@@ -17,6 +17,8 @@ python scripts/verify-pair.py `
 ```
 
 The script pins the corpus SHA-256 and requires its 58 golden-success inputs.
+It locates the formatter checkout from the tracked corpus path, so the release
+binary may live under `target/release` or an external `CARGO_TARGET_DIR`.
 For each case it runs `verse-lint --fix`, then `verse-fmt --write`, checks the
 formatter's independent golden bytes, and repeats both tools to prove the
 second cycle changes nothing. It uses isolated temporary files and removes

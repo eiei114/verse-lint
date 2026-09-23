@@ -35,7 +35,8 @@ function Invoke-Checked([string]$Exe, [string[]]$ExeArgs, [int]$Expected, [strin
     return $actual
 }
 try {
-    $clean = Join-Path $root '日本語 path with spaces.verse'
+    $cjk = -join ([char]0x65E5, [char]0x672C, [char]0x8A9E)
+    $clean = Join-Path $root "$cjk path with spaces.verse"
     [IO.File]::WriteAllText($clean, "A := 1`n", [Text.UTF8Encoding]::new($false))
     $fmtDirty = Join-Path $root 'dirty format.verse'
     [IO.File]::WriteAllText($fmtDirty, "A:=1`n", [Text.UTF8Encoding]::new($false))

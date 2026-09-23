@@ -42,7 +42,13 @@ def main():
     lint = Path(__file__).resolve().parents[1] / "target/x86_64-pc-windows-msvc/release/verse-lint.exe"
     if not lint.is_file():
         raise SystemExit(f"missing built linter binary: {lint}")
-    formatter_root = formatter.parents[3]
+    # The binary may come from target/release or an external CARGO_TARGET_DIR.
+    # The required corpus is a tracked formatter-repository input, so use it to
+    # identify the source checkout instead of assuming a target path layout.
+    formatter_root = Path(subprocess.run(
+        ["git", "-C", str(corpus_path.parent), "rev-parse", "--show-toplevel"],
+        capture_output=True, text=True, check=True, timeout=30,
+    ).stdout.strip())
     linter_root = Path(__file__).resolve().parents[1]
     formatter_revision = require_clean_checkout(formatter_root)
     linter_revision = require_clean_checkout(linter_root)
