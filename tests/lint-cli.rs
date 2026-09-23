@@ -157,12 +157,7 @@ fn json_range_counts_bytes_and_unicode_scalars_without_bom() {
 
 #[test]
 fn malformed_input_is_execution_failure_not_a_lint_rule() {
-    for source in [
-        &b"A := \"unfinished"[..],
-        b"<# never closed",
-        b"A := 1\r\nB := 2\n",
-        b"\xff\xfe",
-    ] {
+    for source in [&b"A := \"unfinished"[..], b"<# never closed", b"\xff\xfe"] {
         let out = stdin(source, &["--output-format=json"]);
         assert_eq!(out.status.code(), Some(2));
         let value: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();

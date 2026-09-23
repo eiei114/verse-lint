@@ -83,6 +83,19 @@ fn eof_and_suppressed_fix_cases_converge() {
         );
     }
 }
+
+#[test]
+fn fix_preserves_mixed_line_endings_and_uses_last_seen_style_at_eof() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mixed.verse");
+    fs::write(&path, b"A := 1  \r\nB := 2\nC := 3").unwrap();
+    let (code, report) = run(dir.path(), &[".", "--fix"]);
+    assert_eq!(code, 0, "{report}");
+    assert_eq!(fs::read(&path).unwrap(), b"A := 1\r\nB := 2\nC := 3\n");
+    let (code, report) = run(dir.path(), &[".", "--fix"]);
+    assert_eq!(code, 0, "{report}");
+    assert_eq!(report["summary"]["filesChanged"], 0);
+}
 #[cfg(windows)]
 #[test]
 fn readonly_hardlink_and_share_lock_preflight_preserve_all_originals() {

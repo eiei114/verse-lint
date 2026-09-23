@@ -131,7 +131,7 @@ pub fn lint(
     for (index, token) in document.tokens.iter().enumerate() {
         if token.kind == Kind::Space {
             let tail = &source.text()[token.range.end..];
-            if tail.is_empty() || tail.starts_with(source.newline()) {
+            if tail.is_empty() || matches!(tail.as_bytes().first(), Some(b'\r' | b'\n')) {
                 emit(0, token.range.clone())?;
             }
             if depth == 0
@@ -198,7 +198,8 @@ pub fn lint(
     if active.contains("V2001") {
         let mut offset = source.body_start();
         for line in source.text()[offset..].split_inclusive('\n') {
-            let body = line.strip_suffix(source.newline()).unwrap_or(line);
+            let body = line.strip_suffix('\n').unwrap_or(line);
+            let body = body.strip_suffix('\r').unwrap_or(body);
             let (mut width, mut excess) = (0, None);
             for (i, c) in body.char_indices() {
                 width += if c == '\t' { 4 - width % 4 } else { 1 };

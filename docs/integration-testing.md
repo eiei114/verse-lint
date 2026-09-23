@@ -16,11 +16,11 @@ python scripts/verify-pair.py `
   --output target\verification\paired\convergence.json
 ```
 
-The script pins the corpus SHA-256 and requires its 52 golden-success inputs.
+The script pins the corpus SHA-256 and requires its 53 golden-success inputs.
 For each case it runs `verse-lint --fix`, then `verse-fmt --write`, checks the
 formatter's independent golden bytes, and repeats both tools to prove the
 second cycle changes nothing. It uses isolated temporary files and removes
-them on exit. The 19 explicit formatter refusals are not sent through a
+them on exit. The 18 explicit formatter refusals are not sent through a
 successful paired-fix path. Reports are local artifacts and are not committed.
 
 On 2026-09-23, all 52/52 cases passed with formatter revision
@@ -28,6 +28,10 @@ On 2026-09-23, all 52/52 cases passed with formatter revision
 `8ecb25acfebdf22d08accfcf56ecf145a72bf9cd`; corpus SHA-256 was
 `5b981328c3020541697d95a21db76031386347a6d4902aef2fb2428b35ecf5f7`.
 This is a tool-to-tool invariant test, not UEFN compiler acceptance.
+
+After mixed LF/CRLF preservation became supported, the corpus grew by one golden
+case. Current Iteration 10 paired report validates 53/53 with corpus SHA-256
+`bb9275b7950b798ca001757f8c7f34aa87d424d7391d899b873986b3355adc83`.
 
 ## Shell matrix
 

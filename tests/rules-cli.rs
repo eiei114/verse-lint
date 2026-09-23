@@ -142,6 +142,20 @@ fn line_length_counts_unicode_and_four_column_tab_stops() {
 }
 
 #[test]
+fn mixed_line_endings_keep_trailing_whitespace_and_length_detection_line_local() {
+    let source = "A := 1  \r\nB := 2  \n";
+    let (code, report) = lint(source, "V1001", &[]);
+    assert_eq!(code, 1, "{report}");
+    assert_eq!(report["summary"]["errors"], 2);
+
+    // CR belongs to the first CRLF terminator, not to the line's measured body.
+    let source = format!("#{}\r\n# ok\n", "a".repeat(119));
+    let (code, report) = lint(&source, "V2001", &[]);
+    assert_eq!(code, 0, "{report}");
+    assert_eq!(report["summary"]["warnings"], 0);
+}
+
+#[test]
 fn todo_markers_have_explicit_boundaries_and_nonempty_same_line_reference() {
     for (source, count) in [
         ("# TODO do this\n", 1),
