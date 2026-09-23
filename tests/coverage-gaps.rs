@@ -18,6 +18,8 @@ fn practical_syntax_is_inspected_without_false_execution_failure() {
         "Empty<public>:=class():\n    Value : int=1\n",
         "Check():void=\n    if:\n        Value:=1\n    then:\n        Print(\"ok\")\n",
         "Build():void=\n    Canvas:canvas=canvas:\n        Slots:=array:\n            canvas_slot:\n                ZOrder:={Z:=5}\n",
+        "F():void=\n  if (set Values[Index] = Value):\n    Print(\"ok\")\n",
+        "F():void=\n  for (Key -> Value : Values):\n    Print(Value)\n",
     ] {
         let dir = tempfile::tempdir().unwrap();
         let mut child = Command::new(env!("CARGO_BIN_EXE_verse-lint"))

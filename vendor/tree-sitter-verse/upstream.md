@@ -17,8 +17,9 @@ explicit revision/hash change and regression tests, not a build-time download.
 The local reproducible grammar delta allows local dotted names in `using
 { ... }`, initialized typed constants at file scope and in executable blocks,
 comma-separated braced enum variants, empty class base lists, if-binding
-conditions, indented object/array construction and anonymous field initializers
-in the tested shapes, with an ABI-15 generated parser. The scanner remains
+conditions, failable indexed `set` conditions, key/value iterators, indented
+object/array construction and anonymous field initializers in the tested shapes,
+with an ABI-15 generated parser. The scanner remains
 byte-identical to the pinned revision. `hashes.json` records
 the grammar/generated/header/license bytes. Regenerate with
 `scripts/verify-grammar.ps1 -Regenerate`; ordinary Cargo builds need neither

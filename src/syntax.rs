@@ -193,6 +193,54 @@ mod tests {
     }
 
     #[test]
+    fn set_condition_and_key_value_iterator_keep_their_owners() {
+        let text = "F():void =\n    if (set Values[Index] = Value):\n        Print(\"ok\")\n    for (Key -> Value : Values):\n        Print(Value)\n";
+        let (_, _) = parsed(text);
+        let mut parser = Parser::new();
+        // SAFETY: same statically linked grammar as production.
+        let language = Language::new(unsafe { LanguageFn::from_raw(tree_sitter_verse) });
+        parser.set_language(&language).unwrap();
+        let tree = parser.parse(text, None).unwrap();
+        let mut pending = vec![tree.root_node()];
+        let mut nodes = Vec::new();
+        while let Some(node) = pending.pop() {
+            let mut cursor = node.walk();
+            pending.extend(node.named_children(&mut cursor));
+            nodes.push(node);
+        }
+
+        let set = nodes
+            .iter()
+            .find(|node| node.kind() == "set_statement")
+            .unwrap();
+        assert_eq!(set.parent().unwrap().kind(), "if_condition");
+        assert_eq!(
+            set.child_by_field_name("target")
+                .unwrap()
+                .utf8_text(text.as_bytes())
+                .unwrap(),
+            "Values[Index]"
+        );
+
+        let iterator = nodes
+            .iter()
+            .find(|node| node.kind() == "for_iterator")
+            .unwrap();
+        assert_eq!(iterator.parent().unwrap().kind(), "for_clause_list");
+        for (field, expected) in [("key", "Key"), ("value", "Value"), ("iterable", "Values")] {
+            assert_eq!(
+                iterator
+                    .child_by_field_name(field)
+                    .unwrap()
+                    .utf8_text(text.as_bytes())
+                    .unwrap(),
+                expected,
+                "field {field}"
+            );
+        }
+    }
+
+    #[test]
     fn guards_recovery_and_unsupported_constructs() {
         for text in [
             "<# missing",
