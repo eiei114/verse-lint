@@ -90,6 +90,50 @@ fn aggregate_input_limit_prevents_inspection_success_and_every_fix() {
 }
 
 #[test]
+fn oversized_config_and_gitignore_prevent_every_fix() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("a.verse");
+    fs::write(&source, b"A := 1  \n").unwrap();
+    let oversized = vec![b'#'; 256 * 1024 + 1];
+
+    let config = dir.path().join("verse.toml");
+    fs::write(&config, &oversized).unwrap();
+    let (code, report) = run(dir.path(), &[".", "--fix"]);
+    assert_eq!(code, 2, "{report}");
+    assert_eq!(report["summary"]["complete"], false);
+    assert_eq!(report["summary"]["filesChanged"], 0);
+    assert!(
+        report["executionErrors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|error| error["message"]
+                .as_str()
+                .unwrap()
+                .contains("configuration exceeds 256 KiB"))
+    );
+    assert_eq!(fs::read(&source).unwrap(), b"A := 1  \n");
+
+    fs::remove_file(config).unwrap();
+    fs::write(dir.path().join(".gitignore"), &oversized).unwrap();
+    let (code, report) = run(dir.path(), &[".", "--fix"]);
+    assert_eq!(code, 2, "{report}");
+    assert_eq!(report["summary"]["complete"], false);
+    assert_eq!(report["summary"]["filesChanged"], 0);
+    assert!(
+        report["executionErrors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|error| error["message"]
+                .as_str()
+                .unwrap()
+                .contains(".gitignore exceeds 256 KiB"))
+    );
+    assert_eq!(fs::read(&source).unwrap(), b"A := 1  \n");
+}
+
+#[test]
 fn eof_and_suppressed_fix_cases_converge() {
     for (input, expected) in [
         ("A:=1  ", "A:=1\n"),
