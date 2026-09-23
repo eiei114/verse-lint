@@ -20,6 +20,7 @@ def require_clean_checkout(path: Path) -> str:
         ["git", "-C", str(path), "status", "--porcelain"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=True,
     ).stdout
     if status.strip():
@@ -28,6 +29,7 @@ def require_clean_checkout(path: Path) -> str:
         ["git", "-C", str(path), "rev-parse", "HEAD"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
         check=True,
     ).stdout.strip()
 
@@ -47,7 +49,7 @@ def main():
     # identify the source checkout instead of assuming a target path layout.
     formatter_root = Path(subprocess.run(
         ["git", "-C", str(corpus_path.parent), "rev-parse", "--show-toplevel"],
-        capture_output=True, text=True, check=True, timeout=30,
+        capture_output=True, text=True, encoding="utf-8", check=True, timeout=30,
     ).stdout.strip())
     linter_root = Path(__file__).resolve().parents[1]
     formatter_revision = require_clean_checkout(formatter_root)
