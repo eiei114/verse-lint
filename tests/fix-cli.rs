@@ -134,6 +134,38 @@ fn oversized_config_and_gitignore_prevent_every_fix() {
 }
 
 #[test]
+fn too_many_exclude_globs_prevent_every_fix() {
+    let dir = tempfile::tempdir().unwrap();
+    let source = dir.path().join("a.verse");
+    fs::write(&source, b"A := 1  \n").unwrap();
+    let globs = (0..257)
+        .map(|index| format!("'pattern-{index}/**'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    fs::write(
+        dir.path().join("verse.toml"),
+        format!("[files]\nexclude = [{globs}]\n"),
+    )
+    .unwrap();
+
+    let (code, report) = run(dir.path(), &[".", "--fix"]);
+    assert_eq!(code, 2, "{report}");
+    assert_eq!(report["summary"]["complete"], false);
+    assert_eq!(report["summary"]["filesChanged"], 0);
+    assert!(
+        report["executionErrors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|error| error["message"]
+                .as_str()
+                .unwrap()
+                .contains("at most 256 exclude globs"))
+    );
+    assert_eq!(fs::read(&source).unwrap(), b"A := 1  \n");
+}
+
+#[test]
 fn eof_and_suppressed_fix_cases_converge() {
     for (input, expected) in [
         ("A:=1  ", "A:=1\n"),
