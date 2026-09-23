@@ -9,8 +9,11 @@ parse budget, CST depth 512 and one million fingerprint events.
 
 Initial supported examples include assignments, creative devices, class fields,
 methods/specifiers, using paths and nested literal/comment spans. Known rejected
-forms include `<#>` indented comments, markup, quoted/non-ASCII identifiers,
-multiline strings outside interpolation and top-level typed `Count:int=1`.
+forms include `<#>` indented comments, markup, quoted/non-ASCII identifiers
+and multiline strings outside interpolation. Local dotted imports, initialized
+typed constants and comma-separated braced enum variants are supported by the
+local grammar delta; this is not compiler verification. Rejection means the
+tool cannot safely inspect a shape, not necessarily that Verse is invalid.
 The pinned scanner also misclassifies some strings beginning with an unescaped
 `#` (for example `A := "# text"`); these fail with a coverage error, not a
 suppression/rule error. This is recorded as an upstream parser limitation, not

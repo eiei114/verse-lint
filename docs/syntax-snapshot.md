@@ -35,18 +35,24 @@ share the imported contract. Vendored recovery-parser success alone is never
 sufficient. Unsupported/incomplete inputs become execution failures, not lint
 rules and not claims of compiler invalidity. See [parser design](parser-design.md).
 Corpus updates require a new pinned source revision, hashes and regression tests.
+The local grammar delta adds dotted local imports, initialized typed constants,
+and comma-separated braced enum variants, as independently documented in
+`vendor/tree-sitter-verse/upstream.md`. Scanner bytes remain pinned unchanged.
+Generated ABI-15 output, metadata, runtime headers and their separate MIT
+notices are pinned in `vendor/tree-sitter-verse/hashes.json`. Run
+`scripts/verify-grammar.ps1` to audit; maintainers regenerate with
+`-Regenerate` using Tree-sitter CLI 0.25.10. Normal Cargo builds require no
+Node/npm or live grammar checkout.
 During corpus expansion, both tools gained an independent guard for unseparated
 same-line top-level nodes: the pinned grammar can split an inline binary
 function body into unrelated nodes without ERROR. Vendored grammar bytes remain
 unchanged. Map literals and this ambiguity have explicit negative regressions.
 
-Read-only practical inspection additionally exposed dotted local imports,
-comma-separated braced enums and typed local constants as coverage gaps.
-`tests/coverage-gaps.rs` uses newly authored minimal examples, not project source.
-An adjacent-top-level error can reflect lost enclosing structure in recovery;
-it is not a reliable classification of the original Verse construct. These
-refusals block broad project readiness and require parser work, not weaker
-success criteria or removal of the independent safety guard.
+Read-only practical inspection additionally exposed those grammar gaps. The
+newly authored minimal regressions in `tests/coverage-gaps.rs` now cover those
+shapes without project source. An adjacent-top-level error may still reflect
+lost enclosing structure in recovery; it is not a reliable classification of
+the original Verse construct. Broad project readiness remains unproven.
 
 ## Windows adapter snapshot (L05)
 
