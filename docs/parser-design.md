@@ -11,8 +11,10 @@ Initial supported examples include assignments, creative devices, class fields,
 methods/specifiers, using paths and nested literal/comment spans. Known rejected
 forms include `<#>` indented comments, markup, quoted/non-ASCII identifiers
 and multiline strings outside interpolation. Local dotted imports, initialized
-typed constants and comma-separated braced enum variants are supported by the
-local grammar delta; this is not compiler verification. Rejection means the
+typed constants, comma-separated braced enum variants, empty class base lists,
+if-binding conditions, and tested indented object/array construction with
+anonymous field initializers are supported by the local grammar delta; this is
+not compiler verification. Rejection means the
 tool cannot safely inspect a shape, not necessarily that Verse is invalid.
 The pinned scanner also misclassifies some strings beginning with an unescaped
 `#` (for example `A := "# text"`); these fail with a coverage error, not a

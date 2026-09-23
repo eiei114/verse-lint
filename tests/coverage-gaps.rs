@@ -15,6 +15,9 @@ fn practical_syntax_is_inspected_without_false_execution_failure() {
         "F():void =\n    Label:string=\"hello\"\n",
         "F():void =\n    Count := 1\n    Label:string=\"{Count}\"\n",
         "Count:int=1\n",
+        "Empty<public>:=class():\n    Value : int=1\n",
+        "Check():void=\n    if:\n        Value:=1\n    then:\n        Print(\"ok\")\n",
+        "Build():void=\n    Canvas:canvas=canvas:\n        Slots:=array:\n            canvas_slot:\n                ZOrder:={Z:=5}\n",
     ] {
         let dir = tempfile::tempdir().unwrap();
         let mut child = Command::new(env!("CARGO_BIN_EXE_verse-lint"))

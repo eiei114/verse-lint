@@ -16,7 +16,7 @@ python scripts/verify-pair.py `
   --output target\verification\paired\convergence.json
 ```
 
-The script pins the corpus SHA-256 and requires its 53 golden-success inputs.
+The script pins the corpus SHA-256 and requires its 56 golden-success inputs.
 For each case it runs `verse-lint --fix`, then `verse-fmt --write`, checks the
 formatter's independent golden bytes, and repeats both tools to prove the
 second cycle changes nothing. It uses isolated temporary files and removes
@@ -32,6 +32,12 @@ This is a tool-to-tool invariant test, not UEFN compiler acceptance.
 After mixed LF/CRLF preservation became supported, the corpus grew by one golden
 case. Current Iteration 10 paired report validates 53/53 with corpus SHA-256
 `bb9275b7950b798ca001757f8c7f34aa87d424d7391d899b873986b3355adc83`.
+
+Iteration 11 adds self-authored parser/formatter coverage for `class()`,
+if-binding conditions and nested indented object/array construction. After the
+changes were committed, the paired harness validated all 56 golden cases using
+corpus SHA-256
+`f5e44fbb19e017bf7caf242ab2275fab991169e7fb22c325cef462ec48452c94`.
 
 ## Shell matrix
 

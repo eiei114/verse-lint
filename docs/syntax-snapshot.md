@@ -36,7 +36,9 @@ sufficient. Unsupported/incomplete inputs become execution failures, not lint
 rules and not claims of compiler invalidity. See [parser design](parser-design.md).
 Corpus updates require a new pinned source revision, hashes and regression tests.
 The local grammar delta adds dotted local imports, initialized typed constants,
-and comma-separated braced enum variants, as independently documented in
+comma-separated braced enum variants, empty class base lists, if-binding
+conditions, and tested indented object/array construction with anonymous field
+initializers, as independently documented in
 `vendor/tree-sitter-verse/upstream.md`. Scanner bytes remain pinned unchanged.
 Generated ABI-15 output, metadata, runtime headers and their separate MIT
 notices are pinned in `vendor/tree-sitter-verse/hashes.json`. Run

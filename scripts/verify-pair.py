@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 
-EXPECTED_CORPUS_SHA256 = "bb9275b7950b798ca001757f8c7f34aa87d424d7391d899b873986b3355adc83"
+EXPECTED_CORPUS_SHA256 = "f5e44fbb19e017bf7caf242ab2275fab991169e7fb22c325cef462ec48452c94"
 
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
@@ -14,6 +14,22 @@ def sha256(data: bytes) -> str:
 def run(args, cwd):
     result = subprocess.run(args, cwd=cwd, capture_output=True, timeout=30)
     return result
+
+def require_clean_checkout(path: Path) -> str:
+    status = subprocess.run(
+        ["git", "-C", str(path), "status", "--porcelain"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    if status.strip():
+        raise SystemExit(f"paired verification requires clean checkout: {path}")
+    return subprocess.run(
+        ["git", "-C", str(path), "rev-parse", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
 
 def main():
     parser = argparse.ArgumentParser()
@@ -26,22 +42,26 @@ def main():
     lint = Path(__file__).resolve().parents[1] / "target/x86_64-pc-windows-msvc/release/verse-lint.exe"
     if not lint.is_file():
         raise SystemExit(f"missing built linter binary: {lint}")
+    formatter_root = formatter.parents[3]
+    linter_root = Path(__file__).resolve().parents[1]
+    formatter_revision = require_clean_checkout(formatter_root)
+    linter_revision = require_clean_checkout(linter_root)
     corpus_bytes = corpus_path.read_bytes()
     corpus_sha = sha256(corpus_bytes)
     if corpus_sha != EXPECTED_CORPUS_SHA256:
         raise SystemExit(f"formatter corpus revision/hash mismatch: {corpus_sha}")
     cases = json.loads(corpus_bytes)
     positives = [item for item in cases["cases"] if "expected" in item]
-    if len(positives) != 53:
-        raise SystemExit(f"expected 53 golden cases, got {len(positives)}")
+    if len(positives) != 56:
+        raise SystemExit(f"expected 56 golden cases, got {len(positives)}")
     report = {
         "corpus_sha256": corpus_sha,
         "formatter_version": run([str(formatter), "--version"], corpus_path.parent).stdout.decode().strip(),
         "linter_version": run([str(lint), "--version"], Path.cwd()).stdout.decode().strip(),
         "formatter_sha256": sha256(formatter.read_bytes()),
         "linter_sha256": sha256(lint.read_bytes()),
-        "formatter_revision": subprocess.run(["git", "-C", str(formatter.parents[3]), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip(),
-        "linter_revision": subprocess.run(["git", "-C", str(Path(__file__).resolve().parents[1]), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip(),
+        "formatter_revision": formatter_revision,
+        "linter_revision": linter_revision,
         "cases_total": len(positives),
         "cases_passed": 0,
         "case_results": [],
