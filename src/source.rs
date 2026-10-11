@@ -79,12 +79,15 @@ impl Source {
         if self.crlf { "\r\n" } else { "\n" }
     }
 
+    fn line_index(&self, offset: usize) -> usize {
+        self.lines
+            .partition_point(|start| *start <= offset)
+            .saturating_sub(1)
+    }
+
     /// Start of the containing physical line, excluding an initial BOM.
     pub fn line_start(&self, offset: usize) -> usize {
-        let line = self
-            .lines
-            .partition_point(|start| *start <= offset)
-            .saturating_sub(1);
+        let line = self.line_index(offset);
         if line == 0 {
             self.body_start()
         } else {
@@ -95,10 +98,7 @@ impl Source {
     /// Byte offsets include the BOM; human columns count Unicode scalars without it.
     pub fn position(&self, offset: usize) -> (usize, usize) {
         let offset = self.text.floor_char_boundary(offset.min(self.text.len()));
-        let line = self
-            .lines
-            .partition_point(|start| *start <= offset)
-            .saturating_sub(1);
+        let line = self.line_index(offset);
         let start = if line == 0 {
             self.body_start().min(offset)
         } else {
@@ -129,6 +129,20 @@ mod tests {
         assert_eq!(source.position(3), (2, 1));
         assert_eq!(source.position(5), (3, 1));
         assert_eq!(source.newline(), "\n");
+    }
+
+    #[test]
+    fn line_starts_respect_bom_and_physical_line_boundaries() {
+        let text = "\u{feff}A := 1\r\nB := 2\nC := 3";
+        let source = Source::from_bytes(text.as_bytes()).unwrap();
+        let first = text.find('A').unwrap();
+        let second = text.find('B').unwrap();
+        let third = text.find('C').unwrap();
+
+        assert_eq!(source.line_start(0), first);
+        assert_eq!(source.line_start(second - 1), first);
+        assert_eq!(source.line_start(second), second);
+        assert_eq!(source.line_start(third), third);
     }
 
     #[test]
