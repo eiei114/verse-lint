@@ -85,9 +85,7 @@ impl Source {
             .saturating_sub(1)
     }
 
-    /// Start of the containing physical line, excluding an initial BOM.
-    pub fn line_start(&self, offset: usize) -> usize {
-        let line = self.line_index(offset);
+    fn line_start_for_index(&self, line: usize) -> usize {
         if line == 0 {
             self.body_start()
         } else {
@@ -95,15 +93,16 @@ impl Source {
         }
     }
 
+    /// Start of the containing physical line, excluding an initial BOM.
+    pub fn line_start(&self, offset: usize) -> usize {
+        self.line_start_for_index(self.line_index(offset))
+    }
+
     /// Byte offsets include the BOM; human columns count Unicode scalars without it.
     pub fn position(&self, offset: usize) -> (usize, usize) {
         let offset = self.text.floor_char_boundary(offset.min(self.text.len()));
         let line = self.line_index(offset);
-        let start = if line == 0 {
-            self.body_start().min(offset)
-        } else {
-            self.lines[line]
-        };
+        let start = self.line_start_for_index(line).min(offset);
         (line + 1, self.text[start..offset].chars().count() + 1)
     }
 }
@@ -143,6 +142,16 @@ mod tests {
         assert_eq!(source.line_start(second - 1), first);
         assert_eq!(source.line_start(second), second);
         assert_eq!(source.line_start(third), third);
+    }
+
+    #[test]
+    fn bom_offsets_have_first_column_without_indexing_inside_bom() {
+        let source = Source::from_bytes("\u{feff}A".as_bytes()).unwrap();
+
+        assert_eq!(source.line_start(0), source.body_start());
+        for offset in 0..=source.body_start() {
+            assert_eq!(source.position(offset), (1, 1));
+        }
     }
 
     #[test]
