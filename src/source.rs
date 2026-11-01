@@ -28,6 +28,8 @@ impl fmt::Display for Failure {
 pub struct Source {
     text: String,
     lines: Vec<usize>,
+    // ASCII-only lines can map bytes to columns without rescanning their prefixes.
+    ascii_lines: Vec<bool>,
     crlf: bool,
 }
 
@@ -45,20 +47,34 @@ impl Source {
         if let Some(i) = bytes.iter().position(|b| *b == 0) {
             return Err(Failure::new(i, "NUL is not supported in Verse source"));
         }
+        let bom_end = if bytes.starts_with(b"\xef\xbb\xbf") {
+            3
+        } else {
+            0
+        };
         let mut crlf = false;
         let mut lines = vec![0];
+        let mut ascii_lines = Vec::new();
+        let mut ascii_line = true;
         for (i, b) in bytes.iter().enumerate() {
+            if i >= bom_end && !b.is_ascii() {
+                ascii_line = false;
+            }
             if *b == b'\r' && bytes.get(i + 1) != Some(&b'\n') {
                 return Err(Failure::new(i, "bare CR line endings are unsupported"));
             }
             if *b == b'\n' {
                 crlf = i > 0 && bytes[i - 1] == b'\r';
                 lines.push(i + 1);
+                ascii_lines.push(ascii_line);
+                ascii_line = true;
             }
         }
+        ascii_lines.push(ascii_line);
         Ok(Self {
             text: text.into(),
             lines,
+            ascii_lines,
             crlf,
         })
     }
@@ -103,7 +119,12 @@ impl Source {
         let offset = self.text.floor_char_boundary(offset.min(self.text.len()));
         let line = self.line_index(offset);
         let start = self.line_start_for_index(line).min(offset);
-        (line + 1, self.text[start..offset].chars().count() + 1)
+        let column = if self.ascii_lines[line] {
+            offset - start + 1
+        } else {
+            self.text[start..offset].chars().count() + 1
+        };
+        (line + 1, column)
     }
 }
 
