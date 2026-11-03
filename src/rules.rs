@@ -10,42 +10,60 @@ use std::{collections::BTreeSet, ops::Range};
 
 pub const MAX_DIAGNOSTICS: usize = 10_000;
 
+/// Single source of truth for rule identity and policy. SARIF metadata, the
+/// default rule selection and CLI/config validation all read this registry, so
+/// adding or reordering a rule never needs a parallel positional list.
 pub struct Rule {
     pub id: &'static str,
+    /// SARIF `reportingDescriptor.name`; the rule document lives next to the
+    /// lowercase ID (`docs/rules/<id>.md`), not at this name.
+    pub name: &'static str,
     pub severity: &'static str,
     pub message: &'static str,
     pub fixable: bool,
+    /// Selected when configuration omits `[lint] select`.
+    pub selected_by_default: bool,
 }
 pub const REGISTRY: [Rule; 5] = [
     Rule {
         id: "V1001",
+        name: "TrailingWhitespace",
         severity: "error",
         message: "Trailing whitespace",
         fixable: true,
+        selected_by_default: true,
     },
     Rule {
         id: "V1002",
+        name: "MissingFinalNewline",
         severity: "error",
         message: "Missing final newline",
         fixable: true,
+        selected_by_default: true,
     },
     Rule {
         id: "V1003",
+        name: "TabIndentation",
         severity: "error",
         message: "Tab in structural indentation",
         fixable: false,
+        selected_by_default: true,
     },
     Rule {
         id: "V2001",
+        name: "LineTooLong",
         severity: "warning",
         message: "Line exceeds configured maximum length",
         fixable: false,
+        selected_by_default: false,
     },
     Rule {
         id: "V2002",
+        name: "BareTodoComment",
         severity: "warning",
         message: "TODO comment needs a nonempty parenthesized reference",
         fixable: false,
+        selected_by_default: false,
     },
 ];
 
@@ -59,7 +77,11 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            select: vec!["V1001".into(), "V1002".into(), "V1003".into()],
+            select: REGISTRY
+                .iter()
+                .filter(|rule| rule.selected_by_default)
+                .map(|rule| rule.id.into())
+                .collect(),
             ignore: vec![],
             max_line_length: 120,
         }
@@ -217,4 +239,60 @@ pub fn lint(
         .diagnostics
         .sort_by_key(|d| (d.range.start.byte_offset, d.rule_id));
     Ok(result)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn registry_metadata_keeps_documented_ids_names_and_default_selection() {
+        let actual: Vec<_> = REGISTRY
+            .iter()
+            .map(|r| (r.id, r.name, r.severity, r.fixable, r.selected_by_default))
+            .collect();
+        assert_eq!(
+            actual,
+            [
+                ("V1001", "TrailingWhitespace", "error", true, true),
+                ("V1002", "MissingFinalNewline", "error", true, true),
+                ("V1003", "TabIndentation", "error", false, true),
+                ("V2001", "LineTooLong", "warning", false, false),
+                ("V2002", "BareTodoComment", "warning", false, false),
+            ]
+        );
+        // Default selection is derived from the registry, not a parallel list.
+        let settings = Settings::default();
+        let default_selection: Vec<_> = settings.select.iter().map(String::as_str).collect();
+        assert_eq!(default_selection, ["V1001", "V1002", "V1003"]);
+    }
+
+    #[test]
+    fn registry_names_are_unique_and_map_to_existing_rule_documents() {
+        let mut ids: Vec<_> = REGISTRY.iter().map(|r| r.id).collect();
+        let mut names: Vec<_> = REGISTRY.iter().map(|r| r.name).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(ids.len(), REGISTRY.len());
+        assert_eq!(names.len(), REGISTRY.len());
+        for rule in &REGISTRY {
+            let path = format!(
+                "{}/docs/rules/{}.md",
+                env!("CARGO_MANIFEST_DIR"),
+                rule.id.to_lowercase()
+            );
+            assert!(
+                std::path::Path::new(&path).is_file(),
+                "missing rule document for {}: {path}",
+                rule.id
+            );
+            assert!(
+                rule.name.is_ascii(),
+                "SARIF name must be ASCII: {}",
+                rule.name
+            );
+        }
+    }
 }

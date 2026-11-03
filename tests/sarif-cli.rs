@@ -98,6 +98,84 @@ fn project_uris_are_encoded_and_counts_match_json_and_text() {
     assert_eq!(sarif["results"][1]["level"], "warning");
 }
 #[test]
+fn driver_rule_metadata_matches_docs_defaults_and_selection_order() {
+    let (_, v) = stdin("A := 1\n", &[]);
+    let rules = v["runs"][0]["tool"]["driver"]["rules"].as_array().unwrap();
+    let documented = include_str!("../docs/rules.md");
+
+    // Registry order, documented rule index row and SARIF ruleIndex must agree.
+    let expected = [
+        ("V1001", "TrailingWhitespace", "error", true, true),
+        ("V1002", "MissingFinalNewline", "error", true, true),
+        ("V1003", "TabIndentation", "error", false, true),
+        ("V2001", "LineTooLong", "warning", false, false),
+        ("V2002", "BareTodoComment", "warning", false, false),
+    ];
+    assert_eq!(rules.len(), expected.len());
+    for (index, (id, name, level, fixable, enabled)) in expected.iter().enumerate() {
+        let rule = &rules[index];
+        assert_eq!(rule["id"], *id, "rule {index} id");
+        assert_eq!(rule["name"], *name, "rule {index} name");
+        assert_eq!(rule["defaultConfiguration"]["level"], *level, "{id} level");
+        assert_eq!(
+            rule["defaultConfiguration"]["enabled"], *enabled,
+            "{id} enabled"
+        );
+        assert_eq!(rule["properties"]["fixable"], *fixable, "{id} fixable");
+
+        // The documented index row must not drift from the registry metadata.
+        let row = documented
+            .lines()
+            .find(|line| line.starts_with(&format!("| [{id} ")))
+            .unwrap_or_else(|| panic!("{id} missing from docs/rules.md"));
+        assert!(
+            row.contains(&format!("](rules/{}.md)", id.to_lowercase())),
+            "{id} row link: {row}"
+        );
+        assert!(
+            row.contains(&format!(
+                "| {} | {level} |",
+                if *enabled { "On" } else { "Off" }
+            )),
+            "{id} documented default/severity: {row}"
+        );
+        assert!(
+            std::path::Path::new(&format!(
+                "{}/docs/rules/{}.md",
+                env!("CARGO_MANIFEST_DIR"),
+                id.to_lowercase()
+            ))
+            .is_file()
+        );
+    }
+
+    // Default-enabled flags must describe the same rules the CLI selects by default.
+    let shown = String::from_utf8(
+        Command::new(env!("CARGO_BIN_EXE_verse-lint"))
+            .args(["--show-config"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    // `select` is rendered as a possibly multi-line TOML array.
+    let select_start = shown
+        .find("select = [")
+        .expect("show-config must list selection");
+    let select_end = shown[select_start..]
+        .find(']')
+        .expect("unterminated select array");
+    let select_block = &shown[select_start..select_start + select_end];
+    for (id, name, _, _, enabled) in expected {
+        assert_eq!(
+            select_block.contains(&format!("\"{id}\"")),
+            enabled,
+            "{name} default selection drift: {select_block}"
+        );
+    }
+}
+
+#[test]
 fn execution_failures_are_notifications_and_partial_findings_survive() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("a.verse"), "A:=1  \n").unwrap();
