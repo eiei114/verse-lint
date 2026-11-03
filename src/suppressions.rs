@@ -69,7 +69,7 @@ impl Suppressions {
                 if !rules::REGISTRY.iter().any(|r| r.id == id) {
                     return Err(invalid("suppression contains an unknown or empty rule ID"));
                 }
-                if id == "V1002" {
+                if id == rules::V1002 {
                     return Err(invalid(
                         "file-level V1002 cannot be suppressed by a line directive; use config ignore",
                     ));
