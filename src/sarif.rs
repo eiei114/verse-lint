@@ -44,18 +44,11 @@ fn uri(path: &str) -> String {
 }
 
 pub fn render(report: &Report) -> Value {
-    let names = [
-        "TrailingWhitespace",
-        "MissingFinalNewline",
-        "TabIndentation",
-        "LineTooLong",
-        "BareTodoComment",
-    ];
-    let rules: Vec<_> = REGISTRY.iter().enumerate().map(|(index,rule)|json!({
-        "id": rule.id, "name": names[index],
+    let rules: Vec<_> = REGISTRY.iter().map(|rule|json!({
+        "id": rule.id, "name": rule.name,
         "shortDescription": {"text": rule.message},
         "help": {"text": format!("{}; see docs/rules/{}.md. {}",rule.message,rule.id.to_lowercase(),if rule.fixable {"The CLI can apply this safe fix after validation; this SARIF contains no edit suggestions."} else {"No automatic fix."})},
-        "defaultConfiguration": {"level":rule.severity,"enabled":index<3},
+        "defaultConfiguration": {"level":rule.severity,"enabled":rule.selected_by_default},
         "properties": {"tags":["style"],"fixable":rule.fixable}
     })).collect();
     let paths: BTreeSet<_> = report.diagnostics.iter().map(|d| d.path.as_str()).collect();

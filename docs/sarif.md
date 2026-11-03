@@ -6,8 +6,12 @@ Output is deterministic for the same inputs/configuration. This command does not
 upload anything, enable GitHub code scanning or invoke external services.
 
 - Driver metadata contains all five rule IDs, stable names, English help,
-  default enabled/level settings and safe-fix capability. Actual selected rules
-  determine results; metadata never implies unselected rules were executed.
+  default enabled/level settings and safe-fix capability. Names, levels and
+  default-enabled flags come from the `rules::REGISTRY` entry, not a parallel
+  positional list; each result's `ruleIndex` is resolved from its `ruleId`, so
+  registry order never decides which rule a result belongs to. Actual selected
+  rules determine results; metadata never implies unselected rules were
+  executed.
 - Results retain JSON/text ordering, IDs, severity and messages. Suppressed
   findings are omitted; run properties preserve the same summary counts.
 - `columnKind` is `unicodeCodePoints`: one-based scalar columns, not visual

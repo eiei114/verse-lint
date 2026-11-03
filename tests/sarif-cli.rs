@@ -98,6 +98,127 @@ fn project_uris_are_encoded_and_counts_match_json_and_text() {
     assert_eq!(sarif["results"][1]["level"], "warning");
 }
 #[test]
+fn driver_rule_metadata_matches_docs_defaults_and_selection_order() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("a.verse"),
+        "f():void =\n\tPrint(\"aaaaaaaaaaaaaaaaaaaaaaaa\")  \n# TODO later\nf():void =\n\tPrint(\"x\")",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("verse.toml"),
+        "[lint]\nselect = ['V1001','V1002','V1003','V2001','V2002']\nmax-line-length = 12\n",
+    )
+    .unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_verse-lint"))
+        .current_dir(dir.path())
+        .args([".", "--config", "verse.toml", "--output-format=sarif"])
+        .output()
+        .unwrap();
+    let v: Value = serde_json::from_slice(&out.stdout).unwrap_or_else(|e| panic!("{e}: {out:?}"));
+    let run = &v["runs"][0];
+    let rules = run["tool"]["driver"]["rules"].as_array().unwrap();
+    let documented = include_str!("../docs/rules.md");
+
+    // Documented contract per rule, addressed by stable ID. Registry order is not
+    // part of the contract, so every lookup here is by `id`, never by position.
+    let expected = [
+        ("V1001", "TrailingWhitespace", "error", true, true),
+        ("V1002", "MissingFinalNewline", "error", true, true),
+        ("V1003", "TabIndentation", "error", false, true),
+        ("V2001", "LineTooLong", "warning", false, false),
+        ("V2002", "BareTodoComment", "warning", false, false),
+    ];
+    assert_eq!(rules.len(), expected.len());
+    for (id, name, level, fixable, enabled) in expected {
+        let rule = rules
+            .iter()
+            .find(|rule| rule["id"] == id)
+            .unwrap_or_else(|| panic!("{id} missing from driver rules"));
+        assert_eq!(rule["name"], name, "{id} name");
+        assert_eq!(rule["defaultConfiguration"]["level"], level, "{id} level");
+        assert_eq!(
+            rule["defaultConfiguration"]["enabled"], enabled,
+            "{id} enabled"
+        );
+        assert_eq!(rule["properties"]["fixable"], fixable, "{id} fixable");
+
+        // The documented index row must not drift from the registry metadata.
+        let row = documented
+            .lines()
+            .find(|line| line.starts_with(&format!("| [{id} ")))
+            .unwrap_or_else(|| panic!("{id} missing from docs/rules.md"));
+        assert!(
+            row.contains(&format!("](rules/{}.md)", id.to_lowercase())),
+            "{id} row link: {row}"
+        );
+        assert!(
+            row.contains(&format!(
+                "| {} | {level} |",
+                if enabled { "On" } else { "Off" }
+            )),
+            "{id} documented default/severity: {row}"
+        );
+        assert!(
+            std::path::Path::new(&format!(
+                "{}/docs/rules/{}.md",
+                env!("CARGO_MANIFEST_DIR"),
+                id.to_lowercase()
+            ))
+            .is_file()
+        );
+    }
+
+    // ruleIndex is a position in the emitted driver array, but it must resolve
+    // back to the same rule, so a registry reorder cannot rebind a result.
+    let results = run["results"].as_array().unwrap();
+    assert!(results.len() >= 3, "sample must report all four rules");
+    for result in results {
+        let index = result["ruleIndex"].as_u64().unwrap() as usize;
+        assert_eq!(
+            rules[index]["id"], result["ruleId"],
+            "ruleIndex must resolve to the reporting rule ID"
+        );
+        assert_eq!(
+            rules[index]["defaultConfiguration"]["level"],
+            result["level"]
+        );
+    }
+    let mut reported: Vec<_> = results
+        .iter()
+        .map(|r| r["ruleId"].as_str().unwrap())
+        .collect();
+    reported.sort_unstable();
+    reported.dedup();
+    assert_eq!(reported, ["V1001", "V1002", "V1003", "V2001", "V2002"]);
+
+    // Default-enabled flags must describe the same rules the CLI selects by default.
+    let shown = String::from_utf8(
+        Command::new(env!("CARGO_BIN_EXE_verse-lint"))
+            .args(["--show-config"])
+            .output()
+            .unwrap()
+            .stdout,
+    )
+    .unwrap();
+    // `select` is rendered as a possibly multi-line TOML array.
+    let select_start = shown
+        .find("select = [")
+        .expect("show-config must list selection");
+    let select_end = shown[select_start..]
+        .find(']')
+        .expect("unterminated select array");
+    let select_block = &shown[select_start..select_start + select_end];
+    for (id, name, _, _, enabled) in expected {
+        assert_eq!(
+            select_block.contains(&format!("\"{id}\"")),
+            enabled,
+            "{name} default selection drift: {select_block}"
+        );
+    }
+}
+
+#[test]
 fn execution_failures_are_notifications_and_partial_findings_survive() {
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("a.verse"), "A:=1  \n").unwrap();

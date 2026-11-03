@@ -11,6 +11,15 @@ protection and syntax coverage validation apply before any rule runs.
 | [V2001 line-too-long](rules/v2001.md) | Off | warning | None |
 | [V2002 bare-todo-comment](rules/v2002.md) | Off | warning | None |
 
+`src/rules.rs` `REGISTRY` is the single source of truth for rule ID, SARIF
+`name`, severity, message, fixable flag and default selection: this table, the
+default `select` list, CLI/config validation and the SARIF driver metadata are
+all derived from or checked against it. Detectors dispatch on the `V####` ID
+constants (`rules::V1001` …), and SARIF `ruleIndex` is resolved from `ruleId`
+when rendering, so reordering `REGISTRY` cannot rebind a finding to another
+rule ID. Adding a rule means one registry entry, its `rules/<id>.md` document
+and one row here — never a parallel positional array.
+
 Select complete IDs only. CLI selections replace config selections; ignores
 then subtract from them. Warnings exit 0 unless `--deny-warnings` is set.
 Execution errors always exit 2 and cannot be suppressed. See

@@ -34,12 +34,14 @@ fn edits(source: &Source, lint: &LintResult) -> Result<Vec<Edit>, Failure> {
             .get(range.clone())
             .ok_or_else(|| Failure::new(range.start, "invalid fix range"))?;
         let replacement = match diagnostic.rule_id {
-            "V1001"
+            rules::V1001
                 if !expected.is_empty() && expected.bytes().all(|b| matches!(b, b' ' | b'\t')) =>
             {
                 ""
             }
-            "V1002" if range.is_empty() && range.start == source.text().len() => source.newline(),
+            rules::V1002 if range.is_empty() && range.start == source.text().len() => {
+                source.newline()
+            }
             _ => return Err(Failure::new(range.start, "unsafe or unknown edit refused")),
         };
         edits.push(Edit {
