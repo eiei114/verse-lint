@@ -33,6 +33,14 @@ $ReportDir = [IO.Path]::GetFullPath($ReportDir)
 Push-Location $repo
 $worktree = $null
 $savedPath = $env:Path
+$savedToolchain = $env:RUSTUP_TOOLCHAIN
+$savedTargetDir = $env:CARGO_TARGET_DIR
+$savedRustc = $env:RUSTC
+$savedRustdoc = $env:RUSTDOC
+# The sweep compares two builds of this repository, so it must control where
+# they land. An inherited CARGO_TARGET_DIR would put HEAD's binary somewhere
+# else and the "HEAD binary not found" check would abort the gate.
+$env:CARGO_TARGET_DIR = $null
 try {
     # Resolve the pinned toolchain without trusting PATH ordering (mise installs
     # may precede the rustup proxies).
@@ -287,7 +295,12 @@ try {
 } finally {
     Pop-Location
     $env:Path = $savedPath
-    Remove-Item Env:CARGO_TARGET_DIR -ErrorAction SilentlyContinue
+    # Restore every variable this script touched, including "originally unset":
+    # assigning $null to an $env: variable removes it.
+    $env:RUSTUP_TOOLCHAIN = $savedToolchain
+    $env:CARGO_TARGET_DIR = $savedTargetDir
+    $env:RUSTC = $savedRustc
+    $env:RUSTDOC = $savedRustdoc
     if ($worktree -and (Test-Path $worktree)) {
         & git -C $repo worktree remove --force $worktree
         if ($LASTEXITCODE -ne 0) { Remove-Item -Recurse -Force $worktree -ErrorAction SilentlyContinue }

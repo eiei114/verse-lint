@@ -113,6 +113,11 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
         config.settings.lint.ignore = ignore.clone();
     }
     if cli.show_config {
+        // `--show-config` still validates the effective rule selection, as it did
+        // before `--dump-scopes` moved the `active()` call. Without this, an
+        // unknown rule ID or an empty selection would print a configuration and
+        // exit 0 where the CLI used to exit 2.
+        config.settings.lint.active()?;
         return Ok(Some(config.show()?));
     }
     if cli.dump_scopes {
