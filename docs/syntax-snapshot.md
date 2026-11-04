@@ -23,6 +23,33 @@ changes. See [range-binding scope](range-binding.md) and the vendor hash manifes
 | tests/fixtures/device.input.verse | 151b438268ead552e9bd87a516a0748120bd9ec90360b7190d832272b3765541 |
 | tests/fixtures/device.expected.verse | 3d62fd67d28cb69f8ef2c8a511af181f65d43b8fe64ea33442f935049525320d |
 
+These hashes are immutable provenance for the original import: the imported files
+have since changed locally, so they are not compared against the working tree.
+The `IMPORTED_PATHS` and `IMPORT_REVISION` pins in `src/doc-drift-tests.rs` keep
+this record complete and stable when the table is edited.
+
+## Pinned vendor manifest
+
+| Path | SHA-256 |
+|---|---|
+| grammar.js | be54ee4d73e48039e19682178f356d714af804a0992e9248ec637ad013b2e58c |
+| tree-sitter.json | f57ee6d1a5ee6958875e13074e8cbb8d53d87bb71793291bebd9854dd87e9ad6 |
+| src/parser.c | 76b1089741ebc27a7c4e6745857253c728f142d15776df5bcde38ef936720197 |
+| src/scanner.c | 470901f9b9408fa552d7cbd14538d45362ef2fb492908643cbb1fdc465288006 |
+| src/grammar.json | f983ec8d3b0b52501c5587dd04c533801c35ebae0d9e202f41a3b5c40c06208b |
+| src/node-types.json | d5399c4befebc170a08a30ef3268e4fa80b857333c2dbaf46733e25528b3f605 |
+| src/tree_sitter/alloc.h | b29c1c9fb7cc82f58c84b376df1297d6e2737a1d655fd356db0859e3c29c2fea |
+| src/tree_sitter/array.h | 5bdf6ed1a78e3409fd443e085ca967a64c188a5d082aaf7f819bccd53a471c94 |
+| src/tree_sitter/parser.h | 180b893c8734778fd32f372dfbc27bd6ad1cd2221f26150b31256ff6716320d2 |
+| LICENSE | d6a46baba7c836a5b7e20fe7dd7e51b0cdcb6b9fd3b597a6e89699c4cbbd0dd6 |
+| LICENSE-tree-sitter | 5f9cf9fb6acb1972b35ae29119ce563bb60ec097656bc4b69b9bac2d04c7a147 |
+
+The entries restate `vendor/tree-sitter-verse/hashes.json`, so a reader sees the
+pinned bytes without opening the manifest. `src/doc-drift-tests.rs` asserts this
+table against the manifest, and `scripts/verify-grammar.ps1` hashes the files
+themselves, so an added, removed or regenerated artifact cannot leave either one
+stale. Regenerate the rows from the manifest, never by hand.
+
 Also imported: build.rs, byte-preserving .gitattributes, fixture provenance and
 the MIT-licensed tree-sitter-verse snapshot. Its grammar/parser are locally
 patched/regenerated, and scanner.c later gained a serialization-bound fix;

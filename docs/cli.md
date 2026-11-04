@@ -101,12 +101,27 @@ Help/version bypass config. JSON never contains ANSI color or progress logs.
   exits 2. Otherwise errors (or warnings with deny-warnings) exit 1; clean is 0.
   Failure to write stdout also exits 2.
 
-Limits: 8 MiB/source, 64 MiB total successfully read input, 10,000 source files,
-100,000 visited entries, 128 directory levels, 256 KiB config/ignore file,
-256 exclude globs of up to 4,096 bytes. At most 10,000 diagnostics per invocation;
-including suppressed findings. An exceeding file produces an execution error instead of claiming its partial
-diagnostics complete. Previously completed files remain in output. No fixing
-begins on limit failure. Parser limits are in [parser-design.md](parser-design.md).
+Limits:
+
+- 8 MiB per source file
+- 64 MiB total successfully read input
+- 10,000 source files
+- 100,000 visited entries
+- 128 directory levels
+- 256 KiB config file
+- 256 KiB ignore file
+- 256 exclude globs
+- 4,096 bytes per exclude glob
+- 10,000 diagnostics per invocation
+
+The diagnostic count includes suppressed findings. An exceeding file produces an
+execution error instead of claiming its partial diagnostics complete. Previously
+completed files remain in output. No fixing begins on limit failure. Parser
+limits are in [parser-design.md](parser-design.md).
+
+Each bullet above is machine-checked against the constant that enforces it by
+`src/doc-drift-tests.rs`, so the prose cannot advertise a number the code no
+longer uses. Keep one limit per bullet.
 
 ### Limit coverage
 

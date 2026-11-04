@@ -5,6 +5,8 @@ mod files;
 mod fix;
 mod fix_run;
 mod lex;
+#[cfg(test)]
+mod limits;
 mod report;
 mod rules;
 mod sarif;
