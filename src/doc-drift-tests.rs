@@ -112,9 +112,41 @@ fn unit_factor(word: &str) -> Option<(usize, Base)> {
 }
 
 fn documented_limits(document_name: &str, heading: &str) -> Vec<(String, usize, Base)> {
-    bullet_list(&read_doc(document_name), heading)
+    limits_from(&read_doc(document_name), document_name, heading)
+}
+
+/// Parses the `heading` limit list of `document`, failing on a bullet it cannot
+/// read and on a claim repeated twice.
+fn limits_from(document: &str, document_name: &str, heading: &str) -> Vec<(String, usize, Base)> {
+    let bullets = bullet_list(document, heading);
+    assert!(
+        !bullets.is_empty(),
+        "{document_name}: the {heading} list has no limit bullets"
+    );
+    let mut documented = Vec::new();
+    for bullet in bullets {
+        // A bullet that does not parse as a limit is a claim the guard cannot
+        // read, not prose: fail it rather than silently dropping the line.
+        let parsed = parse_bullet(bullet).unwrap_or_else(|| {
+            panic!(
+                "{document_name}: limit bullet {bullet:?} is not `<number><unit> <claim>`; \
+                 write the number first so it stays machine-checkable"
+            )
+        });
+        documented.push(parsed);
+    }
+    // A duplicated claim would let a second bullet silently shadow the first.
+    let claims: BTreeSet<&str> = documented
+        .iter()
+        .map(|(_, _, claim)| claim.as_str())
+        .collect();
+    assert_eq!(
+        claims.len(),
+        documented.len(),
+        "{document_name}: a limit claim appears twice in the {heading} list"
+    );
+    documented
         .into_iter()
-        .filter_map(parse_bullet)
         .map(|(value, base, claim)| (claim, value, base))
         .collect()
 }
@@ -431,15 +463,19 @@ fn revision_after(document: &str, marker: &str) -> Option<String> {
 
 fn commit_in(text: &str) -> Option<String> {
     let bytes = text.as_bytes();
-    (0..bytes.len().saturating_sub(40)).find_map(|index| {
-        let candidate = &text[index..index + 40];
-        let hex = candidate.bytes().all(|b| b.is_ascii_hexdigit());
-        let bounded = !bytes
-            .get(index.wrapping_sub(1))
-            .is_some_and(u8::is_ascii_hexdigit)
-            && !bytes.get(index + 40).is_some_and(u8::is_ascii_hexdigit);
-        (hex && bounded).then(|| candidate.to_string())
-    })
+    // Every candidate boundary must be a char boundary: indexing a `&str` by
+    // bytes alone panics on multibyte text.
+    (0..=bytes.len().saturating_sub(40))
+        .filter(|&index| text.is_char_boundary(index) && text.is_char_boundary(index + 40))
+        .find_map(|index| {
+            let candidate = &text[index..index + 40];
+            let hex = candidate.bytes().all(|b| b.is_ascii_hexdigit());
+            let bounded = !bytes
+                .get(index.wrapping_sub(1))
+                .is_some_and(u8::is_ascii_hexdigit)
+                && !bytes.get(index + 40).is_some_and(u8::is_ascii_hexdigit);
+            (hex && bounded).then(|| candidate.to_string())
+        })
 }
 
 /// Every document this module reads exists where the tests read it.
@@ -532,5 +568,40 @@ mod unit {
         );
         assert_eq!(commit_in("no commit here"), None);
         assert_eq!(commit_in(&"a".repeat(41)), None);
+        // A commit at the very end is still found, and multibyte text on either
+        // side must not panic the byte scanner.
+        assert_eq!(
+            commit_in(&format!("see {}", "b".repeat(40))).as_deref(),
+            Some("b".repeat(40).as_str())
+        );
+        assert_eq!(
+            commit_in(&format!("日本語{}", "c".repeat(40))).map(|c| c.len()),
+            Some(40)
+        );
+        assert_eq!(commit_in(&"d".repeat(40)).map(|c| c.len()), Some(40));
+        assert_eq!(
+            commit_in(&format!("{}\u{3000}", "e".repeat(40))).map(|c| c.len()),
+            Some(40)
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "is not `<number><unit> <claim>`")]
+    fn an_unreadable_bullet_fails_instead_of_looking_like_prose() {
+        limits_from(
+            "Limits:\n\n- 8 MiB per source file\n- eight MiB per source file\n",
+            CLI_DOC,
+            "Limits:",
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "a limit claim appears twice")]
+    fn a_duplicated_claim_cannot_shadow_an_earlier_bullet() {
+        limits_from(
+            "Limits:\n\n- 8 MiB per source file\n- 9 MiB per source file\n",
+            CLI_DOC,
+            "Limits:",
+        );
     }
 }
