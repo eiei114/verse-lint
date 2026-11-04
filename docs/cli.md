@@ -16,7 +16,7 @@ default severity; `[lint.severity]` overrides it per project.
 ### Rule selection and family prefixes
 
 `select`/`ignore` entries — on the command line and in the `[lint]` arrays — are
-either a complete rule ID (`V1001`) or a rule-family prefix: `V` followed by one
+either a complete rule ID (`V1001`) or a rule-family prefix: `V` followed by zero
 or more ASCII digits (`V`, `V1`, `V2`). A prefix expands to every registered rule
 whose ID starts with it, so `--select V1` is the V1001/V1002/V1003 family and
 `--select V` is the whole registry. Expansion reads the live registry, so a rule
