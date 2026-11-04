@@ -44,9 +44,18 @@ build time.
 3. Build both release binaries.
 4. Run `scripts/verify-pair.py` against **clean checkouts of both repositories**.
    It refuses a dirty tree on either side, and it must not be run against one.
-5. Record both revisions it reported in `parity.json`, and state the run in the
-   pull request with the corpus hash, both revisions, and the case counts.
+5. Commit the harness report as evidence under `docs/evidence/`, record both
+   full 40-character revisions in `parity.json`, and state the run in the pull
+   request with the corpus hash, both revisions, and the case counts. A
+   revision in `parity.json` that no committed report names is an unverified
+   claim.
 6. Run `scripts/verify.ps1` again and commit everything together.
+
+A pin can never name the commit that contains it. Record the revision the
+harness actually ran in, which is normally the parent of the declaring commit;
+the declaring commit itself changes only documentation, the pin and the report,
+so the tested binaries are unchanged. Say that explicitly in the pull request
+instead of implying the declaring commit was verified by a run inside itself.
 
 ```powershell
 python scripts/verify-pair.py `

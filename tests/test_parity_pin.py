@@ -21,9 +21,13 @@ PIN = {
     "corpusSha256": "27e0497bbccaba2bed56dfc93efcda762887f3888c9cd0c5707f0ae670050b47",
     "goldenCaseCount": 64,
     "formatterGrammarBaseRevision": "6b5433e37b52c03c4c07f9468bf7cc11e45f2f82",
-    "lastVerifiedFormatterRevision": "ae191de08058a217d331640f0b098d6fb76435f3",
-    "lastVerifiedLinterRevision": "8ecb25acfebdf22d08accfcf56ecf145a72bf9cd",
+    "lastVerifiedFormatterRevision": "27d3dc76a61e569a394a9115d5c0c37a63345626",
+    "lastVerifiedLinterRevision": "a9b43c6c137be9f03618869d0c2ec6635dd42e29",
 }
+
+# The committed harness report that the repository pin must quote.
+EVIDENCE = ROOT / "docs" / "evidence" / "parity-paired-2026-11-05-full.json"
+EVIDENCE_SUMMARY = ROOT / "docs" / "evidence" / "parity-paired-2026-11-05.json"
 
 
 class ParityPinReaderTests(unittest.TestCase):
@@ -50,6 +54,40 @@ class ParityPinReaderTests(unittest.TestCase):
         self.assertEqual(set(declared), set(verify_pair.PIN_KEYS))
         self.assertRegex(declared["corpusSha256"], r"^[0-9a-f]{64}$")
         self.assertGreaterEqual(declared["goldenCaseCount"], 1)
+
+    def test_repository_pin_quotes_the_committed_paired_report(self):
+        # The pin must name revisions a committed run actually observed. A pin
+        # value quoted only from a discussion comment is an unverified claim.
+        declared = verify_pair.read_pin(ROOT / "parity.json")
+        report = json.loads(EVIDENCE.read_text(encoding="utf-8"))
+        summary = json.loads(EVIDENCE_SUMMARY.read_text(encoding="utf-8"))
+
+        self.assertEqual(declared["corpusSha256"], report["corpus_sha256"])
+        self.assertEqual(
+            declared["lastVerifiedFormatterRevision"], report["formatter_revision"]
+        )
+        self.assertEqual(
+            declared["lastVerifiedLinterRevision"], report["linter_revision"]
+        )
+        self.assertEqual(declared["goldenCaseCount"], report["cases_total"])
+        self.assertEqual(report["cases_passed"], report["cases_total"])
+        self.assertEqual(
+            len(report["case_results"]),
+            report["cases_total"],
+            "every golden must carry a per-case result",
+        )
+        # The readable summary must agree with the raw harness output it cites.
+        for source, mirror in (
+            ("corpus_sha256", "corpus_sha256"),
+            ("cases_total", "cases_total"),
+            ("cases_passed", "cases_passed"),
+            ("formatter_revision", "formatter_revision"),
+            ("linter_revision", "linter_revision"),
+            ("formatter_sha256", "formatter_sha256"),
+            ("linter_sha256", "linter_sha256"),
+        ):
+            self.assertEqual(summary[source], report[mirror], source)
+        self.assertEqual(summary["golden_cases"], report["cases_total"])
 
     def test_valid_declaration_is_returned(self):
         self.write(PIN)

@@ -78,7 +78,16 @@ For each case it runs `verse-lint --fix`, then `verse-fmt --write`, checks the
 formatter's independent golden bytes, and repeats both tools to prove the
 second cycle changes nothing. It uses isolated temporary files and removes
 them on exit. The 18 explicit formatter refusals are not sent through a
-successful paired-fix path. Reports are local artifacts and are not committed.
+successful paired-fix path.
+
+The one report that backs the current `parity.json` revisions is committed as
+[`docs/evidence/parity-paired-2026-11-05-full.json`](evidence/parity-paired-2026-11-05-full.json),
+with a short summary beside it in
+[`parity-paired-2026-11-05.json`](evidence/parity-paired-2026-11-05.json).
+[`parity.json`](../parity.json) may only quote revisions that a committed report
+names; an unrecorded run in a discussion comment is not evidence. Other runs
+stay local artifacts and are reported in the pull request with the corpus hash,
+both full 40-character revisions and the case counts.
 
 On 2026-09-23, all 52/52 cases passed with formatter revision
 `ae191de08058a217d331640f0b098d6fb76435f3` and linter revision
@@ -101,12 +110,26 @@ and key/value `for` iterators. That paired run validated 58 golden cases;
 the corpus SHA-256 is `68918abdf3f7b574ccdc803c4af34bc1f5ebeaf1cc0637e8330fcfa6f1465f28`.
 
 P1 extends the corpus to 87 cases (64 goldens and 23 refusals), adding bounded
-`:=` range generators. `parity.json` declares corpus SHA-256
-`27e0497bbccaba2bed56dfc93efcda762887f3888c9cd0c5707f0ae670050b47` and 64 golden
-cases; that declaration is a claim about the last verified pair, not evidence of
-a current run.
-Historical runs above do not validate the six new goldens; run the current
-harness against rebuilt clean checkouts before claiming current convergence.
+`:=` range generators.
+
+On 2026-11-05 a paired run validated all 64/64 goldens with formatter revision
+`27d3dc76a61e569a394a9115d5c0c37a63345626` and linter revision
+`a9b43c6c137be9f03618869d0c2ec6635dd42e29`; corpus SHA-256 was
+`27e0497bbccaba2bed56dfc93efcda762887f3888c9cd0c5707f0ae670050b47` (87 corpus
+cases, 64 goldens, 23 refusals). Both binaries were built from clean checkouts
+with the pinned 1.97.0 MSVC toolchain, the formatter corpus was the tracked file
+at that formatter revision, and every case reported exit 0 for both tools with
+zero second-cycle changes. The full per-case report is committed at
+[`docs/evidence/parity-paired-2026-11-05-full.json`](evidence/parity-paired-2026-11-05-full.json).
+`parity.json` quotes exactly those two revisions and that corpus hash.
+
+That linter revision is the commit the harness actually ran in. The pin update
+that quotes it is a declaration-only descendant: `parity.json`, this document
+and the evidence file are not compiled into either binary, so the tested bytes
+are unchanged. A pin can never name the commit that contains it, which is why
+the recorded revision is the tested parent rather than the declaring commit.
+Historical runs above do not validate the six P1 goldens; only the 2026-11-05
+run does.
 
 ## Shell matrix
 
