@@ -31,6 +31,17 @@ headers and license remain upstream bytes. Exact base/local hashes are in
 Grammar revision/hashes are in [upstream.md](../vendor/tree-sitter-verse/upstream.md).
 All Verse examples are self-authored; no Epic assets/digests/proprietary code.
 
+## Declared parity
+
+`parity.json` records the mirrored formatter grammar base revision alongside the
+last verified formatter and linter revisions and the formatter corpus hash.
+`scripts/verify-parity.ps1` (run by `scripts/verify.ps1`) checks that declaration
+structurally and that the recorded linter revision is reachable from `HEAD`; it
+needs no formatter and does not fail when the formatter has moved on. Only
+`scripts/verify-pair.py` can claim convergence, because only it runs both tools
+over the real corpus. See [paired and shell integration checks](integration-testing.md)
+and the [parity checklist](../CONTRIBUTING.md).
+
 Local adaptations: config validates `[lint]` and tolerates sibling `[format]`;
 syntax removes formatter-only spacing/call offsets. CST shape is walked
 and bounded, with equivalent-tree regression checks and production fix
@@ -43,6 +54,9 @@ share the imported contract. Vendored recovery-parser success alone is never
 sufficient. Unsupported/incomplete inputs become execution failures, not lint
 rules and not claims of compiler invalidity. See [parser design](parser-design.md).
 Corpus updates require a new pinned source revision, hashes and regression tests.
+When the formatter's grammar or corpus changes, the linter snapshot and
+`parity.json` change with it in the same pull request; the checklist in
+[CONTRIBUTING](../CONTRIBUTING.md) names the exact order of operations.
 The local grammar delta adds dotted local imports, initialized typed constants,
 comma-separated braced enum variants, empty class base lists, if-binding
 conditions, failable indexed `set` conditions, key/value iterators, and tested

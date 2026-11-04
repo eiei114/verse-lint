@@ -5,6 +5,37 @@ crate, binary, or runtime dependency. This developer-only script accepts a
 formatter release binary and the formatter's self-authored golden corpus to
 verify the tools' on-disk convergence contract.
 
+## Declared parity vs. verified convergence
+
+The parity contract has two layers, and only one of them is checkable without the
+formatter.
+
+- `parity.json` at the repository root is the **declaration**: the expected
+  formatter corpus SHA-256, the expected golden-case count, the formatter grammar
+  base revision the snapshot was mirrored from, and the formatter/linter
+  revisions of the last real paired run.
+- `scripts/verify-parity.ps1` validates the declaration only. It checks that the
+  file exists, parses, has exactly the documented keys with well-formed values,
+  and that `lastVerifiedLinterRevision` is `HEAD` or an ancestor of it. It needs
+  no formatter binary, no formatter checkout and no network, and `verify.ps1`
+  runs it, so a malformed or stale declaration fails the ordinary verification
+  path.
+- `scripts/verify-pair.py` is the **verification**: it reads its expected corpus
+  hash and golden-case count from `parity.json`, then runs both real binaries
+  over the whole corpus in both orders and asserts byte-level convergence. It is
+  the only thing that can claim convergence.
+
+`verify.ps1` passing means the declaration is structurally sound and its
+recorded linter revision is still reachable. It does **not** mean the corpus or
+the formatter still agree with the linter, and it never fails merely because the
+formatter moved on after the last paired run. Between paired updates that drift
+is expected; the checklist in [CONTRIBUTING](../CONTRIBUTING.md) is what keeps it
+from going unnoticed.
+
+A missing, unparseable or partially populated `parity.json` is a hard failure in
+both scripts. Neither falls back to built-in constants, so the pin cannot quietly
+disappear.
+
 ## Resource-limit boundary tests
 
 `tests/limits-cli.rs` covers every limit advertised in [cli.md](cli.md) and
@@ -39,8 +70,9 @@ python scripts/verify-pair.py `
   --output target\verification\paired\convergence.json
 ```
 
-The script pins the corpus SHA-256 and requires its 64 golden-success inputs.
-It locates the formatter checkout from the tracked corpus path, so the release
+The script takes the corpus SHA-256 and the required golden-case count from
+`parity.json` and requires the corpus to match both. It locates the formatter
+checkout from the tracked corpus path, so the release
 binary may live under `target/release` or an external `CARGO_TARGET_DIR`.
 For each case it runs `verse-lint --fix`, then `verse-fmt --write`, checks the
 formatter's independent golden bytes, and repeats both tools to prove the
@@ -69,8 +101,10 @@ and key/value `for` iterators. That paired run validated 58 golden cases;
 the corpus SHA-256 is `68918abdf3f7b574ccdc803c4af34bc1f5ebeaf1cc0637e8330fcfa6f1465f28`.
 
 P1 extends the corpus to 87 cases (64 goldens and 23 refusals), adding bounded
-`:=` range generators. The current harness pins SHA-256
-`27e0497bbccaba2bed56dfc93efcda762887f3888c9cd0c5707f0ae670050b47`.
+`:=` range generators. `parity.json` declares corpus SHA-256
+`27e0497bbccaba2bed56dfc93efcda762887f3888c9cd0c5707f0ae670050b47` and 64 golden
+cases; that declaration is a claim about the last verified pair, not evidence of
+a current run.
 Historical runs above do not validate the six new goldens; run the current
 harness against rebuilt clean checkouts before claiming current convergence.
 
