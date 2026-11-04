@@ -35,3 +35,17 @@ No formatter layout pass runs during lint. Current tests are parser/tool tests;
 **UEFN compiler and runtime acceptance have not been performed**. The original
 formatter probe ran on Rust 1.98.1; current verification explicitly resolves
 the pinned Rust 1.97.0 instead of trusting PATH ordering.
+
+## Retained CST and the semantic layer
+
+`Document` now retains the parsed tree alongside `tokens` and `shape`, so the
+scope graph in `src/semantic.rs` can walk it. Retaining the tree changes no
+coverage decision: the lexical scan, coverage validation, adjacent-statement
+guard, budgets, block-comment boundary match and `shape` fingerprint all run in
+the same order and still fail closed. Every existing rule, test and fixture
+produces byte-identical diagnostics; a fixture sweep pins that.
+
+The graph models a bounded working set and records everything else as
+unsupported. A non-empty skip map makes the graph incomplete, and a semantic
+rule must refuse to report from an incomplete graph rather than guess. See
+[semantic model](semantic-model.md). No semantic rule exists yet.

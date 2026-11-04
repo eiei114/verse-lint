@@ -38,6 +38,10 @@ fn tree_limit(depth: usize, events: usize) -> Option<&'static str> {
 pub struct Document {
     pub tokens: Vec<Token>,
     shape: Vec<(u16, bool)>,
+    // Retained CST. `Tree` is owned and lifetime-free, so retaining it changes
+    // no signature, and every guard above still runs on it before it is kept.
+    tree: tree_sitter::Tree,
+    body_start: usize,
 }
 
 impl Document {
@@ -67,83 +71,29 @@ impl Document {
             .ok_or_else(|| Failure::new(0, "parse budget exceeded; source was not changed"))?;
         // Same guard as formatter: upstream may split inline X+Y into sibling
         // statements without ERROR; no safe lint/fix claim for that structure.
-        let mut children = tree.root_node().walk();
-        let mut previous: Option<tree_sitter::Node<'_>> = None;
-        for node in tree.root_node().named_children(&mut children) {
-            if node.is_extra() {
-                continue;
-            }
-            if let Some(left) = previous {
-                let end = left.end_byte() + source.body_start();
-                let start = node.start_byte() + source.body_start();
-                if source.position(end.saturating_sub(1)).0 == source.position(start).0 {
-                    let first = tokens.partition_point(|t| t.range.end <= end);
-                    let separated = tokens[first..]
-                        .iter()
-                        .take_while(|t| t.range.start < start)
-                        .any(|t| t.kind == lex::Kind::Code && t.text(source) == ";");
-                    if !separated {
-                        return Err(Failure::new(
-                            start,
-                            "ambiguous adjacent top-level statements; inline binary function bodies are unsupported by the pinned grammar",
-                        ));
-                    }
-                }
-            }
-            previous = Some(node);
-        }
-        let mut shape = Vec::new();
-        // Require exact CST spans for independently lexed block comments.
-        // Opaque string/interpolation tokens are intentionally not included.
-        let mut unmatched_comments: HashSet<_> = tokens
-            .iter()
-            .filter(|token| token.kind == lex::Kind::BlockComment)
-            .map(|token| (token.range.start, token.range.end))
-            .collect();
-        let mut cursor = tree.walk();
-        let mut depth = 0;
-        loop {
-            let node = cursor.node();
-            if node.kind() == "block_comment" {
-                unmatched_comments.remove(&(
-                    node.start_byte() + source.body_start(),
-                    node.end_byte() + source.body_start(),
-                ));
-            }
-            if node.is_error() || node.is_missing() {
-                return Err(Failure::new(
-                    node.start_byte() + source.body_start(),
-                    "unsupported or incomplete Verse syntax; use UEFN for compiler diagnostics",
-                ));
-            }
-            if let Some(message) = tree_limit(depth, shape.len()) {
-                return Err(Failure::new(
-                    node.start_byte() + source.body_start(),
-                    message,
-                ));
-            }
-            shape.push((node.kind_id(), true));
-            if cursor.goto_first_child() {
-                depth += 1;
-                continue;
-            }
-            loop {
-                shape.push((cursor.node().kind_id(), false));
-                if cursor.goto_next_sibling() {
-                    break;
-                }
-                if !cursor.goto_parent() {
-                    if let Some((start, _)) = unmatched_comments.into_iter().min() {
-                        return Err(Failure::new(
-                            start,
-                            "unsupported block comment boundary: lexer and CST disagree; source was not changed",
-                        ));
-                    }
-                    return Ok(Self { tokens, shape });
-                }
-                depth -= 1;
-            }
-        }
+        // Extracted into its own scope so no CST cursor outlives it and keeps the
+        // tree borrowed by the `Document` that now owns it.
+        check_adjacent_statements(&tree, source, &tokens)?;
+        let shape = validate(&tree, source, &tokens)?;
+        Ok(Self {
+            tokens,
+            shape,
+            tree,
+            body_start: source.body_start(),
+        })
+    }
+
+    /// Root of the retained CST. Offsets are relative to [`Self::body_start`].
+    /// Retaining the tree changes no guard: this is the same tree the coverage
+    /// validation, budget and comment-boundary walk already ran on.
+    pub fn root(&self) -> tree_sitter::Node<'_> {
+        self.tree.root_node()
+    }
+
+    /// Byte offset of the first body byte, accounting for a UTF-8 BOM. CST byte
+    /// offsets are relative to it.
+    pub fn body_start(&self) -> usize {
+        self.body_start
     }
 
     pub fn equivalent(&self, source: &Source, other: &Self, output: &Source) -> bool {
@@ -158,6 +108,102 @@ impl Document {
                     .iter()
                     .filter(|t| !t.kind.is_trivia())
                     .map(|t| (t.kind, t.text(output))))
+    }
+}
+
+/// The adjacent-statement guard that already ran before this slice, extracted
+/// verbatim so [`Document::parse`] can keep the tree it validated.
+fn check_adjacent_statements(
+    tree: &tree_sitter::Tree,
+    source: &Source,
+    tokens: &[Token],
+) -> Result<(), Failure> {
+    let mut children = tree.root_node().walk();
+    let mut previous: Option<tree_sitter::Node<'_>> = None;
+    for node in tree.root_node().named_children(&mut children) {
+        if node.is_extra() {
+            continue;
+        }
+        if let Some(left) = previous {
+            let end = left.end_byte() + source.body_start();
+            let start = node.start_byte() + source.body_start();
+            if source.position(end.saturating_sub(1)).0 == source.position(start).0 {
+                let first = tokens.partition_point(|t| t.range.end <= end);
+                let separated = tokens[first..]
+                    .iter()
+                    .take_while(|t| t.range.start < start)
+                    .any(|t| t.kind == lex::Kind::Code && t.text(source) == ";");
+                if !separated {
+                    return Err(Failure::new(
+                        start,
+                        "ambiguous adjacent top-level statements; inline binary function bodies are unsupported by the pinned grammar",
+                    ));
+                }
+            }
+        }
+        previous = Some(node);
+    }
+    Ok(())
+}
+
+/// The coverage walk that already ran before this slice. It is extracted
+/// unchanged so [`Document::parse`] can keep the tree it validated.
+fn validate(
+    tree: &tree_sitter::Tree,
+    source: &Source,
+    tokens: &[Token],
+) -> Result<Vec<(u16, bool)>, Failure> {
+    let mut shape = Vec::new();
+    // Require exact CST spans for independently lexed block comments.
+    // Opaque string/interpolation tokens are intentionally not included.
+    let mut unmatched_comments: HashSet<_> = tokens
+        .iter()
+        .filter(|token| token.kind == lex::Kind::BlockComment)
+        .map(|token| (token.range.start, token.range.end))
+        .collect();
+    let mut cursor = tree.walk();
+    let mut depth = 0;
+    loop {
+        let node = cursor.node();
+        if node.kind() == "block_comment" {
+            unmatched_comments.remove(&(
+                node.start_byte() + source.body_start(),
+                node.end_byte() + source.body_start(),
+            ));
+        }
+        if node.is_error() || node.is_missing() {
+            return Err(Failure::new(
+                node.start_byte() + source.body_start(),
+                "unsupported or incomplete Verse syntax; use UEFN for compiler diagnostics",
+            ));
+        }
+        if let Some(message) = tree_limit(depth, shape.len()) {
+            return Err(Failure::new(
+                node.start_byte() + source.body_start(),
+                message,
+            ));
+        }
+        shape.push((node.kind_id(), true));
+        if cursor.goto_first_child() {
+            depth += 1;
+            continue;
+        }
+        loop {
+            shape.push((cursor.node().kind_id(), false));
+            if cursor.goto_next_sibling() {
+                break;
+            }
+            if !cursor.goto_parent() {
+                if let Some((start, _)) = unmatched_comments.into_iter().min() {
+                    return Err(Failure::new(
+                        start,
+                        "unsupported block comment boundary: lexer and CST disagree; source was not changed",
+                    ));
+                }
+                return Ok(shape);
+            }
+            depth -= 1;
+        }
     }
 }
 

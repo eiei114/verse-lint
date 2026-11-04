@@ -123,3 +123,35 @@ real parse to take two seconds.
 `scripts/verify-json.ps1` validates real release-binary JSON and SARIF for exit
 0/1/2, fixes, suppression, Unicode paths, virtual stdin, I/O and argument failure
 with PowerShell 7's JSON Schema validator. An invalid version must be rejected.
+
+## `--dump-scopes` (unstable, for rule authors)
+
+`--dump-scopes` prints the per-file scope graph as JSON to stdout and exits 0
+without running any rule. It is a diagnostic surface for people writing rules,
+**not a stable public contract**: its shape may change without notice, and
+nothing should depend on it programmatically.
+
+```text
+verse-lint Content/device.verse --dump-scopes
+verse-lint - --dump-scopes < device.verse
+```
+
+The document is versioned (`schemaVersion`) and deterministic for the same input.
+It contains `files`, each with `path`, `scopes` (kind, parent), `bindings`
+(name, kind, scope, byte range, mutable), `references` (name, byte range, scope,
+`resolved` as an index into `bindings` or `null`), `skipped` (unsupported CST
+kinds, by count) and `isComplete`. Ranges are half-open byte offsets with the
+same conventions as diagnostic ranges.
+
+`isComplete: false` means the model could not classify every name-bearing
+construct, so a semantic rule must not report from that file. See
+[semantic model](semantic-model.md).
+
+`--dump-scopes` conflicts with `--fix` and `--show-config`, and with every
+`--output-format` other than the default text setting (naming `text` explicitly
+is accepted). Each conflict exits 2. A requested machine format still reports
+the conflict through the normal machine envelope rather than printing a graph.
+The flag counts toward the existing per-source byte, nesting and token limits and
+fails closed — exit 2 with no graph — on inputs that today fail coverage
+validation. It never runs a rule, so it needs no active rule selection.
+

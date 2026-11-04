@@ -1,6 +1,7 @@
 mod cli;
 mod config;
 mod diagnostic;
+mod dump;
 mod files;
 mod fix;
 mod fix_run;
@@ -8,6 +9,7 @@ mod lex;
 mod report;
 mod rules;
 mod sarif;
+mod semantic;
 mod source;
 mod suppressions;
 mod syntax;
@@ -110,10 +112,16 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
     if let Some(ignore) = &cli.ignore {
         config.settings.lint.ignore = ignore.clone();
     }
-    let active = config.settings.lint.active()?;
     if cli.show_config {
         return Ok(Some(config.show()?));
     }
+    if cli.dump_scopes {
+        // Rule IDs stay validated, but no rule selection is required because
+        // this path runs no rule.
+        config.settings.lint.validate()?;
+        return dump::run(cli, &config, report);
+    }
+    let active = config.settings.lint.active()?;
     if cli.paths.first().is_some_and(|p| p.as_os_str() == "-") {
         let label = match &cli.stdin_filepath {
             Some(path) => path

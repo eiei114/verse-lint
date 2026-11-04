@@ -19,7 +19,12 @@ verse-lint . --output-format sarif
 verse-lint . --fix
 verse-lint . --select V2001,V2002 --deny-warnings
 verse-lint --show-config
+verse-lint Content/device.verse --dump-scopes
 ```
+
+`--dump-scopes` prints the model's scope graph as JSON for rule authors, runs no
+rule, and is an **unstable** surface rather than a public contract; see
+[the semantic model](docs/semantic-model.md).
 
 No arguments inspects CWD. Exit 0 means inspection completed without selected
 errors; 1 means lint violations; 2 means incomplete inspection/config/I/O failure.
@@ -37,6 +42,7 @@ avoid simultaneous editor/UEFN saves during `--fix`.
 See [CLI/config and JSON contract](docs/cli.md), [rule index](docs/rules.md),
 [safe fixes](docs/fixes.md) and
 [pinned independent syntax snapshot](docs/syntax-snapshot.md) and
+[the scope graph and semantic model](docs/semantic-model.md) and
 [paired/shell integration checks](docs/integration-testing.md), plus
 [local packaging and future mise usage](docs/packaging-and-mise.md). No
 installed formatter, Node.js or runtime network access is needed.
