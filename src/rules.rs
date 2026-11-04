@@ -123,6 +123,49 @@ pub const V2002: &str = "V2002";
 #[cfg(test)]
 pub const DETECTOR_IDS: [&str; 5] = [V1001, V1002, V1003, V2001, V2002];
 
+/// `select`/`ignore` entries accept a complete ID (`V1001`) or a numeric prefix
+/// (`V`, `V1`, `V2`). A complete ID is itself a valid prefix, so one shape check
+/// covers both forms: a leading `V` followed only by ASCII digits. Anything else
+/// — `v1`, `V1001x`, an empty string — is malformed, never guessed at.
+fn is_well_formed_entry(entry: &str) -> bool {
+    entry
+        .strip_prefix('V')
+        .is_some_and(|digits| digits.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// Expand one `select`/`ignore` entry against the registry, in registry order.
+/// A well-formed entry that matches no registered rule is a failure rather than
+/// a silent no-op, so a typo can neither empty nor unexpectedly widen a run.
+/// New rules become reachable through an existing prefix automatically, because
+/// expansion always reads the current registry.
+pub fn expand_entry(entry: &str) -> Result<Vec<&'static str>, String> {
+    if !is_well_formed_entry(entry) {
+        return Err(format!(
+            "invalid rule entry {entry:?} in select/ignore; use a complete rule ID like \"V1001\" or a prefix of \"V\" plus digits like \"V1\""
+        ));
+    }
+    let matched: Vec<&'static str> = REGISTRY
+        .iter()
+        .map(|rule| rule.id)
+        .filter(|id| id.starts_with(entry))
+        .collect();
+    if matched.is_empty() {
+        return Err(format!(
+            "rule prefix {entry:?} in select/ignore matched no registered rule"
+        ));
+    }
+    Ok(matched)
+}
+
+/// Expand every entry of one list, collapsing duplicates into stable ID order.
+fn expand_entries(entries: &[String]) -> Result<BTreeSet<String>, String> {
+    let mut expanded = BTreeSet::new();
+    for entry in entries {
+        expanded.extend(expand_entry(entry)?.into_iter().map(str::to_owned));
+    }
+    Ok(expanded)
+}
+
 fn lookup<'a>(registry: &'a [Rule], id: &str) -> &'a Rule {
     registry
         .iter()
@@ -184,11 +227,12 @@ impl Default for Settings {
 }
 impl Settings {
     pub fn validate(&self) -> Result<(), String> {
-        for id in self.select.iter().chain(&self.ignore) {
-            if !REGISTRY.iter().any(|r| r.id == id) {
-                return Err(format!("unknown rule ID {id:?}; use complete IDs"));
-            }
-        }
+        // Expansion is the validation: a malformed entry, or a prefix that
+        // matches nothing, can never be silently dropped from `select` or
+        // `ignore`. Syntactically complete IDs stay complete IDs, so existing
+        // configurations keep their meaning.
+        self.expanded_select()?;
+        self.expanded_ignore()?;
         if self.max_line_length == 0 || self.max_line_length > 1_000_000 {
             return Err("max-line-length must be between 1 and 1000000".into());
         }
@@ -235,11 +279,25 @@ impl Settings {
             })
             .collect())
     }
+    /// Complete IDs behind the configured `select` list, in stable ID order.
+    /// `--show-config` renders this so an effective set containing no prefix is
+    /// unambiguous.
+    pub fn expanded_select(&self) -> Result<Vec<String>, String> {
+        Ok(expand_entries(&self.select)?.into_iter().collect())
+    }
+
+    /// Complete IDs behind the configured `ignore` list, in stable ID order.
+    pub fn expanded_ignore(&self) -> Result<Vec<String>, String> {
+        Ok(expand_entries(&self.ignore)?.into_iter().collect())
+    }
+
     pub fn active(&self) -> Result<BTreeSet<String>, String> {
         self.validate()?;
-        let mut selected: BTreeSet<_> = self.select.iter().cloned().collect();
-        for id in &self.ignore {
-            selected.remove(id);
+        // Both lists are expanded before subtraction, so `--select V --ignore V2`
+        // is the V1 family and a prefix never subtracts by string identity.
+        let mut selected = expand_entries(&self.select)?;
+        for id in expand_entries(&self.ignore)? {
+            selected.remove(&id);
         }
         if selected.is_empty() {
             return Err("no active lint rules".into());
@@ -533,6 +591,103 @@ mod tests {
             rule(V2001).message,
             "selection must keep the V2001 identity, not the entry that replaced it"
         );
+    }
+
+    fn settings_with(select: &[&str], ignore: &[&str]) -> Settings {
+        Settings {
+            select: select.iter().map(|id| (*id).into()).collect(),
+            ignore: ignore.iter().map(|id| (*id).into()).collect(),
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn a_prefix_expands_to_every_matching_registered_rule_in_registry_order() {
+        let family = expand_entry("V1").expect("V1 is registered");
+        assert_eq!(family, [V1001, V1002, V1003]);
+        let policy = expand_entry("V2").expect("V2 is registered");
+        assert_eq!(policy, [V2001, V2002]);
+        // `V` is a prefix of every ID, so it is the whole registry.
+        let all: Vec<_> = REGISTRY.iter().map(|rule| rule.id).collect();
+        assert_eq!(expand_entry("V").unwrap(), all);
+        // A complete ID is a prefix of itself and of nothing else in the registry.
+        assert_eq!(expand_entry(V1001).unwrap(), [V1001]);
+        assert_eq!(expand_entry("V2001").unwrap(), [V2001]);
+        // Registry order, not alphabetical or hash order, drives expansion.
+        assert_eq!(
+            expand_entry("V").unwrap(),
+            REGISTRY.iter().map(|rule| rule.id).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn zero_match_and_malformed_entries_are_errors_that_name_the_entry() {
+        // A well-formed prefix that no registered ID starts with.
+        let error = expand_entry("V9").unwrap_err();
+        assert!(error.contains("\"V9\""), "{error}");
+        assert!(error.contains("matched no registered rule"), "{error}");
+        assert!(expand_entry("V0000000").unwrap_err().contains("V0000000"));
+        // Malformed shapes are never guessed at: lowercase, trailing junk,
+        // empty, a bare leading V-less ID and non-ASCII digits all fail.
+        for entry in [
+            "v1", "V1x", "V1001x", "", "1001", "V1 ", " V1", "V１", "VV1", "V-1", "V1.0",
+        ] {
+            let error = expand_entry(entry)
+                .err()
+                .unwrap_or_else(|| panic!("{entry:?} must be rejected"));
+            assert!(error.contains("invalid rule entry"), "{entry:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn select_and_ignore_are_expanded_before_subtraction_and_duplicates_collapse() {
+        // Documented example: the whole registry minus the V2 family is V1.
+        let settings = settings_with(&["V"], &["V2"]);
+        assert_eq!(settings.active().unwrap(), active(&[V1001, V1002, V1003]));
+        // A prefix subtracts the rule it actually names, not the literal text.
+        assert_eq!(
+            settings_with(&["V1", "V2"], &["V2002"]).active().unwrap(),
+            active(&[V1001, V1002, V1003, V2001])
+        );
+        // Overlapping entries collapse to one effective set.
+        assert_eq!(
+            settings_with(&["V", "V1", V1001, "V1001"], &["V1", V1002])
+                .active()
+                .unwrap(),
+            active(&[V2001, V2002])
+        );
+        // Subtracting everything is still the existing empty-selection failure.
+        let error = settings_with(&["V1"], &["V1"]).active().unwrap_err();
+        assert!(error.contains("no active lint rules"), "{error}");
+        assert!(
+            settings_with(&["V"], &["V"])
+                .active()
+                .unwrap_err()
+                .contains("no active lint rules")
+        );
+    }
+
+    #[test]
+    fn validation_rejects_prefixes_only_where_the_contract_forbids_them() {
+        // A zero-match prefix in either list fails validation, not just active().
+        for bad in [settings_with(&["V9"], &[]), settings_with(&[], &["V9"])] {
+            assert!(bad.validate().unwrap_err().contains("V9"));
+        }
+        // Prefix acceptance is confined to select/ignore: `[lint.severity]` keeps
+        // requiring complete registered IDs.
+        let error = settings(&[("V1", "error")]).validate().unwrap_err();
+        assert!(error.contains("rule ID"), "{error}");
+        assert!(
+            !error.contains("entry"),
+            "severity must not accept prefixes: {error}"
+        );
+    }
+
+    #[test]
+    fn expanded_lists_render_complete_ids_for_show_config() {
+        let settings = settings_with(&["V2", V1002, V1002], &["V1"]);
+        assert_eq!(settings.expanded_select().unwrap(), [V1002, V2001, V2002]);
+        assert_eq!(settings.expanded_ignore().unwrap(), [V1001, V1002, V1003]);
     }
 
     #[test]

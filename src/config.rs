@@ -125,6 +125,10 @@ impl Config {
         // emitted table independent of the order of keys in the source file.
         let mut settings = self.settings.clone();
         settings.lint.severity = settings.lint.effective_severity()?;
+        // Print the expanded complete IDs, never a prefix: the point of
+        // `--show-config` is to make the effective set unambiguous.
+        settings.lint.select = settings.lint.expanded_select()?;
+        settings.lint.ignore = settings.lint.expanded_ignore()?;
         Ok(format!(
             "# source: {origin:?}\n# root: {:?}\n{}",
             self.root,
