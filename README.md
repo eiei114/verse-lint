@@ -29,6 +29,9 @@ select = ["V1001", "V1002", "V1003", "V2001"] # config select replaces the defau
 V2001 = "error"
 ```
 
+`select`/`ignore` also accept a rule-family prefix, so `--select V2` enables every
+registered V2 rule at once; `--show-config` prints the expanded complete IDs.
+
 No arguments inspects CWD. Exit 0 means inspection completed without selected
 errors; 1 means lint violations; 2 means incomplete inspection/config/I/O failure.
 Readable-file diagnostics survive failures in other files. Strings/comments are

@@ -29,10 +29,12 @@ pub struct Cli {
     /// Apply only validated, safe edits to files; not supported on stdin.
     #[arg(long)]
     pub fix: bool,
-    /// Select comma-separated complete rule IDs, replacing configured selection.
+    /// Select comma-separated complete rule IDs or rule-family prefixes (`V1`),
+    /// replacing configured selection.
     #[arg(long, value_delimiter = ',')]
     pub select: Option<Vec<String>>,
-    /// Ignore comma-separated complete rule IDs, replacing configured ignores.
+    /// Ignore comma-separated complete rule IDs or rule-family prefixes (`V2`),
+    /// replacing configured ignores.
     #[arg(long, value_delimiter = ',')]
     pub ignore: Option<Vec<String>>,
     /// Diagnostic format. Machine formats never contain ANSI colors.

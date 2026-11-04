@@ -9,10 +9,34 @@ is supported and schema-validated. Compiler/UEFN acceptance is not established.
 `verse-lint` defaults to CWD; file and directory paths can be combined. `-` must
 be used alone; `--stdin-filepath` is a virtual Unicode path, not a write target.
 `--select V1001` replaces configured selection; `--ignore V1001` replaces
-configured ignore, then subtracts from selection. Duplicates collapse; unknown
-or empty-string IDs, prefixes and zero effective rules fail. Each rule has a
-registry default severity; `[lint.severity]` overrides it per project.
+configured ignore, then subtracts from selection. Each rule has a registry
+default severity; `[lint.severity]` overrides it per project.
 `--deny-warnings` promotes remaining warnings to exit 1 without changing severity.
+
+### Rule selection and family prefixes
+
+`select`/`ignore` entries — on the command line and in the `[lint]` arrays — are
+either a complete rule ID (`V1001`) or a rule-family prefix: `V` followed by zero
+or more ASCII digits (`V`, `V1`, `V2`). A prefix expands to every registered rule
+whose ID starts with it, so `--select V1` is the V1001/V1002/V1003 family and
+`--select V` is the whole registry. Expansion reads the live registry, so a rule
+added in a later release becomes reachable through an existing prefix without
+editing the selection.
+
+Both lists are expanded before subtraction, so `--select V --ignore V2` keeps the
+V1 family: an `ignore` prefix removes the rules it names, never a literal string.
+Duplicates and overlapping entries collapse to one effective set, which is still
+ordered by ID. `--show-config` always prints the expanded complete IDs, never a
+prefix, so the effective set is unambiguous.
+
+Anything that cannot be resolved is a configuration error with exit 2 before any
+source is inspected: a prefix matching zero registered rules (`V9`) names the
+prefix and that no registered rule matched; a malformed entry (lowercase `v1`,
+`V1001x`, a bare number `1001`, `--select ""` or a trailing comma) names the
+offending entry and the accepted forms. A typo is never silently ignored, and an
+effective set that subtracts to zero rules is still an error. Prefixes are
+accepted only for `select`/`ignore`: `[lint.severity]` keys and
+[suppression](suppressions.md) directives keep requiring complete IDs.
 
 ## Configuration
 
@@ -35,13 +59,16 @@ config per invocation, no nested/global merging. Exclude/label root is config
 parent or CWD. Unknown top-level, files, lint and `[lint.severity]` keys fail;
 sibling `[format]` is required to be a table but its own keys/values are
 deliberately not validated. `max-line-length` must be 1..1,000,000.
-`--show-config` shows effective CLI rule overrides, the effective severity of
-every registered rule, config source and root without inspecting inputs.
+`--show-config` shows effective CLI rule overrides, the expanded complete rule
+IDs behind `select`/`ignore`, the effective severity of every registered rule,
+config source and root without inspecting inputs.
 
 `[lint.severity]` promotes or demotes an already-registered rule for this
 project; it never adds a rule. Keys must be complete rule IDs that appear in the
-registry — an unknown or abbreviated ID (`V1`, `V9999`) is a configuration error,
-exactly like `select`/`ignore`. Values must be the exact lowercase literals
+registry — an unknown or abbreviated ID (`V1`, `V9999`) is a configuration error.
+Unlike `select`/`ignore`, a prefix such as `V1` is never expanded here: a severity
+override has to name one rule.
+Values must be the exact lowercase literals
 `"error"` or `"warning"`; anything else, including `"Error"`, an empty string or
 a non-string TOML value, is a configuration error that names the offending key.
 Both fail the run with exit 2 before any source is inspected, so stdout carries
