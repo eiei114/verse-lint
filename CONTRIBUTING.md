@@ -7,8 +7,13 @@ pwsh -NoProfile -File scripts/verify.ps1
 ```
 
 This is the same entry point CI runs. It builds with the Rust toolchain pinned in
-`rust-toolchain.toml` and it needs neither a formatter binary nor network access
-beyond the Cargo registry.
+`rust-toolchain.toml` and it needs neither a formatter binary nor a formatter
+checkout. Beyond the Cargo registry it may still touch the network: it installs
+the pinned toolchain when that toolchain is absent and it always adds the
+`rustfmt` and `clippy` components through `rustup`, so a first run on a bare or
+offline host needs registry and `static.rust-lang.org` access. Once the pinned
+toolchain and components are installed, `--locked` builds resolve from the local
+cache and `scripts/verify-parity.ps1` itself stays offline.
 
 ## Parity checklist (verse-fmt)
 
@@ -92,7 +97,8 @@ malformed, incomplete, or names a revision that is not reachable from `HEAD`.
 
 - `scripts/verify.ps1` → `scripts/verify-parity.ps1` checks the **declared**
   side only: structure of `parity.json`, and that its linter revision is
-  reachable from `HEAD`. Fast, offline, no formatter.
+  reachable from `HEAD`. That step is fast, offline and needs no formatter;
+  `verify.ps1` as a whole still resolves its pinned toolchain through `rustup`.
 - `scripts/verify-pair.py` checks the **real** convergence against a real
   formatter binary and corpus. It is the only thing that can claim convergence,
   and it stays a deliberate developer operation.

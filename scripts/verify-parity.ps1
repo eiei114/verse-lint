@@ -30,12 +30,15 @@ try { $declared = $text | ConvertFrom-Json } catch { Fail "$PinPath is not valid
 if ($declared -isnot [pscustomobject]) { Fail "$PinPath must contain a JSON object" }
 
 $present = @($declared.PSObject.Properties.Name)
-$missing = @($required | Where-Object { $present -notcontains $_ })
+# Key names and hex values are compared case-sensitively: -contains/-match ignore
+# case, so 'CORPUSSHA256' would satisfy 'corpusSha256' and an uppercase digest
+# would satisfy the lowercase pattern while still parsing as valid.
+$missing = @($required | Where-Object { $present -cnotcontains $_ })
 if ($missing.Count) { Fail "$PinPath is missing $($missing -join ', ')" }
-$unexpected = @($present | Where-Object { $required -notcontains $_ })
+$unexpected = @($present | Where-Object { $required -cnotcontains $_ })
 if ($unexpected.Count) { Fail "$PinPath has unexpected key(s) $($unexpected -join ', ')" }
 
-if ($declared.corpusSha256 -isnot [string] -or $declared.corpusSha256 -notmatch '^[0-9a-f]{64}$') {
+if ($declared.corpusSha256 -isnot [string] -or $declared.corpusSha256 -cnotmatch '^[0-9a-f]{64}$') {
     Fail 'corpusSha256 must be 64 lowercase hex digits'
 }
 if ($declared.goldenCaseCount -isnot [long] -and $declared.goldenCaseCount -isnot [int]) {
@@ -43,7 +46,7 @@ if ($declared.goldenCaseCount -isnot [long] -and $declared.goldenCaseCount -isno
 }
 if ($declared.goldenCaseCount -lt 1) { Fail 'goldenCaseCount must be a positive integer' }
 foreach ($key in @('formatterGrammarBaseRevision', 'lastVerifiedFormatterRevision', 'lastVerifiedLinterRevision')) {
-    if ($declared.$key -isnot [string] -or $declared.$key -notmatch '^[0-9a-f]{40}$') {
+    if ($declared.$key -isnot [string] -or $declared.$key -cnotmatch '^[0-9a-f]{40}$') {
         Fail "$key must be a 40-character lowercase revision"
     }
 }

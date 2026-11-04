@@ -199,6 +199,39 @@ class DeclaredParityScriptTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertIn("unexpected key", result.stdout + result.stderr)
 
+    def test_uppercase_key_name_fails(self):
+        # Reproduced defect: PowerShell's -contains/-notcontains ignore case, so a
+        # renamed 'CORPUSSHA256' satisfied 'corpusSha256' and the script exited 0.
+        # The key is renamed, not added: duplicating it case-insensitively would
+        # make ConvertFrom-Json fail before the key check is reached.
+        renamed = json.dumps(PIN).replace('"corpusSha256"', '"CORPUSSHA256"')
+        self.path.write_text(renamed, encoding="utf-8")
+        result = self.run_script()
+
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("corpusSha256", result.stdout + result.stderr)
+
+    def test_uppercase_hex_value_fails(self):
+        # Same case-insensitivity class: -match accepted an uppercase digest and
+        # revision although both are documented as lowercase hex.
+        self.path.write_text(
+            json.dumps({**PIN, "corpusSha256": PIN["corpusSha256"].upper()}),
+            encoding="utf-8",
+        )
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("corpusSha256", result.stdout + result.stderr)
+
+        self.path.write_text(
+            json.dumps(
+                {**PIN, "lastVerifiedLinterRevision": PIN["lastVerifiedLinterRevision"].upper()}
+            ),
+            encoding="utf-8",
+        )
+        result = self.run_script()
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("lastVerifiedLinterRevision", result.stdout + result.stderr)
+
     def test_unreachable_declared_revision_fails(self):
         self.path.write_text(
             json.dumps({**PIN, "lastVerifiedLinterRevision": "0" * 40}), encoding="utf-8"

@@ -22,8 +22,8 @@ formatter.
   path.
 - `scripts/verify-pair.py` is the **verification**: it reads its expected corpus
   hash and golden-case count from `parity.json`, then runs both real binaries
-  over the whole corpus in both orders and asserts byte-level convergence. It is
-  the only thing that can claim convergence.
+  over the whole corpus and asserts byte-level convergence. It is the only thing
+  that can claim convergence.
 
 `verify.ps1` passing means the declaration is structurally sound and its
 recorded linter revision is still reachable. It does **not** mean the corpus or
@@ -74,11 +74,15 @@ The script takes the corpus SHA-256 and the required golden-case count from
 `parity.json` and requires the corpus to match both. It locates the formatter
 checkout from the tracked corpus path, so the release
 binary may live under `target/release` or an external `CARGO_TARGET_DIR`.
-For each case it runs `verse-lint --fix`, then `verse-fmt --write`, checks the
-formatter's independent golden bytes, and repeats both tools to prove the
-second cycle changes nothing. It uses isolated temporary files and removes
-them on exit. The 23 explicit formatter refusals are not sent through a
-successful paired-fix path; this harness does not exercise them at all.
+It exercises **one** order per case, linter first and formatter second: for each
+case it runs `verse-lint --fix`, then `verse-fmt --write`, checks the formatter's
+independent golden bytes, and repeats the same linter-then-formatter pair to
+prove the second cycle changes nothing. The reverse order (formatter first) is
+not run, so a defect that only appears when `verse-fmt` writes before
+`verse-lint --fix` is outside what this harness observes. It uses isolated
+temporary files and removes them on exit. The 23 explicit formatter refusals are
+not sent through a successful paired-fix path; this harness does not exercise
+them at all.
 
 The one report that backs the current `parity.json` revisions is committed as
 [`docs/evidence/parity-paired-2026-11-05-full.json`](evidence/parity-paired-2026-11-05-full.json),
