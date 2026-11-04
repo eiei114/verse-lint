@@ -15,6 +15,8 @@ pub const MAX_WALK_ERRORS: usize = 100;
 pub const MAX_DIRECTORY_ENTRIES: usize = 100_000;
 pub const MAX_EXCLUDE_GLOBS: usize = 256;
 pub const MAX_EXCLUDE_GLOB_BYTES: usize = 4_096;
+/// `docs/cli.md`: "256 KiB config/ignore file". Both readers below enforce it.
+pub const MAX_IGNORE_BYTES: usize = 256 * 1024;
 
 /// `docs/cli.md`: "64 MiB total successfully read input". Kept as a predicate
 /// so both sides of the boundary are testable without allocating 64 MiB.
@@ -111,7 +113,7 @@ fn add_ignore(directory: &Path, ignores: &mut Vec<Gitignore>) -> Result<bool, St
         return Ok(false);
     }
     let size = fs::metadata(&file).map_err(|e| e.to_string())?.len();
-    if size > 256 * 1024 {
+    if size > MAX_IGNORE_BYTES as u64 {
         return Err(format!("{}: .gitignore exceeds 256 KiB", file.display()));
     }
     let mut builder = GitignoreBuilder::new(directory);

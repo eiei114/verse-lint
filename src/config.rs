@@ -8,6 +8,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::rules;
 
+/// `docs/cli.md`: "256 KiB config/ignore file". The same bound applies to the
+/// ignore readers in [`crate::files`].
+pub const MAX_CONFIG_BYTES: usize = 256 * 1024;
+
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Files {
@@ -83,10 +87,10 @@ pub fn resolve(explicit: Option<&Path>, virtual_path: Option<&Path>) -> Result<C
         let mut bytes = Vec::new();
         File::open(path)
             .map_err(|e| format!("configuration {}: {e}", path.display()))?
-            .take(256 * 1024 + 1)
+            .take((MAX_CONFIG_BYTES + 1) as u64)
             .read_to_end(&mut bytes)
             .map_err(|e| e.to_string())?;
-        if bytes.len() > 256 * 1024 {
+        if bytes.len() > MAX_CONFIG_BYTES {
             return Err("configuration exceeds 256 KiB".into());
         }
         let text = std::str::from_utf8(&bytes)

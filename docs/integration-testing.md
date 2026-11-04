@@ -28,6 +28,26 @@ would flake on a loaded runner. `syntax::tests` asserts the budget predicate on
 both sides of the bound, asserts the documented duration constant, and proves
 that a zero budget refuses a real parse.
 
+## Documentation drift guard
+
+A limit that changes in code while the prose keeps the old number is caught by
+`src/doc-drift-tests.rs`, which runs as part of `cargo test` and therefore under
+`scripts/verify.ps1` with no extra step. It asserts that:
+
+- every limit bullet in the `Limits:` list of [cli.md](cli.md) and
+  [parser-design.md](parser-design.md) equals its constant in
+  `src/limits.rs`, compared in the documented unit (`8 MiB` is checked as
+  8 × 1024 × 1024 bytes) and with no bullet missing in either direction;
+- [rules.md](rules.md) covers exactly the `REGISTRY` rules in both directions,
+  and each row's default, severity and safe-fix wording matches its entry;
+- the vendor hash table in [syntax-snapshot.md](syntax-snapshot.md) restates
+  `vendor/tree-sitter-verse/hashes.json` exactly, and the recorded import
+  revision and file list stay as pinned.
+
+A failure names the document, the claim and both values. The guard is a
+consistency assertion, not a generator: edit the document and the constant
+together, and never delete a claim to silence it.
+
 ## Paired fix/format convergence
 
 From the linter worktree, after building both release binaries:
