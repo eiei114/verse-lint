@@ -96,6 +96,48 @@ const MIXED: &str = concat!(
 );
 
 #[test]
+fn a_nested_configuration_root_keeps_config_relative_paths() {
+    // GitHub resolves `file=` against the repository root, so a nested config
+    // root cannot line up. The format must still report the same path as text
+    // and JSON — a documented limitation, not a silent rewrite, and never an
+    // absolute path (which GitHub would reject outright).
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::create_dir_all(root.join("Content/Sub")).unwrap();
+    fs::write(root.join("Content/verse.toml"), "schema-version = 1\n").unwrap();
+    fs::write(root.join("Content/Sub/device.verse"), "A := 1  \n").unwrap();
+
+    // Run with an explicit nested configuration root. Upward discovery would
+    // take the CWD as the root, so `--config` is the way a nested root arises.
+    let args = ["Content", "--config", "Content/verse.toml"];
+    let (code, out) = stdout(root, &[&args[..], &["--output-format=github"]].concat());
+    assert_eq!(code, 1);
+    assert!(
+        out.starts_with("::error file=Sub/device.verse,line=1,"),
+        "a nested config root keeps the reported path relative to it: {out}"
+    );
+    assert!(!out.contains("Content/Sub/device.verse"), "{out}");
+    assert!(
+        !out.contains(":\\") && !out.contains(":/") && !out.contains("file=/"),
+        "an absolute path would be unusable in an annotation: {out}"
+    );
+
+    // Text, JSON and SARIF are unchanged: the same config-relative path.
+    let (_, text) = stdout(root, &args);
+    assert!(text.starts_with("Sub/device.verse:"), "{text}");
+    let (_, report) = json(root, &args);
+    assert_eq!(report["diagnostics"][0]["path"], "Sub/device.verse");
+    let sarif: Value = serde_json::from_slice(
+        &run(root, &[&args[..], &["--output-format=sarif"]].concat()).stdout,
+    )
+    .unwrap();
+    assert_eq!(
+        sarif["runs"][0]["artifacts"][0]["location"]["uri"], "Sub/device.verse",
+        "SARIF keeps the config-relative artifact path too"
+    );
+}
+
+#[test]
 fn a_clean_run_prints_nothing_and_exits_zero() {
     let dir = project(&[("clean.verse", "A := 1\n")]);
     let (code, out) = stdout(dir.path(), &[".", "--output-format=github"]);

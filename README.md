@@ -91,6 +91,14 @@ annotates the diff without code scanning and without a token.
   run: ./verse-lint.exe Content --output-format github
 ```
 
+GitHub shows at most 10 warning and 10 error annotations per step; findings
+beyond that are not attached to the diff, so keep `json` or `sarif` for a
+complete report. `file=` is resolved against the repository root, which is where
+the configuration root has to sit for annotations to line up — a nested
+`verse.toml` still emits config-root-relative paths, exactly as text and JSON do.
+That limitation, and why this format does not discover the checkout root, are in
+[the CLI reference](docs/cli.md#github-annotations).
+
 Properties escape `%`, CR, LF, `:` and `,` (`%25`, `%0D`, `%0A`, `%3A`, `%2C`),
 and a message escapes `%`, CR and LF, so a path or message containing them
 stays one annotation. Find suppressed findings with `--show-suppressed` are

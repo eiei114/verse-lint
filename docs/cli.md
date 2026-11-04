@@ -310,6 +310,13 @@ and no upload:
 verse-lint Content --output-format github
 ```
 
+GitHub shows at most **10 warning and 10 error annotations per step**; further
+workflow commands still run but are not attached to the diff. Use
+`--output-format json` or `sarif` when you need the complete list. Because the
+count is per step, splitting a run does not raise it: select the rules that
+matter for the PR job, or keep the annotations for review and the JSON for
+reporting.
+
 - Command level follows the finding, not the rule family: `::error` for an
 error-severity diagnostic, `::warning` for a warning-severity one.
 - Region properties are the same numbers JSON and SARIF report for that input —
@@ -319,6 +326,18 @@ the same bytes.
 - Paths are the same `/`-separated, config-root-relative paths text and JSON use,
 so they line up with SARIF artifacts. Escaping is applied on top; it changes the
 annotation only, never the reported path.
+
+  GitHub resolves `file=` against the **repository root**, so an annotation
+aligns only when the resolved configuration root is that root — the ordinary
+case of a `verse.toml` (or CWD) at the top of the checkout. When the
+configuration lives in a subdirectory, the path is still relative to it and
+GitHub cannot find the file: for a nested `Content/verse.toml`, a finding in
+`Content/Sub/device.verse` is emitted as `file=Sub/device.verse`. This format
+does not discover the checkout root to rewrite it, because that would report a
+path text and SARIF never emit and this slice adds no repository discovery. Run
+the PR job from the configuration root, or keep the configuration at the
+repository root, when annotations must land on the diff. JSON and SARIF are
+unaffected either way: their paths are explicitly based at the config root.
 - Ordering is the shared diagnostic order (path, byte offset, rule ID), so the
 same input yields the same bytes.
 - Nothing else goes to stdout: no summary line, no banner, no `::group::`,
