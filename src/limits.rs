@@ -55,7 +55,7 @@ const fn millis(duration: Duration) -> usize {
     duration.as_secs() as usize * 1_000 + duration.subsec_millis() as usize
 }
 
-pub const LIMITS: [Limit; 16] = [
+pub const LIMITS: [Limit; 17] = [
     Limit {
         document: CLI_DOC,
         claim: "per source file",
@@ -108,6 +108,15 @@ pub const LIMITS: [Limit; 16] = [
     Limit {
         document: CLI_DOC,
         claim: "exclude globs",
+        base: Base::Count,
+        value: MAX_EXCLUDE_GLOBS,
+        constant: "files::MAX_EXCLUDE_GLOBS",
+    },
+    Limit {
+        // `verse-lint.ignore` shares the glob-count bound, but it is a separate
+        // source with its own budget, so the document states it separately.
+        document: CLI_DOC,
+        claim: "ignore patterns",
         base: Base::Count,
         value: MAX_EXCLUDE_GLOBS,
         constant: "files::MAX_EXCLUDE_GLOBS",

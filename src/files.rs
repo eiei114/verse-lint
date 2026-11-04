@@ -1,10 +1,11 @@
 use std::{
     collections::HashSet,
     fs,
+    io::Read,
     path::{Component, Path, PathBuf},
 };
 
-use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
+use globset::{Glob, GlobBuilder, GlobSet, GlobSetBuilder};
 use ignore::gitignore::{Gitignore, GitignoreBuilder};
 
 pub const MAX_TOTAL_BYTES: usize = 64 * 1024 * 1024;
@@ -13,15 +14,51 @@ pub const MAX_VISITED_ENTRIES: usize = 100_000;
 pub const MAX_DIRECTORY_DEPTH: usize = 128;
 pub const MAX_WALK_ERRORS: usize = 100;
 pub const MAX_DIRECTORY_ENTRIES: usize = 100_000;
+/// The pattern bound shared by `[files] exclude` and `verse-lint.ignore`. The two
+/// sources have separate budgets, so `docs/cli.md` states one number for each.
 pub const MAX_EXCLUDE_GLOBS: usize = 256;
 pub const MAX_EXCLUDE_GLOB_BYTES: usize = 4_096;
 /// `docs/cli.md`: "256 KiB config/ignore file". Both readers below enforce it.
 pub const MAX_IGNORE_BYTES: usize = 256 * 1024;
+/// The one ignore file `docs/cli.md` documents, read from the configuration root
+/// only. No parent search, no nested files, no user-level file.
+pub const IGNORE_FILE_NAME: &str = "verse-lint.ignore";
 
 /// `docs/cli.md`: "64 MiB total successfully read input". Kept as a predicate
 /// so both sides of the boundary are testable without allocating 64 MiB.
 pub fn total_bytes_exceeded(total: usize) -> bool {
     total > MAX_TOTAL_BYTES
+}
+
+/// Why `pattern` is not a usable relative glob.
+///
+/// `[files] exclude` and `verse-lint.ignore` share this check, so the two sources
+/// reject exactly the same forms and `docs/cli.md` documents one list of them.
+fn rejection(pattern: &str) -> Option<&'static str> {
+    if pattern.is_empty() {
+        Some("an empty entry")
+    } else if pattern.starts_with('!') {
+        Some("negation")
+    } else if pattern.starts_with('/') {
+        Some("an absolute path")
+    } else if pattern.contains('\\') {
+        Some("a backslash")
+    } else if pattern.contains(':') {
+        Some("a drive letter or colon")
+    } else if pattern.len() > MAX_EXCLUDE_GLOB_BYTES {
+        Some("an entry longer than 4,096 bytes")
+    } else {
+        None
+    }
+}
+
+fn build_glob(pattern: &str) -> Result<Glob, String> {
+    GlobBuilder::new(pattern)
+        .literal_separator(true)
+        .backslash_escape(false)
+        .case_insensitive(cfg!(windows))
+        .build()
+        .map_err(|e| e.to_string())
 }
 
 pub fn excludes(patterns: &[String]) -> Result<GlobSet, String> {
@@ -30,26 +67,88 @@ pub fn excludes(patterns: &[String]) -> Result<GlobSet, String> {
     }
     let mut builder = GlobSetBuilder::new();
     for pattern in patterns {
-        if pattern.is_empty()
-            || pattern.starts_with('!')
-            || pattern.starts_with('/')
-            || pattern.contains(['\\', ':'])
-            || pattern.len() > MAX_EXCLUDE_GLOB_BYTES
-        {
+        if let Some(reason) = rejection(pattern) {
             return Err(format!(
-                "invalid exclude glob {pattern:?}: use a relative forward-slash pattern without negation"
+                "invalid exclude glob {pattern:?}: use a relative forward-slash pattern without negation ({reason})"
             ));
         }
-        builder.add(
-            GlobBuilder::new(pattern)
-                .literal_separator(true)
-                .backslash_escape(false)
-                .case_insensitive(cfg!(windows))
-                .build()
-                .map_err(|e| e.to_string())?,
-        );
+        builder.add(build_glob(pattern)?);
     }
     builder.build().map_err(|e| e.to_string())
+}
+
+/// A validated `verse-lint.ignore` from the configuration root.
+///
+/// Every pattern here came from that one file; nothing on the command line or in
+/// another directory can add to it. `--no-ignore-file` is handled by the caller
+/// never loading it.
+#[derive(Debug)]
+pub struct IgnoreFile {
+    pub path: PathBuf,
+    pub patterns: Vec<String>,
+}
+
+/// Reads `<root>/verse-lint.ignore`, or `None` when it does not exist.
+///
+/// A missing file is not an error. An unreadable, oversized, non-UTF-8 or
+/// invalid file is, and every message names the path (and, per entry, the line)
+/// so the problem is locatable without guessing.
+pub fn load_ignore_file(root: &Path) -> Result<Option<IgnoreFile>, String> {
+    let path = root.join(IGNORE_FILE_NAME);
+    let metadata = match fs::metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("{}: {error}", path.display())),
+    };
+    if !metadata.is_file() {
+        return Err(format!("{}: expected a regular file", path.display()));
+    }
+    let oversized = || format!("{}: {IGNORE_FILE_NAME} exceeds 256 KiB", path.display());
+    if metadata.len() > MAX_IGNORE_BYTES as u64 {
+        return Err(oversized());
+    }
+    let mut bytes = Vec::new();
+    fs::File::open(&path)
+        .and_then(|file| {
+            file.take((MAX_IGNORE_BYTES + 1) as u64)
+                .read_to_end(&mut bytes)
+        })
+        .map_err(|error| format!("{}: {error}", path.display()))?;
+    if bytes.len() > MAX_IGNORE_BYTES {
+        return Err(oversized());
+    }
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|_| format!("{}: {IGNORE_FILE_NAME} must be UTF-8", path.display()))?;
+    let patterns = parse_ignore_file(text.trim_start_matches('\u{feff}'))
+        .map_err(|(line, message)| format!("{}:{line}: {message}", path.display()))?;
+    Ok(Some(IgnoreFile { path, patterns }))
+}
+
+/// One relative forward-slash glob per line. Blank lines and lines whose first
+/// non-blank character is `#` are skipped; each entry is trimmed; a `#` that is
+/// not leading belongs to the pattern. Failures carry the offending line number.
+fn parse_ignore_file(text: &str) -> Result<Vec<String>, (usize, String)> {
+    let mut patterns = Vec::new();
+    for (index, raw) in text.lines().enumerate() {
+        let line = index + 1;
+        let entry = raw.trim();
+        if entry.is_empty() || entry.starts_with('#') {
+            continue;
+        }
+        if let Some(reason) = rejection(entry) {
+            return Err((line, format!("invalid ignore pattern {entry:?}: {reason}")));
+        }
+        build_glob(entry)
+            .map_err(|error| (line, format!("invalid ignore pattern {entry:?}: {error}")))?;
+        patterns.push(entry.to_string());
+        if patterns.len() > MAX_EXCLUDE_GLOBS {
+            return Err((
+                line,
+                format!("at most {MAX_EXCLUDE_GLOBS} ignore patterns are supported"),
+            ));
+        }
+    }
+    Ok(patterns)
 }
 
 pub fn label(path: &Path, root: &Path) -> Result<String, String> {
@@ -131,9 +230,30 @@ pub struct Discovery {
     pub excluded: Vec<String>,
 }
 
+/// The merged exclusion rules.
+///
+/// `[files] exclude` and `verse-lint.ignore` are a union: a path matching either
+/// source is skipped, and neither silently overrides the other. They stay two
+/// matchers so `--verbose` can name the source that matched, and so an explicit
+/// argument keeps its documented behaviour per source: a config match is still
+/// refused, an ignore-file or gitignore match is bypassed.
+struct Exclusions {
+    config: GlobSet,
+    ignore_file: GlobSet,
+}
+
+impl Exclusions {
+    fn build(config: &[String], ignore_file: &[String]) -> Result<Self, String> {
+        Ok(Self {
+            config: excludes(config)?,
+            ignore_file: excludes(ignore_file)?,
+        })
+    }
+}
+
 struct Walker<'a> {
     root: &'a Path,
-    excludes: GlobSet,
+    exclusions: Exclusions,
     seen: HashSet<PathBuf>,
     visited: usize,
     result: Discovery,
@@ -159,11 +279,13 @@ impl Walker<'_> {
             reason = Some("symlink/junction/reparse point");
         } else if protected(Path::new(&shown)) {
             reason = Some("generated file/directory or Git metadata protection");
-        } else if self.excludes.is_match(&shown) {
+        } else if self.exclusions.config.is_match(&shown) {
             reason = Some("verse.toml exclude");
         } else if !explicit {
             if hidden(path, &metadata) {
                 reason = Some("hidden entry");
+            } else if self.exclusions.ignore_file.is_match(&shown) {
+                reason = Some("verse-lint.ignore exclude");
             } else {
                 let mut ignored = false;
                 for matcher in ignores.iter() {
@@ -230,10 +352,18 @@ impl Walker<'_> {
     }
 }
 
-pub fn discover(inputs: &[PathBuf], root: &Path, patterns: &[String]) -> Result<Discovery, String> {
+pub fn discover(
+    inputs: &[PathBuf],
+    root: &Path,
+    patterns: &[String],
+    ignore: Option<&IgnoreFile>,
+) -> Result<Discovery, String> {
     let mut walker = Walker {
         root,
-        excludes: excludes(patterns)?,
+        exclusions: Exclusions::build(
+            patterns,
+            ignore.map(|file| file.patterns.as_slice()).unwrap_or(&[]),
+        )?,
         seen: HashSet::new(),
         visited: 0,
         result: Discovery::default(),
@@ -285,7 +415,7 @@ mod tests {
     fn walker(visited: usize) -> Walker<'static> {
         Walker {
             root: Path::new("."),
-            excludes: GlobSetBuilder::new().build().unwrap(),
+            exclusions: Exclusions::build(&[], &[]).unwrap(),
             seen: HashSet::new(),
             visited,
             result: Discovery::default(),
@@ -429,7 +559,7 @@ mod tests {
         for index in 0..MAX_WALK_ERRORS {
             before_cap.push(dir.path().join(format!("absent-{index}.verse")));
         }
-        let discovered = discover(&before_cap, dir.path(), &[]).unwrap();
+        let discovered = discover(&before_cap, dir.path(), &[], None).unwrap();
         assert_eq!(discovered.errors.len(), MAX_WALK_ERRORS);
         assert_eq!(discovered.paths, vec![canonical]);
 
@@ -439,7 +569,7 @@ mod tests {
             .map(|index| dir.path().join(format!("absent-{index}.verse")))
             .collect();
         after_cap.push(good);
-        let discovered = discover(&after_cap, dir.path(), &[]).unwrap();
+        let discovered = discover(&after_cap, dir.path(), &[], None).unwrap();
         assert!(discovered.paths.is_empty());
         assert!(discovered.errors.len() > MAX_WALK_ERRORS);
         assert!(
@@ -448,6 +578,96 @@ mod tests {
                 .iter()
                 .any(|error| error.contains("no eligible .verse files found")),
             "a truncated walk must not claim it inspected everything"
+        );
+    }
+
+    /// Comment, blank and whitespace handling is exact: only a leading `#` starts
+    /// a comment, so a `#` inside a pattern stays part of it, and surrounding
+    /// whitespace never reaches the glob.
+    #[test]
+    fn ignore_file_skips_comments_and_blanks_and_keeps_an_inner_hash() {
+        let text = "\n   \n# a comment\n   # indented comment\n  Vendor/**  \nbuild/#cache.verse\n\tContent/Generated/*.verse\t\n";
+        assert_eq!(
+            parse_ignore_file(text).unwrap(),
+            vec![
+                "Vendor/**".to_string(),
+                "build/#cache.verse".to_string(),
+                "Content/Generated/*.verse".to_string(),
+            ]
+        );
+        assert!(parse_ignore_file("").unwrap().is_empty());
+        assert!(parse_ignore_file("# only a comment\n").unwrap().is_empty());
+    }
+
+    /// Every rejected form names the offending line, so a reader can find it in
+    /// a long file without counting.
+    #[test]
+    fn ignore_file_rejections_name_the_line_number() {
+        let cases = [
+            ("Vendor/**\n!kept.verse\n", 2, "negation"),
+            ("/abs/path/**\n", 1, "an absolute path"),
+            ("C:/project/**\n", 1, "a drive letter or colon"),
+            ("Vendor\\**\n", 1, "a backslash"),
+        ];
+        for (text, line, reason) in cases {
+            let (reported, message) = parse_ignore_file(text).unwrap_err();
+            assert_eq!(reported, line, "{text:?}: {message}");
+            assert!(message.contains(reason), "{text:?}: {message}");
+        }
+
+        let over_long = format!("a\n{}\n", "b".repeat(MAX_EXCLUDE_GLOB_BYTES + 1));
+        let (reported, message) = parse_ignore_file(&over_long).unwrap_err();
+        assert_eq!(reported, 2, "{message}");
+        assert!(message.contains("4,096 bytes"), "{message}");
+
+        // A malformed glob is rejected at its own line too, not as a glob error
+        // from the globset builder without context.
+        let (reported, message) = parse_ignore_file("ok/**\n[unclosed\n").unwrap_err();
+        assert_eq!(reported, 2, "{message}");
+        assert!(message.contains("invalid ignore pattern"), "{message}");
+    }
+
+    /// The ignore file holds at most 256 effective patterns; comments and blanks
+    /// never consume the budget, and the 257th entry names its own line.
+    #[test]
+    fn ignore_file_pattern_count_boundary_is_inclusive() {
+        let at_limit = (0..MAX_EXCLUDE_GLOBS)
+            .map(|index| format!("# comment {index}\n{index}/**\n"))
+            .collect::<String>();
+        assert_eq!(
+            parse_ignore_file(&at_limit).unwrap().len(),
+            MAX_EXCLUDE_GLOBS
+        );
+
+        let past_limit = format!("{at_limit}{MAX_EXCLUDE_GLOBS}/**\n");
+        let (line, message) = parse_ignore_file(&past_limit).unwrap_err();
+        assert_eq!(line, MAX_EXCLUDE_GLOBS * 2 + 1, "{message}");
+        assert!(message.contains("at most 256 ignore patterns"), "{message}");
+    }
+
+    /// A missing file is not an error; an oversized one is, and it is refused
+    /// before its contents are parsed.
+    #[test]
+    fn ignore_file_presence_and_size_are_distinguished() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(load_ignore_file(dir.path()).unwrap().is_none());
+
+        let path = dir.path().join(IGNORE_FILE_NAME);
+        fs::write(&path, "Vendor/**\n").unwrap();
+        let loaded = load_ignore_file(dir.path()).unwrap().unwrap();
+        assert_eq!(loaded.path, path);
+        assert_eq!(loaded.patterns, vec!["Vendor/**".to_string()]);
+
+        fs::write(&path, vec![b'#'; MAX_IGNORE_BYTES + 1]).unwrap();
+        let error = load_ignore_file(dir.path()).unwrap_err();
+        assert!(error.contains("exceeds 256 KiB"), "{error}");
+        assert!(error.contains(IGNORE_FILE_NAME), "{error}");
+
+        fs::write(&path, b"Vendor/**\n!kept.verse\n").unwrap();
+        let error = load_ignore_file(dir.path()).unwrap_err();
+        assert!(
+            error.contains("verse-lint.ignore:2:") || error.contains("verse-lint.ignore:2 "),
+            "the line number must be reported: {error}"
         );
     }
 }

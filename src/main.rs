@@ -99,7 +99,11 @@ fn requested_machine_format(args: &[OsString]) -> Option<cli::OutputFormat> {
 }
 
 fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, String> {
-    let mut config = config::resolve(cli.config.as_deref(), cli.stdin_filepath.as_deref())?;
+    let mut config = config::resolve(
+        cli.config.as_deref(),
+        cli.stdin_filepath.as_deref(),
+        cli.no_ignore_file,
+    )?;
     report.source_root = Some(
         config
             .root
@@ -140,7 +144,12 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
         } else {
             cli.paths.clone()
         };
-        let discovered = files::discover(&paths, &config.root, &config.settings.files.exclude)?;
+        let discovered = files::discover(
+            &paths,
+            &config.root,
+            &config.settings.files.exclude,
+            config.ignore_file.as_ref(),
+        )?;
         if cli.verbose {
             for reason in discovered.excluded {
                 eprintln!("{reason}");

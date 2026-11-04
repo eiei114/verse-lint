@@ -19,6 +19,10 @@ fn help_succeeds_without_reading_input() {
         help.contains("--show-suppressed"),
         "missing the opt-in flag"
     );
+    assert!(
+        help.contains("--no-ignore-file"),
+        "missing the ignore-file opt-out flag"
+    );
 }
 
 #[test]
