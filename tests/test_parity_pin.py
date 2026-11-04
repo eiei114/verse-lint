@@ -42,10 +42,14 @@ class ParityPinReaderTests(unittest.TestCase):
             verify_pair.read_pin(self.path)
         self.assertIn(expected, str(raised.exception.code))
 
-    def test_repository_pin_is_valid_and_declares_the_expected_values(self):
+    def test_repository_pin_is_structurally_valid(self):
+        # Values are asserted by shape only: the pin is expected to move on a
+        # real paired update, and that must not need a test edit.
         declared = verify_pair.read_pin(ROOT / "parity.json")
 
-        self.assertEqual(declared, PIN)
+        self.assertEqual(set(declared), set(verify_pair.PIN_KEYS))
+        self.assertRegex(declared["corpusSha256"], r"^[0-9a-f]{64}$")
+        self.assertGreaterEqual(declared["goldenCaseCount"], 1)
 
     def test_valid_declaration_is_returned(self):
         self.write(PIN)
