@@ -77,8 +77,8 @@ binary may live under `target/release` or an external `CARGO_TARGET_DIR`.
 For each case it runs `verse-lint --fix`, then `verse-fmt --write`, checks the
 formatter's independent golden bytes, and repeats both tools to prove the
 second cycle changes nothing. It uses isolated temporary files and removes
-them on exit. The 18 explicit formatter refusals are not sent through a
-successful paired-fix path.
+them on exit. The 23 explicit formatter refusals are not sent through a
+successful paired-fix path; this harness does not exercise them at all.
 
 The one report that backs the current `parity.json` revisions is committed as
 [`docs/evidence/parity-paired-2026-11-05-full.json`](evidence/parity-paired-2026-11-05-full.json),
