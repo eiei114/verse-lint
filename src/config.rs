@@ -6,7 +6,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::rules;
+use crate::{files, rules};
 
 /// `docs/cli.md`: "256 KiB config/ignore file". The same bound applies to the
 /// ignore readers in [`crate::files`].
@@ -43,9 +43,25 @@ pub struct Config {
     pub source: Option<PathBuf>,
     pub root: PathBuf,
     pub settings: Settings,
+    /// `verse-lint.ignore` at [`Config::root`], when it exists and the caller did
+    /// not disable it with `--no-ignore-file`.
+    pub ignore_file: Option<files::IgnoreFile>,
+    /// Whether `--no-ignore-file` suppressed the file, so `--show-config` can
+    /// report "disabled" instead of the indistinguishable "not found".
+    pub ignore_file_disabled: bool,
 }
 
-pub fn resolve(explicit: Option<&Path>, virtual_path: Option<&Path>) -> Result<Config, String> {
+/// Resolves the configuration and the one ignore file it owns.
+///
+/// The ignore file is loaded here, before any discovery, so a rejected entry or
+/// an oversized file fails the run without inspecting one source. `disabled`
+/// comes from `--no-ignore-file`: the file is then never opened, so a broken
+/// file cannot fail a run that asked not to use it.
+pub fn resolve(
+    explicit: Option<&Path>,
+    virtual_path: Option<&Path>,
+    disabled: bool,
+) -> Result<Config, String> {
     let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
     let source = if let Some(path) = explicit {
         Some(
@@ -110,10 +126,17 @@ pub fn resolve(explicit: Option<&Path>, virtual_path: Option<&Path>) -> Result<C
     // Validate globs even in --show-config mode or when no files would match.
     crate::files::excludes(&settings.files.exclude)?;
     settings.lint.validate()?;
+    let ignore_file = if disabled {
+        None
+    } else {
+        files::load_ignore_file(&root)?
+    };
     Ok(Config {
         source,
         root,
         settings,
+        ignore_file,
+        ignore_file_disabled: disabled,
     })
 }
 
@@ -133,10 +156,38 @@ impl Config {
         // `--show-config` is to make the effective set unambiguous.
         settings.lint.select = settings.lint.expanded_select()?;
         settings.lint.ignore = settings.lint.expanded_ignore()?;
+        // Presence, path and the merged effective count are reported as a header
+        // comment so the TOML body keeps parsing as configuration. The count is
+        // the union both sources contribute, which is what actually excludes.
+        let ignore = self.ignore_report();
         Ok(format!(
-            "# source: {origin:?}\n# root: {:?}\n{}",
+            "# source: {origin:?}\n# root: {:?}\n{ignore}\n{}",
             self.root,
             toml::to_string_pretty(&settings).map_err(|e| e.to_string())?
         ))
+    }
+
+    /// One deterministic line stating whether an ignore file was found, where it
+    /// is and how many patterns exclusion actually applies.
+    fn ignore_report(&self) -> String {
+        let effective = self.settings.files.exclude.len()
+            + self
+                .ignore_file
+                .as_ref()
+                .map_or(0, |file| file.patterns.len());
+        match (&self.ignore_file, self.ignore_file_disabled) {
+            (_, true) => format!(
+                "# ignore file: disabled by --no-ignore-file ({effective} effective pattern(s) from [files] exclude only)"
+            ),
+            (Some(file), false) => format!(
+                "# ignore file: {:?} ({} pattern(s), {effective} effective)",
+                file.path,
+                file.patterns.len()
+            ),
+            (None, false) => format!(
+                "# ignore file: none at {:?} (0 pattern(s), {effective} effective)",
+                self.root.join(files::IGNORE_FILE_NAME)
+            ),
+        }
     }
 }

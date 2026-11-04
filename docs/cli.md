@@ -13,7 +13,8 @@ configured ignore, then subtracts from selection. Each rule has a registry
 default severity; `[lint.severity]` overrides it per project.
 `--deny-warnings` promotes remaining warnings to exit 1 without changing severity.
 `--show-suppressed` also lists findings a suppression directive removed; see
-[suppressed findings](#suppressed-findings).
+[suppressed findings](#suppressed-findings). `--no-ignore-file` skips
+`verse-lint.ignore` for one run; see [ignore file](#ignore-file).
 
 ### Rule selection and family prefixes
 
@@ -95,7 +96,55 @@ are deduplicated (including tested Windows case aliases).
 Distinct hard-link paths are separate read-only inputs; `--fix` refuses hard-linked
 sources before writing.
 There is no CLI glob expansion. Zero sources is exit 2, not successful inspection.
-`--verbose` explains exclusions on stderr.
+`--verbose` explains exclusions on stderr, naming the source that excluded each
+path (`verse.toml`, `verse-lint.ignore` or `.gitignore`).
+
+### Ignore file
+
+`verse-lint.ignore` is one shared exclusion list for a project that needs the same
+skips in several repositories. It is read from **one** location: the directory
+owning the resolved `verse.toml`, or CWD when no configuration was found. There is
+no parent-directory search, no nested per-subdirectory ignore file and no
+user-level ignore file.
+
+```text
+# generated output and vendored dependencies
+Content/Generated/**
+Vendor/**
+Saved_*/Intermediate/**
+```
+
+One relative forward-slash glob per line. A blank line, and a line whose first
+non-blank character is `#`, is skipped; each entry is trimmed. A `#` that is not
+leading belongs to the pattern, so `build#1.verse` is a pattern, not a comment.
+Accepted entries follow exactly the `[files] exclude` grammar, so the same forms
+are rejected as a configuration error with exit 2 and the offending line number:
+
+- negation (`!name.verse`)
+- an absolute path (`/Content/**`)
+- a drive letter or colon (`C:/project/**`)
+- a backslash (`Content\**`)
+- an entry longer than 4,096 bytes
+
+The file may hold at most 256 effective patterns and be at most 256 KiB; comments
+and blank lines do not consume the pattern budget. Both numbers are
+machine-checked in [Limits](#output-contract) below. Exceeding either is exit 2,
+reported before any source is inspected and before any fix is written.
+
+`[files] exclude` and `verse-lint.ignore` combine as a union: a path either source
+matches is skipped. Neither overrides the other, and there is no "last match
+wins" rule. An explicit file argument bypasses `verse-lint.ignore` exactly as it
+bypasses `[files] exclude`; generated-file protections (`Saved`, `Intermediate`,
+`*.digest.verse`, `.git`) stay non-bypassable. A missing ignore file is not an
+error; an unreadable one is exit 2 with a message naming the path.
+
+`--no-ignore-file` disables the file for one invocation without touching it, which
+restores the behaviour of a directory that has none. `--show-config` reports in a
+header comment whether an ignore file was found, its path, and the merged
+effective pattern count (its own patterns plus `[files] exclude`), so the number
+that actually excludes is visible in one place. `--verbose` keeps the
+attribution per path, so `verse.toml`, `verse-lint.ignore` and `.gitignore`
+exclusions remain distinguishable.
 
 ## Suppressed findings
 
@@ -178,6 +227,7 @@ Limits:
 - 256 KiB config file
 - 256 KiB ignore file
 - 256 exclude globs
+- 256 ignore patterns
 - 4,096 bytes per exclude glob
 - 10,000 diagnostics per invocation
 
@@ -230,3 +280,10 @@ real parse to take two seconds.
 `scripts/verify-json.ps1` validates real release-binary JSON and SARIF for exit
 0/1/2, fixes, suppression, Unicode paths, virtual stdin, I/O and argument failure
 with PowerShell 7's JSON Schema validator. An invalid version must be rejected.
+
+`verse-lint.ignore` is covered end to end by `tests/ignore-file-cli.rs`: discovery
+exclusion, the union with `[files] exclude`, comment/whitespace handling, every
+rejected entry form with its line number, both caps at their boundary and one past
+it, `--no-ignore-file`, explicit-argument bypass, `--verbose` attribution and
+`--show-config` output. The parser and loader are also unit tested in
+`src/files.rs`.

@@ -62,6 +62,9 @@ pub struct Cli {
     /// Explain file exclusions on stderr.
     #[arg(long)]
     pub verbose: bool,
+    /// Ignore `verse-lint.ignore` at the configuration root for this run.
+    #[arg(long)]
+    pub no_ignore_file: bool,
     #[arg(long, value_enum, default_value_t = Color::Auto)]
     pub color: Color,
 }

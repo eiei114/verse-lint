@@ -231,7 +231,7 @@ fn limit_table_names_both_documents_and_their_constants() {
         .filter(|limit| limit.document == CLI_DOC)
         .map(|limit| limit.claim)
         .collect();
-    assert_eq!(claims.len(), 10, "every cli.md limit has its own claim");
+    assert_eq!(claims.len(), 11, "every cli.md limit has its own claim");
 }
 
 /// `docs/rules.md` and `REGISTRY` must name exactly the same rules.
