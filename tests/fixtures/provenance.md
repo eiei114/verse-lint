@@ -10,5 +10,12 @@ They use the project's MIT OR Apache-2.0 license.
 
 `device.input.verse` is a minimal self-authored creative-device example.
 `device.expected.verse` is its intended formatting, not compiler output.
+
+`baseline/*.verse` are self-authored inputs for the pre-slice-versus-HEAD output
+parity sweep in `scripts/verify-baseline-parity.ps1`. They cover one input per
+rule, clean input, suppression, string and comment protection, Unicode literals,
+and the grammar refusals the linter documents. They are test inputs, not
+compiler output and not a code-quality sample.
+
 UEFN compile and runtime acceptance have not yet been performed. Parser and
 formatter test success must not be presented as UEFN acceptance.

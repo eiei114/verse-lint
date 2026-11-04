@@ -21,6 +21,12 @@ same order, and still fail closed. The `Tree` is owned and lifetime-free, so it
 costs no signature change. See [parser design](parser-design.md) and
 [syntax snapshot](syntax-snapshot.md).
 
+The claim that rule output is unchanged is enforced, not asserted:
+`scripts/verify-baseline-parity.ps1` compares the pre-slice binary against HEAD
+byte-for-byte over the fixture corpus in text, JSON and SARIF, and
+`scripts/verify.ps1` fails when any byte differs. See
+[baseline output parity](parser-design.md#baseline-output-parity).
+
 What retention costs: one CST per source is held for the duration of that
 source's inspection instead of being freed after fingerprinting. The bounds are
 the existing ones — 8 MiB per source, CST depth 512, 1,000,000 fingerprint

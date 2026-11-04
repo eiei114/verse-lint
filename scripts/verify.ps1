@@ -33,6 +33,11 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'cargo test failed' }
     cargo build --release --locked --target x86_64-pc-windows-msvc
     if ($LASTEXITCODE -ne 0) { throw 'Windows release build failed' }
+    # Primary regression gate for the retained-CST slice: the pre-slice binary
+    # (HEAD^) and this HEAD must produce byte-identical text, JSON and SARIF for
+    # every self-authored fixture. A mismatch fails verification.
+    & "$PSScriptRoot/verify-baseline-parity.ps1" -Profile release -ToolchainBin $bin
+    if ($LASTEXITCODE -ne 0) { throw 'Baseline output parity failed' }
     & "$PSScriptRoot/verify-json.ps1"
     Write-Output 'Verification passed (UEFN acceptance is a separate gate).'
 } finally {

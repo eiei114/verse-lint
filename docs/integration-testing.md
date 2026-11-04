@@ -74,6 +74,24 @@ P1 extends the corpus to 87 cases (64 goldens and 23 refusals), adding bounded
 Historical runs above do not validate the six new goldens; run the current
 harness against rebuilt clean checkouts before claiming current convergence.
 
+## Pre-slice output parity
+
+The linter's own `scripts/verify-baseline-parity.ps1` needs no formatter and no
+external corpus. It rebuilds the binary from the merge base with the base branch,
+rebuilds HEAD, and requires byte-identical stdout, stderr and exit codes for
+every source in `tests/fixtures/baseline/` in text, JSON and SARIF, plus
+whole-corpus and stdin runs. It runs inside `scripts/verify.ps1`, so it gates
+every Windows verification. Override the baseline explicitly when history is
+shallow or the slice intentionally changes output:
+
+```powershell
+pwsh -NoProfile -File scripts/verify-baseline-parity.ps1 -BaseRef <pre-slice commit>
+pwsh -NoProfile -File scripts/verify-baseline-parity.ps1 -BaselineBinary <path to pre-slice binary>
+```
+
+The JSON report is a local artifact under
+`target/verification/baseline-parity/` and is not committed.
+
 ## Shell matrix
 
 The PowerShell 5.1-compatible script checks exit codes 0/1/2 for both tools

@@ -12,7 +12,11 @@ jobs:
   verify:
     runs-on: windows-2025
     steps:
+      # Full history so the baseline parity gate in scripts/verify.ps1 can
+      # resolve the merge base with main and rebuild the pre-slice binary.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
       - name: Verify pinned toolchain and Windows CLI
         shell: pwsh
         run: ./scripts/verify.ps1
