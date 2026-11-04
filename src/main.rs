@@ -111,6 +111,7 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
         config.settings.lint.ignore = ignore.clone();
     }
     let active = config.settings.lint.active()?;
+    let severities = config.settings.lint.severity_overrides()?;
     if cli.show_config {
         return Ok(Some(config.show()?));
     }
@@ -126,6 +127,7 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
             read(std::io::stdin()),
             &label,
             &active,
+            &severities,
             config.settings.lint.max_line_length,
             report,
         );
@@ -150,6 +152,7 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
                 discovered.paths,
                 &config.root,
                 &active,
+                &severities,
                 config.settings.lint.max_line_length,
                 report,
             );
@@ -175,6 +178,7 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
                 bytes,
                 &label,
                 &active,
+                &severities,
                 config.settings.lint.max_line_length,
                 report,
             );
@@ -199,6 +203,7 @@ fn inspect(
     bytes: Result<Vec<u8>, String>,
     label: &str,
     active: &std::collections::BTreeSet<String>,
+    severities: &rules::SeverityOverrides,
     max_line_length: usize,
     report: &mut report::Report,
 ) {
@@ -208,6 +213,7 @@ fn inspect(
             &source,
             label,
             active,
+            severities,
             max_line_length,
             rules::MAX_DIAGNOSTICS - report.diagnostics.len() - report.summary.suppressed,
         )

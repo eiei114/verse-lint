@@ -12,7 +12,10 @@ upload anything, enable GitHub code scanning or invoke external services.
   registry order never decides which rule a result belongs to. Actual selected
   rules determine results; metadata never implies unselected rules were
   executed.
-- Results retain JSON/text ordering, IDs, severity and messages. Suppressed
+- Results retain JSON/text ordering, IDs, severity and messages. Result `level`
+  is the effective severity after `[lint.severity]`, while
+  `defaultConfiguration.level` keeps the registry default because it describes
+  the tool, not this project's policy. Suppressed
   findings are omitted; run properties preserve the same summary counts.
 - `columnKind` is `unicodeCodePoints`: one-based scalar columns, not visual
   tab width or UTF-16 units. Regions include start/end lines/columns plus

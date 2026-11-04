@@ -48,7 +48,7 @@ pub fn render(report: &Report) -> Value {
         "id": rule.id, "name": rule.name,
         "shortDescription": {"text": rule.message},
         "help": {"text": format!("{}; see docs/rules/{}.md. {}",rule.message,rule.id.to_lowercase(),if rule.fixable {"The CLI can apply this safe fix after validation; this SARIF contains no edit suggestions."} else {"No automatic fix."})},
-        "defaultConfiguration": {"level":rule.severity,"enabled":rule.selected_by_default},
+        "defaultConfiguration": {"level":rule.severity.as_str(),"enabled":rule.selected_by_default},
         "properties": {"tags":["style"],"fixable":rule.fixable}
     })).collect();
     let paths: BTreeSet<_> = report.diagnostics.iter().map(|d| d.path.as_str()).collect();
@@ -78,7 +78,7 @@ pub fn render(report: &Report) -> Value {
         let start = &d.range.start;let end = &d.range.end;
         json!({
             "ruleId":d.rule_id,"ruleIndex":REGISTRY.iter().position(|r|r.id==d.rule_id).expect("registered diagnostic rule"),
-            "level":d.severity,"message":{"text":d.message},
+            "level":d.severity.as_str(),"message":{"text":d.message},
             "locations":[{"physicalLocation":{"artifactLocation":locations[&d.path.as_str()],"region":{
                 "startLine":start.line,"startColumn":start.column,"endLine":end.line,"endColumn":end.column,
                 "byteOffset":start.byte_offset,"byteLength":end.byte_offset-start.byte_offset

@@ -5,6 +5,7 @@ use serde::Serialize;
 use crate::{
     cli::{Color, OutputFormat},
     diagnostic::Diagnostic,
+    rules::Severity,
 };
 
 #[derive(Debug, Serialize)]
@@ -84,12 +85,12 @@ impl Report {
         self.summary.errors = self
             .diagnostics
             .iter()
-            .filter(|d| d.severity == "error")
+            .filter(|d| d.severity == Severity::Error)
             .count();
         self.summary.warnings = self
             .diagnostics
             .iter()
-            .filter(|d| d.severity == "warning")
+            .filter(|d| d.severity == Severity::Warning)
             .count();
         self.summary.complete = self.execution_errors.is_empty();
         self.exit_code = if !self.summary.complete {

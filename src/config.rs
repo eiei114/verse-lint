@@ -119,10 +119,16 @@ impl Config {
             .source
             .as_ref()
             .map_or_else(|| "<defaults>".into(), |p| p.display().to_string());
+        // Render the effective severity of every registered rule, not just the
+        // configured overrides, so a user can confirm the result without
+        // reconstructing registry defaults. `BTreeMap` ordering keeps the
+        // emitted table independent of the order of keys in the source file.
+        let mut settings = self.settings.clone();
+        settings.lint.severity = settings.lint.effective_severity()?;
         Ok(format!(
             "# source: {origin:?}\n# root: {:?}\n{}",
             self.root,
-            toml::to_string_pretty(&self.settings).map_err(|e| e.to_string())?
+            toml::to_string_pretty(&settings).map_err(|e| e.to_string())?
         ))
     }
 }
