@@ -308,8 +308,19 @@ impl Settings {
 
 #[derive(Clone, Debug, Default)]
 pub struct LintResult {
+    /// Findings that will be reported. Suppressed findings are never in here.
     pub diagnostics: Vec<Diagnostic>,
-    pub suppressed: usize,
+    /// Findings a suppression directive removed, kept so `--show-suppressed` can
+    /// report them. The count is the only trace a default run prints, and it is
+    /// what the diagnostic budget and `summary.suppressed` use.
+    pub suppressed: Vec<Diagnostic>,
+}
+
+impl LintResult {
+    /// Findings removed by suppression directives, shown or not.
+    pub fn suppressed_count(&self) -> usize {
+        self.suppressed.len()
+    }
 }
 
 pub fn lint(
@@ -358,10 +369,13 @@ fn lint_with(
             ));
         }
         count += 1;
-        let diagnostic =
+        let mut diagnostic =
             Diagnostic::new(path, source, range, rule, severities.get(rule.id).copied());
         if suppressions.contains(diagnostic.range.start.line, rule.id) {
-            result.suppressed += 1;
+            // Marked at the source of truth: the flag travels with the finding,
+            // so text, JSON and SARIF cannot disagree about what was suppressed.
+            diagnostic.suppressed = true;
+            result.suppressed.push(diagnostic);
         } else {
             result.diagnostics.push(diagnostic);
         }
@@ -453,9 +467,11 @@ fn lint_with(
             offset += line.len();
         }
     }
-    result
-        .diagnostics
-        .sort_by_key(|d| (d.range.start.byte_offset, d.rule_id));
+    // Both lists use the same key, so showing suppressed findings never changes
+    // the order active findings are printed in.
+    let order = |d: &Diagnostic| (d.range.start.byte_offset, d.rule_id);
+    result.diagnostics.sort_by_key(order);
+    result.suppressed.sort_by_key(order);
     Ok(result)
 }
 
@@ -555,7 +571,7 @@ mod tests {
         };
         // Same findings, same rule identity: a reorder cannot rebind detectors.
         assert_eq!(outcome(&baseline), outcome(&reversed));
-        assert_eq!(baseline.suppressed, reversed.suppressed);
+        assert_eq!(baseline.suppressed_count(), reversed.suppressed_count());
         // Each finding still reports the metadata of the rule that produced it.
         for diagnostic in &reversed.diagnostics {
             let documented = DOCUMENTED
@@ -591,6 +607,70 @@ mod tests {
             rule(V2001).message,
             "selection must keep the V2001 identity, not the entry that replaced it"
         );
+    }
+
+    #[test]
+    fn suppressed_findings_are_retained_marked_and_ordered_like_reported_ones() {
+        let source = Source::from_bytes(
+            b"A := 1  \n# verse-lint: disable-next-line V1001 -- reason\nB := 2  \nC := 3  \n",
+        )
+        .expect("sample source");
+        let result = lint_with(
+            &source,
+            "sample.verse",
+            &active(&[V1001]),
+            &SeverityOverrides::new(),
+            120,
+            MAX_DIAGNOSTICS,
+            &REGISTRY,
+        )
+        .expect("lint succeeds");
+
+        // Retained, not merely counted: the finding keeps its identity and
+        // carries the flag a consumer filters on.
+        assert_eq!(result.suppressed_count(), 1);
+        assert!(result.suppressed.iter().all(|d| d.suppressed));
+        assert!(result.diagnostics.iter().all(|d| !d.suppressed));
+        assert_eq!(result.suppressed[0].rule_id, V1001);
+        assert_eq!(result.suppressed[0].range.start.line, 3);
+
+        // Both lists are sorted by the same key, so printing one after the other
+        // and re-sorting is the same list in the same order.
+        let order = |d: &Diagnostic| (d.range.start.byte_offset, d.rule_id);
+        let mut combined: Vec<_> = result
+            .diagnostics
+            .iter()
+            .chain(&result.suppressed)
+            .cloned()
+            .collect();
+        combined.sort_by_key(order);
+        let lines: Vec<_> = combined.iter().map(|d| d.range.start.line).collect();
+        assert_eq!(lines, [1, 3, 4]);
+        assert!(combined[1].suppressed);
+
+        // The same input without a directive yields the same findings and an
+        // empty suppressed list: the flag never changes detection.
+        let plain = Source::from_bytes(b"A := 1  \nB := 2  \nC := 3  \n").unwrap();
+        let without = lint_with(
+            &plain,
+            "sample.verse",
+            &active(&[V1001]),
+            &SeverityOverrides::new(),
+            120,
+            MAX_DIAGNOSTICS,
+            &REGISTRY,
+        )
+        .unwrap();
+        assert_eq!(without.suppressed_count(), 0);
+        let outcome = |r: &LintResult| {
+            r.diagnostics
+                .iter()
+                .chain(&r.suppressed)
+                .map(|d| (d.rule_id, d.message))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(outcome(&result).len(), 3);
+        assert_eq!(outcome(&result), outcome(&without));
     }
 
     fn settings_with(select: &[&str], ignore: &[&str]) -> Settings {
@@ -821,7 +901,7 @@ mod tests {
         // Only the reported severity changed: same findings, same order, same
         // fixability, so detectors and dispatch are untouched.
         assert_eq!(identity(&baseline), identity(&overridden));
-        assert_eq!(baseline.suppressed, overridden.suppressed);
+        assert_eq!(baseline.suppressed_count(), overridden.suppressed_count());
         for diagnostic in &overridden.diagnostics {
             let expected = match diagnostic.rule_id {
                 V1001 => Severity::Warning,

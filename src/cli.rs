@@ -50,8 +50,15 @@ pub struct Cli {
     #[arg(long)]
     pub config: Option<PathBuf>,
     /// Print the resolved configuration without processing source files.
-    #[arg(long, conflicts_with_all = ["paths", "fix", "deny_warnings", "output_format"])]
+    #[arg(
+        long,
+        conflicts_with_all = ["paths", "fix", "deny_warnings", "output_format", "show_suppressed"]
+    )]
     pub show_config: bool,
+    /// Also report findings removed by a `verse-lint:` suppression directive.
+    /// They are marked as suppressed and never change the exit code.
+    #[arg(long)]
+    pub show_suppressed: bool,
     /// Explain file exclusions on stderr.
     #[arg(long)]
     pub verbose: bool,

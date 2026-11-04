@@ -18,6 +18,7 @@ verse-lint . --output-format json
 verse-lint . --output-format sarif
 verse-lint . --fix
 verse-lint . --select V2001,V2002 --deny-warnings
+verse-lint . --show-suppressed
 verse-lint --show-config
 ```
 

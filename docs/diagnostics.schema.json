@@ -44,13 +44,14 @@
     },
     "diagnostic": {
       "type": "object", "additionalProperties": false,
-      "required": ["path", "ruleId", "severity", "message", "range", "fixable"],
+      "required": ["path", "ruleId", "severity", "message", "range", "fixable", "suppressed"],
       "properties": {
         "path": { "type": "string" },
         "ruleId": { "type": "string", "pattern": "^V[0-9]{4}$" },
         "severity": { "enum": ["error", "warning"] },
         "message": { "type": "string" },
         "fixable": { "type": "boolean" },
+        "suppressed": { "type": "boolean" },
         "range": {
           "type": "object", "additionalProperties": false, "required": ["start", "end"],
           "properties": { "start": { "$ref": "#/definitions/position" }, "end": { "$ref": "#/definitions/position" } }

@@ -15,8 +15,10 @@ pub fn run(
     active: &BTreeSet<String>,
     severities: &rules::SeverityOverrides,
     max_line_length: usize,
+    show_suppressed: bool,
     report: &mut Report,
 ) {
+    report.show_suppressed = show_suppressed;
     run_using(
         paths,
         root,
@@ -54,8 +56,7 @@ fn run_using(
                 return Err("inputs exceed the 64 MiB total limit; no fixes written".into());
             }
             let source = Source::from_bytes(&snapshot.bytes).map_err(|e| e.to_string())?;
-            let budget =
-                rules::MAX_DIAGNOSTICS - report.diagnostics.len() - report.summary.suppressed;
+            let budget = rules::MAX_DIAGNOSTICS - report.budget_used;
             let plan = fix::plan(&source, &label, active, severities, max_line_length, budget)
                 .map_err(|e| e.to_string())?;
             Ok(Candidate {
@@ -67,10 +68,10 @@ fn run_using(
         match result {
             Ok(candidate) => {
                 report.summary.files_checked += 1;
-                report.summary.suppressed += candidate.plan.original.suppressed;
-                report
-                    .diagnostics
-                    .extend(candidate.plan.original.diagnostics.clone());
+                // Uncommitted files keep inspected-original findings, which is
+                // what the failure message promises; a successful save replaces
+                // them with the saved source's findings below.
+                report.record(&candidate.plan.original);
                 candidates.push(candidate);
             }
             Err(e) => report.error(Some(label), e),
@@ -114,13 +115,11 @@ fn run_using(
                     eprintln!("{}: {warning}", candidate.label);
                 }
                 report.summary.files_changed += 1;
-                report.summary.suppressed = report.summary.suppressed
-                    - candidate.plan.original.suppressed
-                    + candidate.plan.after.suppressed;
-                report.diagnostics.retain(|d| d.path != candidate.label);
-                report
-                    .diagnostics
-                    .append(&mut candidate.plan.after.diagnostics);
+                report.replace(
+                    &candidate.label,
+                    &candidate.plan.original,
+                    &candidate.plan.after,
+                );
             }
             Err(e) => {
                 report.error(Some(candidate.label.clone()),format!("{e}; completed: {:?}; not attempted: {:?}. Uncommitted diagnostics describe inspected originals, not candidate fixes",&labels[..sequence],&labels[sequence+1..]));
