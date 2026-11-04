@@ -21,7 +21,7 @@ schema-version = 1
 [files]
 exclude = ["Vendor/**"]
 [lint]
-select = ["V1001", "V1002", "V1003"]
+select = ["V1001", "V1002", "V1003", "V2001"] # V2001 also has to be selected
 ignore = []
 max-line-length = 120 # used only when V2001 is selected
 [lint.severity]

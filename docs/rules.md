@@ -32,6 +32,8 @@ The table above is the tool default. A project may promote or demote an already
 registered rule through `[lint.severity]` in `verse.toml`:
 
 ```toml
+[lint]
+select = ["V1001", "V1002", "V1003", "V2001"] # V2001 has to be selected as well
 [lint.severity]
 V2001 = "error"   # opt-in policy rule becomes a hard CI failure
 V1001 = "warning" # default error is demoted for this project only
