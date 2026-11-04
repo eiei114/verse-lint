@@ -164,7 +164,7 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
             if let Ok(bytes) = &bytes {
                 total += bytes.len();
             }
-            if total > files::MAX_TOTAL_BYTES {
+            if files::total_bytes_exceeded(total) {
                 report.error(
                     Some(label),
                     "inputs exceed the 64 MiB total limit; inspection incomplete",

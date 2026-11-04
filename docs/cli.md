@@ -83,6 +83,43 @@ including suppressed findings. An exceeding file produces an execution error ins
 diagnostics complete. Previously completed files remain in output. No fixing
 begins on limit failure. Parser limits are in [parser-design.md](parser-design.md).
 
+### Limit coverage
+
+Every limit above is covered at its boundary and one step past it by
+`tests/limits-cli.rs` and the unit tests in `src/`. Past-limit runs assert exit 2,
+an execution-error classification (never a lint rule), `complete: false`, and that
+`--fix` wrote nothing. Walk limits also assert that files discovered before the
+failure keep their diagnostics.
+
+Two limits are only proven at the predicate level in the ordinary verification
+path, because reaching them literally needs a heavy fixture. Both have a full
+end-to-end test gated behind `VERSE_LINT_HEAVY_LIMIT_TESTS=1`; see
+[integration testing](integration-testing.md).
+
+- 64 MiB total read input: `files::total_bytes_exceeded` is unit tested on both
+  sides of the bound, and `tests/limits-cli.rs` gates the 64 MiB aggregate run.
+- One million fingerprint events: `syntax::tree_limit` is unit tested on both
+  sides of the bound, and `tests/limits-cli.rs` gates the full-size input.
+
+Two walker limits are proven at the walker level rather than end to end, because
+building the input would dominate the verification path:
+
+- 100,000 visited entries: `files::MAX_VISITED_ENTRIES` is tested at its boundary
+  and one past it through the walker's `visit` entry point, which is the same
+  comparison production runs; the deep-nesting cases in `tests/limits-cli.rs`
+  prove the shared "directory traversal resource limit" failure end to end.
+- 10,000 source files: the walker test proves the 10,000th file is accepted and
+  the next refused; a CLI run also covers the refusal with `--fix` in
+  `tests/fix-cli.rs`.
+
+One documented limit is **not** testable as written and is recorded here rather
+than silently left unverified: the two-second parse budget is enforced by a
+wall-clock `progress_callback`. A real parse that exceeds two seconds would make
+the test flake on a loaded CI runner, so the budget predicate
+(`syntax::parse_budget_exceeded`) and a zero-budget refusal are tested instead,
+and the two-second duration itself is asserted as a constant. No test forces a
+real parse to take two seconds.
+
 `scripts/verify-json.ps1` validates real release-binary JSON and SARIF for exit
 0/1/2, fixes, suppression, Unicode paths, virtual stdin, I/O and argument failure
 with PowerShell 7's JSON Schema validator. An invalid version must be rejected.
