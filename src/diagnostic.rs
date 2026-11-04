@@ -43,6 +43,10 @@ pub struct Diagnostic {
     pub message: &'static str,
     pub range: SourceRange,
     pub fixable: bool,
+    /// Set when a suppression directive removed this finding from ordinary
+    /// output. Present on every diagnostic in JSON so a consumer can filter
+    /// without inferring intent from which run produced the object.
+    pub suppressed: bool,
 }
 
 impl Diagnostic {
@@ -63,6 +67,7 @@ impl Diagnostic {
                 end: Position::at(source, range.end),
             },
             fixable: rule.fixable,
+            suppressed: false,
         }
     }
 }

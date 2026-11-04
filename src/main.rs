@@ -47,6 +47,7 @@ fn main() -> ExitCode {
     };
     let mut report = report::Report::default();
     report.stdin = cli.paths.iter().any(|p| p.as_os_str() == "-");
+    report.show_suppressed = cli.show_suppressed;
     match cli.validate().and_then(|()| run(&cli, &mut report)) {
         Ok(Some(config)) => {
             return match std::io::stdout().lock().write_all(config.as_bytes()) {
@@ -156,6 +157,7 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
                 &active,
                 &severities,
                 config.settings.lint.max_line_length,
+                cli.show_suppressed,
                 report,
             );
             return Ok(None);
@@ -217,7 +219,7 @@ fn inspect(
             active,
             severities,
             max_line_length,
-            rules::MAX_DIAGNOSTICS - report.diagnostics.len() - report.summary.suppressed,
+            rules::MAX_DIAGNOSTICS - report.budget_used,
         )
         .map_err(|e| {
             let (line, column) = source.position(e.offset);
@@ -227,8 +229,7 @@ fn inspect(
     match result {
         Ok(result) => {
             report.summary.files_checked += 1;
-            report.diagnostics.extend(result.diagnostics);
-            report.summary.suppressed += result.suppressed;
+            report.record(&result);
         }
         Err(error) => report.error(Some(label.into()), error),
     }

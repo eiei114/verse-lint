@@ -12,6 +12,8 @@ be used alone; `--stdin-filepath` is a virtual Unicode path, not a write target.
 configured ignore, then subtracts from selection. Each rule has a registry
 default severity; `[lint.severity]` overrides it per project.
 `--deny-warnings` promotes remaining warnings to exit 1 without changing severity.
+`--show-suppressed` also lists findings a suppression directive removed; see
+[suppressed findings](#suppressed-findings).
 
 ### Rule selection and family prefixes
 
@@ -95,20 +97,57 @@ sources before writing.
 There is no CLI glob expansion. Zero sources is exit 2, not successful inspection.
 `--verbose` explains exclusions on stderr.
 
+## Suppressed findings
+
+Suppression directives ([suppressions](suppressions.md)) remove findings from
+ordinary output. `--show-suppressed` lists them again, so a suppression written
+for code that has since changed can be reviewed without editing the source first.
+The flag changes reporting only:
+
+- Without it, output is exactly as before: suppressed findings are not printed
+  and `summary.suppressed` is their only trace.
+- With it, suppressed findings are reported alongside active ones, marked as
+  suppressed, and sorted by the same path/byte-offset/rule-ID key, so a mixed
+  list still reads in source order.
+- Text output appends ` (suppressed)` after the message. The marker is stable: no
+  rule message ends with it, so a line without it is an active finding.
+- JSON sets the per-diagnostic `suppressed` boolean, present on every diagnostic
+  in every run. `summary.suppressed` keeps its meaning and still counts these
+  findings; `errors`, `warnings` and SARIF `results` count only active ones.
+- SARIF omits suppressed findings from `results` (see [SARIF](sarif.md)); the run
+  summary still reports the `suppressed` count.
+
+Suppressed findings never change the exit code, with or without the flag, and
+`--deny-warnings` ignores them. They still count toward the 10,000-diagnostic
+budget, as before. `--show-suppressed --show-config` is rejected like every other
+`--show-config` conflict (exit 2).
+
+With `--fix`, a suppressed finding is reported at its position in the **saved**
+source, consistent with how active diagnostics are reported after a successful
+write. A file the run could not save keeps inspected-original positions, which
+the execution error states explicitly; the same applies without the flag.
+
+The JSON addition is additive: existing fields keep their meaning and the new
+boolean is always present, so a consumer that ignores unknown fields keeps
+working. `schemaVersion` therefore stays `1`, and
+[diagnostics.schema.json](diagnostics.schema.json) documents `suppressed` as
+required in the same release.
+
 ## Output contract
 
 Text stdout: `path:line:column: severity rule-id message`, no success banners.
 Execution errors go to stderr. `--color auto|always|never` affects text only;
 auto respects terminal detection and `NO_COLOR`.
-
 JSON stdout conforms to [diagnostics.schema.json](diagnostics.schema.json).
 `schemaVersion` is 1. Every run contains `tool`, `diagnostics`, `executionErrors`
 and `summary`, including recoverable argument/config failures when a valid JSON
 output request can be identified. Invalid output format itself uses stderr only.
 Help/version bypass config. JSON never contains ANSI color or progress logs.
 
-- Every diagnostic has path, ruleId, severity, message, range and fixable.
-  `severity` is the effective value after `[lint.severity]`.
+- Every diagnostic has path, ruleId, severity, message, range, fixable and
+  suppressed. `severity` is the effective value after `[lint.severity]`.
+  `suppressed` is always present: `false` for a reported finding and `true` for
+  a finding `--show-suppressed` listed after a directive removed it.
 - Range is half-open. Start/end contain zero-based UTF-8 byteOffset including
   BOM, and one-based line/Unicode-scalar column excluding initial BOM. Columns
   are not visual widths or UTF-16 units. CRLF counts as one line ending.
@@ -120,10 +159,11 @@ Help/version bypass config. JSON never contains ANSI color or progress logs.
   run IDs. Same arguments/input yield identical JSON apart from external errors.
 - Execution errors contain a message and optional path. They are not lint rules.
 - `filesChecked` counts successfully analyzed files, not failed attempts.
-  `errors`/`warnings` count reported diagnostics. `filesChanged` counts successful
-  writes only; `suppressed` counts otherwise emitted active-rule diagnostics
-  removed by directives. Text mode reports nonzero changed/suppressed counts on
-  stderr. `complete=false` if any execution error occurred.
+  `errors`/`warnings` count active diagnostics only, never suppressed ones.
+  `filesChanged` counts successful writes only; `suppressed` counts otherwise
+  emitted active-rule diagnostics removed by directives, whether or not
+  `--show-suppressed` listed them. Text mode reports nonzero changed/suppressed
+  counts on stderr. `complete=false` if any execution error occurred.
 - Partial inspection retains diagnostics from successfully analyzed files but
   exits 2. Otherwise errors (or warnings with deny-warnings) exit 1; clean is 0.
   Failure to write stdout also exits 2.
