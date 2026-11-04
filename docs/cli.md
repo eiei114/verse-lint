@@ -10,7 +10,8 @@ is supported and schema-validated. Compiler/UEFN acceptance is not established.
 be used alone; `--stdin-filepath` is a virtual Unicode path, not a write target.
 `--select V1001` replaces configured selection; `--ignore V1001` replaces
 configured ignore, then subtracts from selection. Duplicates collapse; unknown
-or empty-string IDs, prefixes and zero effective rules fail. Severity is fixed.
+or empty-string IDs, prefixes and zero effective rules fail. Each rule has a
+registry default severity; `[lint.severity]` overrides it per project.
 `--deny-warnings` promotes remaining warnings to exit 1 without changing severity.
 
 ## Configuration
@@ -20,18 +21,41 @@ schema-version = 1
 [files]
 exclude = ["Vendor/**"]
 [lint]
-select = ["V1001", "V1002", "V1003"]
+select = ["V1001", "V1002", "V1003", "V2001"] # V2001 also has to be selected
 ignore = []
 max-line-length = 120 # used only when V2001 is selected
+[lint.severity]
+V2001 = "error"
+V1001 = "warning"
 ```
 
 `--config` wins. Otherwise search CWD upwards, including but not crossing the
 first `.git` boundary. With virtual stdin, start at the virtual parent. One
 config per invocation, no nested/global merging. Exclude/label root is config
-parent or CWD. Unknown top-level, files and lint keys fail; sibling `[format]`
-is required to be a table but its own keys/values are deliberately not validated.
-`max-line-length` must be 1..1,000,000. `--show-config` shows effective CLI rule
-overrides, config source and root without inspecting inputs.
+parent or CWD. Unknown top-level, files, lint and `[lint.severity]` keys fail;
+sibling `[format]` is required to be a table but its own keys/values are
+deliberately not validated. `max-line-length` must be 1..1,000,000.
+`--show-config` shows effective CLI rule overrides, the effective severity of
+every registered rule, config source and root without inspecting inputs.
+
+`[lint.severity]` promotes or demotes an already-registered rule for this
+project; it never adds a rule. Keys must be complete rule IDs that appear in the
+registry — an unknown or abbreviated ID (`V1`, `V9999`) is a configuration error,
+exactly like `select`/`ignore`. Values must be the exact lowercase literals
+`"error"` or `"warning"`; anything else, including `"Error"`, an empty string or
+a non-string TOML value, is a configuration error that names the offending key.
+Both fail the run with exit 2 before any source is inspected, so stdout carries
+no diagnostics.
+
+The override changes only how a finding is reported. Selection stays independent:
+an overridden rule that is not selected still produces nothing, and a selected
+rule that is not overridden keeps its registry severity. Suppression directives,
+`--deny-warnings` and safe fixes behave as before. Text output keeps the
+`path:line:column: severity rule-id message` shape, and JSON `errors`/`warnings`,
+SARIF `results[].level` and the SARIF run summary all count the effective
+severity. SARIF `tool.driver.rules[].defaultConfiguration.level` deliberately
+keeps the registry default: it documents the tool default, not this project's
+policy.
 
 Local parent/nested `.gitignore` rules and negation apply during discovery;
 global Git ignores do not. Hidden entries, `.git`, `Saved`, `Intermediate` and
@@ -57,6 +81,7 @@ output request can be identified. Invalid output format itself uses stderr only.
 Help/version bypass config. JSON never contains ANSI color or progress logs.
 
 - Every diagnostic has path, ruleId, severity, message, range and fixable.
+  `severity` is the effective value after `[lint.severity]`.
 - Range is half-open. Start/end contain zero-based UTF-8 byteOffset including
   BOM, and one-based line/Unicode-scalar column excluding initial BOM. Columns
   are not visual widths or UTF-16 units. CRLF counts as one line ending.

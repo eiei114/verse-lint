@@ -21,6 +21,14 @@ verse-lint . --select V2001,V2002 --deny-warnings
 verse-lint --show-config
 ```
 
+```toml
+# verse.toml: make an opt-in policy rule a hard failure for this project
+[lint]
+select = ["V1001", "V1002", "V1003", "V2001"] # config select replaces the defaults
+[lint.severity]
+V2001 = "error"
+```
+
 No arguments inspects CWD. Exit 0 means inspection completed without selected
 errors; 1 means lint violations; 2 means incomplete inspection/config/I/O failure.
 Readable-file diagnostics survive failures in other files. Strings/comments are
@@ -29,7 +37,10 @@ UEFN compiler rejects it. Prefer file input in Windows PowerShell 5.1 because
 text pipelines can recode bytes before the tool receives them.
 
 Defaults: V1001 trailing whitespace, V1002 final newline, V1003 tab indentation.
-V2001 line length and V2002 bare TODO comments are opt-in warnings. Safe fixes
+V2001 line length and V2002 bare TODO comments are opt-in warnings. `[lint.severity]`
+can promote or demote a registered rule per project (`"error"`/`"warning"` only);
+unknown IDs or values exit 2. It changes severity only, so a promoted rule still
+has to be selected. Safe fixes
 only remove unprotected trailing trivia and add a final newline; they never
 guess tab widths, rename symbols or reflow comments. Use version control and
 avoid simultaneous editor/UEFN saves during `--fix`.

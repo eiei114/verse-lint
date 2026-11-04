@@ -87,10 +87,11 @@ pub fn plan(
     source: &Source,
     path: &str,
     active: &BTreeSet<String>,
+    severities: &rules::SeverityOverrides,
     max_line_length: usize,
     budget: usize,
 ) -> Result<Plan, Failure> {
-    let original = rules::lint(source, path, active, max_line_length, budget)?;
+    let original = rules::lint(source, path, active, severities, max_line_length, budget)?;
     let output = apply(source, edits(source, &original)?)?;
     if output == source.text() {
         return Ok(Plan {
@@ -108,7 +109,14 @@ pub fn plan(
             "fix failed token/structure/protected-span preservation",
         ));
     }
-    let after = rules::lint(&candidate, path, active, max_line_length, budget)?;
+    let after = rules::lint(
+        &candidate,
+        path,
+        active,
+        severities,
+        max_line_length,
+        budget,
+    )?;
     if !edits(&candidate, &after)?.is_empty() {
         return Err(Failure::new(0, "safe fixes failed one-pass convergence"));
     }
@@ -129,6 +137,7 @@ mod tests {
             &source,
             "a",
             &rules::Settings::default().active().unwrap(),
+            &rules::SeverityOverrides::new(),
             120,
             100,
         )

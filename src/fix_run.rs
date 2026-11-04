@@ -13,6 +13,7 @@ pub fn run(
     paths: Vec<PathBuf>,
     root: &std::path::Path,
     active: &BTreeSet<String>,
+    severities: &rules::SeverityOverrides,
     max_line_length: usize,
     report: &mut Report,
 ) {
@@ -20,6 +21,7 @@ pub fn run(
         paths,
         root,
         active,
+        severities,
         max_line_length,
         report,
         |_, pending| pending.commit(),
@@ -30,6 +32,7 @@ fn run_using(
     paths: Vec<PathBuf>,
     root: &std::path::Path,
     active: &BTreeSet<String>,
+    severities: &rules::SeverityOverrides,
     max_line_length: usize,
     report: &mut Report,
     mut commit: impl FnMut(&str, write::Pending) -> Result<Option<String>, String>,
@@ -53,7 +56,7 @@ fn run_using(
             let source = Source::from_bytes(&snapshot.bytes).map_err(|e| e.to_string())?;
             let budget =
                 rules::MAX_DIAGNOSTICS - report.diagnostics.len() - report.summary.suppressed;
-            let plan = fix::plan(&source, &label, active, max_line_length, budget)
+            let plan = fix::plan(&source, &label, active, severities, max_line_length, budget)
                 .map_err(|e| e.to_string())?;
             Ok(Candidate {
                 label: label.clone(),
@@ -146,6 +149,7 @@ mod tests {
             paths.clone(),
             dir.path(),
             &active,
+            &rules::SeverityOverrides::new(),
             120,
             &mut report,
             |label, pending| {

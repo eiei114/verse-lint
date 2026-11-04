@@ -6,9 +6,50 @@ use crate::{
     syntax::Document,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeSet, ops::Range};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    ops::Range,
+};
 
 pub const MAX_DIAGNOSTICS: usize = 10_000;
+
+/// How a finding is reported. [`REGISTRY`] holds the tool default; `[lint.severity]`
+/// may override it per project. Only these two values exist, so no configuration
+/// can invent a third or an unknown casing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Severity {
+    Error,
+    Warning,
+}
+
+impl Severity {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Error => "error",
+            Self::Warning => "warning",
+        }
+    }
+
+    /// Accepts exactly the two documented literals; anything else is rejected.
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "error" => Some(Self::Error),
+            "warning" => Some(Self::Warning),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for Severity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Effective severity overrides keyed by complete rule ID. Empty means every
+/// rule keeps its registry default.
+pub type SeverityOverrides = BTreeMap<String, Severity>;
 
 /// Single source of truth for rule identity and policy. SARIF metadata, the
 /// default rule selection and CLI/config validation all read this registry, so
@@ -20,7 +61,7 @@ pub struct Rule {
     /// SARIF `reportingDescriptor.name`; the rule document lives next to the
     /// lowercase ID (`docs/rules/<id>.md`), not at this name.
     pub name: &'static str,
-    pub severity: &'static str,
+    pub severity: Severity,
     pub message: &'static str,
     pub fixable: bool,
     /// Selected when configuration omits `[lint] select`.
@@ -30,7 +71,7 @@ pub const REGISTRY: [Rule; 5] = [
     Rule {
         id: "V1001",
         name: "TrailingWhitespace",
-        severity: "error",
+        severity: Severity::Error,
         message: "Trailing whitespace",
         fixable: true,
         selected_by_default: true,
@@ -38,7 +79,7 @@ pub const REGISTRY: [Rule; 5] = [
     Rule {
         id: "V1002",
         name: "MissingFinalNewline",
-        severity: "error",
+        severity: Severity::Error,
         message: "Missing final newline",
         fixable: true,
         selected_by_default: true,
@@ -46,7 +87,7 @@ pub const REGISTRY: [Rule; 5] = [
     Rule {
         id: "V1003",
         name: "TabIndentation",
-        severity: "error",
+        severity: Severity::Error,
         message: "Tab in structural indentation",
         fixable: false,
         selected_by_default: true,
@@ -54,7 +95,7 @@ pub const REGISTRY: [Rule; 5] = [
     Rule {
         id: "V2001",
         name: "LineTooLong",
-        severity: "warning",
+        severity: Severity::Warning,
         message: "Line exceeds configured maximum length",
         fixable: false,
         selected_by_default: false,
@@ -62,7 +103,7 @@ pub const REGISTRY: [Rule; 5] = [
     Rule {
         id: "V2002",
         name: "BareTodoComment",
-        severity: "warning",
+        severity: Severity::Warning,
         message: "TODO comment needs a nonempty parenthesized reference",
         fixable: false,
         selected_by_default: false,
@@ -95,12 +136,37 @@ pub fn rule(id: &str) -> &'static Rule {
     lookup(&REGISTRY, id)
 }
 
+/// Read `[lint.severity]` as text keyed by rule ID. Values are validated in
+/// [`Settings::validate`], which can name both the rule and the accepted
+/// literals; a non-string value is rejected here so the message still names the
+/// offending key instead of a bare "invalid type".
+fn deserialize_severity<'de, D>(deserializer: D) -> Result<BTreeMap<String, String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    let raw = BTreeMap::<String, toml::Value>::deserialize(deserializer)?;
+    raw.into_iter()
+        .map(|(id, value)| match value {
+            toml::Value::String(text) => Ok((id, text)),
+            other => Err(Error::custom(format!(
+                "invalid severity {other} for {id} in [lint.severity]; expected a quoted \"error\" or \"warning\""
+            ))),
+        })
+        .collect()
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Settings {
     pub select: Vec<String>,
     pub ignore: Vec<String>,
     pub max_line_length: usize,
+    /// `[lint.severity]`: rule ID to replacement severity text. Kept as text so
+    /// [`Settings::validate`] can name the offending key itself instead of
+    /// deferring to a generic deserializer message.
+    #[serde(deserialize_with = "deserialize_severity")]
+    pub severity: BTreeMap<String, String>,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -112,6 +178,7 @@ impl Default for Settings {
                 .collect(),
             ignore: vec![],
             max_line_length: 120,
+            severity: BTreeMap::new(),
         }
     }
 }
@@ -125,7 +192,48 @@ impl Settings {
         if self.max_line_length == 0 || self.max_line_length > 1_000_000 {
             return Err("max-line-length must be between 1 and 1000000".into());
         }
+        for (id, value) in &self.severity {
+            if !REGISTRY.iter().any(|r| r.id == id) {
+                return Err(format!(
+                    "unknown rule ID {id:?} in [lint.severity]; use complete IDs"
+                ));
+            }
+            if Severity::parse(value).is_none() {
+                return Err(format!(
+                    "invalid severity {value:?} for {id} in [lint.severity]; expected \"error\" or \"warning\""
+                ));
+            }
+        }
         Ok(())
+    }
+
+    /// Effective per-rule severity overrides. Independent of selection: an
+    /// override on an unselected rule is accepted and simply has no finding to
+    /// apply to.
+    pub fn severity_overrides(&self) -> Result<SeverityOverrides, String> {
+        let mut overrides = SeverityOverrides::new();
+        for (id, value) in &self.severity {
+            let severity = Severity::parse(value).ok_or_else(|| {
+                format!(
+                    "invalid severity {value:?} for {id} in [lint.severity]; expected \"error\" or \"warning\""
+                )
+            })?;
+            overrides.insert(id.clone(), severity);
+        }
+        Ok(overrides)
+    }
+
+    /// Every registered rule with the severity it would report at today, in
+    /// stable ID order. `--show-config` renders this map.
+    pub fn effective_severity(&self) -> Result<BTreeMap<String, String>, String> {
+        let overrides = self.severity_overrides()?;
+        Ok(REGISTRY
+            .iter()
+            .map(|rule| {
+                let severity = overrides.get(rule.id).copied().unwrap_or(rule.severity);
+                (rule.id.to_owned(), severity.as_str().to_owned())
+            })
+            .collect())
     }
     pub fn active(&self) -> Result<BTreeSet<String>, String> {
         self.validate()?;
@@ -150,10 +258,19 @@ pub fn lint(
     source: &Source,
     path: &str,
     active: &BTreeSet<String>,
+    severities: &SeverityOverrides,
     max_line_length: usize,
     budget: usize,
 ) -> Result<LintResult, Failure> {
-    lint_with(source, path, active, max_line_length, budget, &REGISTRY)
+    lint_with(
+        source,
+        path,
+        active,
+        severities,
+        max_line_length,
+        budget,
+        &REGISTRY,
+    )
 }
 
 /// Lint against an explicit registry order. Detector dispatch is by rule ID, so
@@ -162,6 +279,7 @@ fn lint_with(
     source: &Source,
     path: &str,
     active: &BTreeSet<String>,
+    severities: &SeverityOverrides,
     max_line_length: usize,
     budget: usize,
     registry: &[Rule],
@@ -182,7 +300,8 @@ fn lint_with(
             ));
         }
         count += 1;
-        let diagnostic = Diagnostic::new(path, source, range, rule);
+        let diagnostic =
+            Diagnostic::new(path, source, range, rule, severities.get(rule.id).copied());
         if suppressions.contains(diagnostic.range.start.line, rule.id) {
             result.suppressed += 1;
         } else {
@@ -310,6 +429,7 @@ mod tests {
             &sample(),
             "sample.verse",
             active,
+            &SeverityOverrides::new(),
             12,
             MAX_DIAGNOSTICS,
             registry,
@@ -330,7 +450,7 @@ mod tests {
             let rule = rule(id);
             assert_eq!(rule.id, id);
             assert_eq!(rule.name, name, "{id} SARIF name");
-            assert_eq!(rule.severity, severity, "{id} severity");
+            assert_eq!(rule.severity.as_str(), severity, "{id} severity");
             assert_eq!(rule.fixable, fixable, "{id} fixable");
             assert_eq!(
                 rule.selected_by_default, selected_by_default,
@@ -385,7 +505,8 @@ mod tests {
                 .find(|(id, ..)| *id == diagnostic.rule_id)
                 .expect("diagnostic rule is documented");
             assert_eq!(
-                diagnostic.severity, documented.2,
+                diagnostic.severity.as_str(),
+                documented.2,
                 "{} severity",
                 documented.0
             );
@@ -441,5 +562,125 @@ mod tests {
                 rule.name
             );
         }
+    }
+
+    fn settings(severity: &[(&str, &str)]) -> Settings {
+        Settings {
+            severity: severity
+                .iter()
+                .map(|(id, value)| ((*id).into(), (*value).into()))
+                .collect(),
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn severity_accepts_only_the_two_exact_literals() {
+        assert_eq!(Severity::parse("error"), Some(Severity::Error));
+        assert_eq!(Severity::parse("warning"), Some(Severity::Warning));
+        for invalid in ["Error", "Warning", "ERROR", "", "notice", "err", " error"] {
+            assert_eq!(Severity::parse(invalid), None, "{invalid:?}");
+        }
+        assert_eq!(Severity::Error.to_string(), "error");
+        assert_eq!(Severity::Warning.to_string(), "warning");
+    }
+
+    #[test]
+    fn overrides_are_validated_against_the_registry_and_never_select_rules() {
+        let overriding = settings(&[(V2001, "error"), (V1001, "warning")]);
+        overriding.validate().expect("registered IDs are accepted");
+        // Severity must not participate in selection.
+        let with_override = overriding.active().unwrap();
+        let without = Settings::default().active().unwrap();
+        assert_eq!(with_override, without);
+        assert!(!with_override.contains(V2001), "V2001 stays opt-in");
+
+        for bad in [
+            settings(&[("V9999", "error")]),
+            settings(&[("V1", "error")]),
+        ] {
+            let error = bad.validate().unwrap_err();
+            assert!(error.contains("rule ID"), "{error}");
+        }
+        for value in ["Error", "", "notice"] {
+            let error = settings(&[(V2001, value)]).validate().unwrap_err();
+            assert!(error.contains(V2001), "{error}");
+            assert!(error.contains("severity"), "{error}");
+        }
+    }
+
+    #[test]
+    fn effective_severity_covers_every_rule_in_stable_id_order() {
+        let settings = settings(&[(V2001, "error"), (V1003, "warning")]);
+        let effective = settings.effective_severity().unwrap();
+        let ordered: Vec<_> = effective
+            .iter()
+            .map(|(id, s)| (id.as_str(), s.as_str()))
+            .collect();
+        assert_eq!(
+            ordered,
+            [
+                (V1001, "error"),
+                (V1002, "error"),
+                (V1003, "warning"),
+                (V2001, "error"),
+                (V2002, "warning"),
+            ]
+        );
+        // Every registered rule is present, and the key order is the stable
+        // ID order that `--show-config` relies on.
+        assert_eq!(effective.len(), REGISTRY.len());
+        let mut ids: Vec<_> = effective.keys().cloned().collect();
+        ids.sort();
+        assert_eq!(ids, effective.keys().cloned().collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn effective_severity_reaches_diagnostics_without_touching_detection() {
+        let ids = active(&DETECTOR_IDS);
+        let baseline = lint_all(&REGISTRY, &ids);
+        let overrides: SeverityOverrides = [
+            (V1001.to_owned(), Severity::Warning),
+            (V2002.to_owned(), Severity::Error),
+        ]
+        .into_iter()
+        .collect();
+        let overridden = lint_with(
+            &sample(),
+            "sample.verse",
+            &ids,
+            &overrides,
+            12,
+            MAX_DIAGNOSTICS,
+            &REGISTRY,
+        )
+        .expect("lint succeeds");
+
+        let identity = |result: &LintResult| {
+            result
+                .diagnostics
+                .iter()
+                .map(|d| (d.rule_id, d.message, d.fixable))
+                .collect::<Vec<_>>()
+        };
+        // Only the reported severity changed: same findings, same order, same
+        // fixability, so detectors and dispatch are untouched.
+        assert_eq!(identity(&baseline), identity(&overridden));
+        assert_eq!(baseline.suppressed, overridden.suppressed);
+        for diagnostic in &overridden.diagnostics {
+            let expected = match diagnostic.rule_id {
+                V1001 => Severity::Warning,
+                V2002 => Severity::Error,
+                other => rule(other).severity,
+            };
+            assert_eq!(diagnostic.severity, expected, "{}", diagnostic.rule_id);
+        }
+        assert!(
+            overridden
+                .diagnostics
+                .iter()
+                .any(|d| d.severity != rule(d.rule_id).severity),
+            "sample must exercise an override"
+        );
     }
 }
