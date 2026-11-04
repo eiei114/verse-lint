@@ -1,4 +1,5 @@
-# PowerShell 7 JSON Schema validation against actual binary success/failure output.
+# PowerShell 7 JSON Schema validation against actual binary success/failure output,
+# plus the GitHub annotation format, which has no schema and is checked by shape.
 param([string]$Binary = "$PSScriptRoot/../target/x86_64-pc-windows-msvc/release/verse-lint.exe")
 $ErrorActionPreference = 'Stop'
 $Binary = (Resolve-Path $Binary).Path
@@ -52,6 +53,43 @@ try {
     if (Test-Json -Json ($invalid | ConvertTo-Json -Depth 50) -SchemaFile $schema -ErrorAction SilentlyContinue) { throw 'Schema accepted an intentionally invalid version' }
     Write-Output "$format schema: clean/violation/fix/suppression/Unicode/stdin/I/O/CLI outputs passed; invalid version rejected."
     }
+
+    # GitHub annotations: stdout is workflow commands only, never ANSI, with the
+    # same exit-code contract. Paths keep the escaping GitHub decodes.
+    [IO.File]::WriteAllText((Join-Path $temp 'a, b.verse'), "A := 1  `n")
+    # The schema loop above runs `bad.verse --fix`, so restore it before reuse.
+    [IO.File]::WriteAllText((Join-Path $temp 'bad.verse'), "A := 1  `n")
+    [IO.File]::WriteAllText((Join-Path $temp 'long.verse'), "# $('a' * 130)`n")
+    Push-Location $temp
+    try {
+        foreach ($case in @(
+            @{ Arguments = @('clean.verse'); Exit = 0; Lines = 0 },
+            @{ Arguments = @('bad.verse'); Exit = 1; Lines = 1 },
+            @{ Arguments = @('long.verse', '--select=V2001'); Exit = 0; Lines = 1 },
+            @{ Arguments = @('suppressed.verse'); Exit = 0; Lines = 0 },
+            @{ Arguments = @('suppressed.verse', '--show-suppressed'); Exit = 0; Lines = 1 },
+            @{ Arguments = @('missing.verse'); Exit = 2; Lines = 0 },
+            @{ Arguments = @('a, b.verse', '--color=always'); Exit = 1; Lines = 1 },
+            @{ Arguments = @('日 space #%.verse', '--select=V1001,V2002'); Exit = 1; Lines = 2 }
+        )) {
+            $run = & $Binary @($case.Arguments + @('--output-format=github')) 2>$null
+            if ($LASTEXITCODE -ne $case.Exit) { throw "GitHub format: unexpected exit $LASTEXITCODE for $($case.Arguments -join ' ')" }
+            $text = (@($run) -join "`n").TrimEnd("`r", "`n")
+            $lines = if ($text -eq '') { @() } else { $text -split "`r?`n" }
+            if ($lines.Count -ne $case.Lines) { throw "GitHub format: expected $($case.Lines) annotation(s) for $($case.Arguments -join ' '), got $($lines.Count): $text" }
+            foreach ($line in $lines) {
+                if ($line -notmatch '^::(error|warning|notice) file=[^,]*,line=\d+,col=\d+,endLine=\d+,endColumn=\d+,title=[^,]*(,|::)') { throw "GitHub format: not an annotation: $line" }
+                if ($line.Contains([char]27)) { throw "GitHub format: emitted ANSI: $line" }
+            }
+        }
+        $comma = & $Binary 'a, b.verse' '--output-format=github' 2>$null
+        if ($comma -notmatch 'file=a%2C b\.verse,') { throw "GitHub format: a comma in a path must be escaped: $comma" }
+        $unicode = & $Binary '日 space #%.verse' '--select=V1001,V2002' '--output-format=github' 2>$null
+        if ($unicode -notmatch 'file=日 space #%25\.verse,') { throw "GitHub format: a percent in a path must be escaped: $unicode" }
+        $partial = & $Binary '.' 'missing.verse' '--output-format=github' 2>$null
+        if ($partial -match 'missing') { throw "GitHub format: an execution error reached stdout: $partial" }
+    } finally { Pop-Location }
+    Write-Output 'github format: clean/error/warning/suppression/partial-failure/escaping/no-color passed.'
 } finally {
     [IO.Directory]::Delete($temp, $true)
 }
