@@ -101,9 +101,16 @@ package path, or another file is invisible to this model. Resolution is
 deterministic: it reads ordered `Vec`s only, never a `HashMap`, so the same
 source always yields the same graph and the same indices.
 
-`self.Field` is resolved against the enclosing class scope. Any other
-`object.Member` is *not* guessed — the member belongs to a type this model cannot
-see, so the construct is recorded as unsupported instead.
+`self.Field` is resolved against the enclosing class scope. Member lookup starts
+**at the class scope**, not at the reference's lexical scope, so a same-named
+local in an inner block cannot capture it, and a field is visible from anywhere
+in the type even when it is declared after the method that reads it — member
+lookup is not a forward-only source scan. The reference still records the
+lexically enclosing scope, plus the class it was resolved through, so a rule can
+tell both where the reference sits and what it names. `self` outside a class is
+recorded as unsupported rather than resolved against an unrelated local. Any
+other `object.Member` is *not* guessed — the member belongs to a type this model
+cannot see, so the construct is recorded as unsupported instead.
 
 ## Incompleteness and the invariant
 

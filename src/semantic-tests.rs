@@ -105,6 +105,65 @@ fn class_field_accessed_via_self_resolves_to_the_class_scope() {
     assert!(!model.references().iter().any(|r| r.name == "self"));
 }
 
+/// A local with the same name as a field must not capture `self.Field`: member
+/// lookup starts at the class scope, not at the method's block scope.
+#[test]
+fn self_member_is_not_captured_by_a_same_named_local() {
+    let (_, model) = graph(
+        "shadowed := class:\n    Value:int = 1\n    Read():int =\n        Value := 2\n        self.Value\n",
+    );
+    let field = binding(&model, "Value");
+    let class = field.scope;
+    assert_eq!(model.scopes()[class].kind, ScopeKind::Class);
+
+    // Exactly one `Value` reference: the `self.Value` read. It must resolve to
+    // the class field, not to the same-named local.
+    let reference = model
+        .references()
+        .iter()
+        .find(|r| r.name == "Value")
+        .expect("self.Value is a reference");
+    let resolved_binding = model.resolve(reference).expect("resolves");
+    assert_eq!(resolved_binding.scope, class);
+    assert_eq!(resolved_binding.range, field.range);
+    // The lexically enclosing scope is still recorded separately so a rule can
+    // tell where the reference sits.
+    assert_eq!(model.scopes()[reference.scope].kind, ScopeKind::Block);
+    assert_eq!(reference.receiver, Some(class));
+}
+
+/// A field declared after the method that reads it is still visible: member
+/// lookup is not a forward-only source scan.
+#[test]
+fn self_member_resolves_when_the_field_is_declared_later() {
+    let (_, model) =
+        graph("later := class:\n    Read():int =\n        self.Late\n    Late:int = 7\n");
+    let field = binding(&model, "Late");
+    let reference = model
+        .references()
+        .iter()
+        .find(|r| r.name == "Late")
+        .expect("self.Late is a reference");
+    assert!(
+        field.range.start > reference.range.start,
+        "the field really is declared after the read"
+    );
+    assert_eq!(
+        model.resolve(reference).map(|b| b.range.clone()),
+        Some(field.range.clone())
+    );
+}
+
+/// `self` outside a class is recorded as unsupported instead of resolving to
+/// whatever local happens to share the member name.
+#[test]
+fn self_outside_a_class_is_unsupported_not_guessed() {
+    let (_, model) = graph("F():void =\n    Field := 1\n    self.Field\n");
+    assert!(!model.is_complete());
+    assert!(model.reportable().is_none());
+    assert_eq!(model.skipped().get("member_access"), Some(&1));
+}
+
 #[test]
 fn inner_block_shadowing_wins_only_from_its_declaration_onward() {
     let text = "F():void =\n    Value := 1\n    if (true):\n        Value := 2\n        Print(Value)\n    Print(Value)\n";

@@ -91,6 +91,12 @@ pub struct Reference {
     pub range: Range<usize>,
     /// Index into [`ScopeGraph::scopes`] of the scope the reference appears in.
     pub scope: usize,
+    /// Member lookup starts here instead of [`Self::scope`]: the nearest
+    /// enclosing class scope for `self.Field`. Ordinary references leave it
+    /// `None`, so they walk their own scope chain. Member syntax must not see a
+    /// same-named local, so this is tracked per reference rather than folded
+    /// into `scope`, which stays the lexically enclosing scope.
+    pub receiver: Option<usize>,
 }
 
 /// Scopes in creation order, bindings and references in walk order. Nothing is
@@ -193,12 +199,19 @@ impl ScopeGraph {
     /// before a redeclaration keeps the outer binding. An unknown name returns
     /// `None`; it is never matched to a guess.
     pub fn resolve(&self, reference: &Reference) -> Option<&Binding> {
-        let mut scope = Some(reference.scope);
+        let mut scope = Some(reference.receiver.unwrap_or(reference.scope));
         while let Some(index) = scope {
             for binding in self.by_scope[index].iter().rev() {
                 let candidate = &self.bindings[*binding];
-                if candidate.name == reference.name && candidate.range.start < reference.range.start
-                {
+                // A member is looked up in the type, not forward through the
+                // source, so the declaration-order rule applies only to ordinary
+                // names. Fields may be declared after the method that reads them.
+                let visible = if reference.receiver.is_some() {
+                    true
+                } else {
+                    candidate.range.start < reference.range.start
+                };
+                if candidate.name == reference.name && visible {
                     return Some(candidate);
                 }
             }
@@ -424,6 +437,17 @@ impl Builder<'_> {
     }
 
     fn reference(&mut self, scope: usize, node: Node<'_>) -> Result<(), Failure> {
+        self.reference_from(scope, None, node)
+    }
+
+    /// Records a reference whose lookup starts at `receiver` rather than at the
+    /// lexically enclosing `scope` (used for `self.Field`).
+    fn reference_from(
+        &mut self,
+        scope: usize,
+        receiver: Option<usize>,
+        node: Node<'_>,
+    ) -> Result<(), Failure> {
         let Some(name) = self.text_of(node).map(str::to_owned) else {
             self.skip("identifier");
             return Ok(());
@@ -438,8 +462,20 @@ impl Builder<'_> {
             name,
             range: self.range(node),
             scope,
+            receiver,
         });
         Ok(())
+    }
+
+    /// Nearest enclosing class scope, for `self.Member`. `None` when `self` is
+    /// used outside a class: that is not something to guess about.
+    fn enclosing_class(&self, mut scope: usize) -> Option<usize> {
+        loop {
+            if self.scopes[scope].kind == ScopeKind::Class {
+                return Some(scope);
+            }
+            scope = self.scopes[scope].parent?;
+        }
     }
 
     fn skip(&mut self, kind: &'static str) {
@@ -591,9 +627,14 @@ impl Builder<'_> {
                             && matches!(self.text_of(object), Some("self" | "Self")))
                 });
                 if self_object {
-                    // `self.Field` resolves against the enclosing class scope.
+                    // `self.Field` resolves against the enclosing class scope, not
+                    // the method's local scopes, so a same-named local cannot
+                    // capture it. `self` outside a class is not guessed.
                     if let Some(member) = member {
-                        self.reference(scope, member)?;
+                        match self.enclosing_class(scope) {
+                            Some(class) => self.reference_from(scope, Some(class), member)?,
+                            None => self.skip("member_access"),
+                        }
                     }
                 } else {
                     // The member belongs to an unknown type; guessing it would
