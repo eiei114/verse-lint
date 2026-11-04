@@ -2,8 +2,9 @@
 
 `verse-lint . --output-format sarif` emits one SARIF run on stdout, without ANSI,
 progress text, source contents, timestamps, random IDs or edit suggestions.
-Output is deterministic for the same inputs/configuration. This command does not
-upload anything, enable GitHub code scanning or invoke external services.
+Output is deterministic for the same inputs/configuration. This command has no
+network access: it does not upload anything, enable GitHub code scanning or
+invoke external services.
 
 - Driver metadata contains all five rule IDs, stable names, English help,
   default enabled/level settings and safe-fix capability. Names, levels and
@@ -42,3 +43,24 @@ ordering and text/JSON/SARIF count agreement. Invalid schema-version probes
 verify the validator is enforcing the schemas rather than merely parsing JSON.
 
 Reference: https://docs.oasis-open.org/sarif/sarif/v2.1.0/os/sarif-v2.1.0-os.html
+
+## Upload policy: none
+
+By [ADR 0001](adr/0001-sarif-upload-policy.md) this project **does not upload**
+SARIF to GitHub code scanning, and ships no upload workflow, no code-scanning
+configuration and no `security-events` permission. Emitting SARIF and uploading
+SARIF are separate concerns: this tool owns the first, the consumer owns the
+second.
+
+The ADR argues what an upload would make public, the `security-events: write`
+permission such a step requires, the result volume a style linter produces,
+false positives becoming visible to third parties, and the fact that
+error-level style findings would read as security alerts. This page only records
+the outcome. `tests/sarif-upload-guard.rs` fails verification if any workflow
+under `.github/workflows/` ever gains an `upload-sarif` step or that permission.
+
+If you decide to upload in your own repository, that is your workflow, your
+permissions and your licence — follow GitHub's own documentation for
+`github/codeql-action/upload-sarif` rather than expecting a maintained recipe
+here. Expect a large alert volume, and be aware that these findings are style
+diagnostics, not security results.

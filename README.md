@@ -42,7 +42,17 @@ See [CLI/config and JSON contract](docs/cli.md), [rule index](docs/rules.md),
 installed formatter, Node.js or runtime network access is needed.
 
 [SARIF 2.1.0](docs/sarif.md) is validated against the pinned official OASIS
-schema. Emitting SARIF does not upload source/results or enable code scanning.
+schema. Emitting SARIF writes the report to stdout only; the command has no
+network access and uploads nothing.
+
+This project does not upload SARIF to GitHub code scanning and ships no upload
+workflow or code-scanning configuration. That is a recorded decision, not a
+missing feature: see
+[ADR 0001: do not upload SARIF to GitHub code scanning](docs/adr/0001-sarif-upload-policy.md).
+Uploading, if you want it, is your own CI step in your own repository, under
+your permissions and licence. This is a style linter — its findings are not
+security findings, and error-level style alerts in a Security tab would be
+misleading.
 
 ## Development
 
