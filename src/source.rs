@@ -182,4 +182,19 @@ mod tests {
         }
         assert!(Source::from_bytes(&vec![b'a'; MAX_SOURCE_BYTES + 1]).is_err());
     }
+
+    /// `docs/parser-design.md` advertises 8 MiB per source. The bound is
+    /// inclusive: exactly 8 MiB is inspected, one byte more is refused.
+    #[test]
+    fn source_byte_limit_is_inclusive_at_eight_mib() {
+        let at_limit = vec![b'a'; MAX_SOURCE_BYTES];
+        let source = Source::from_bytes(&at_limit).expect("exactly 8 MiB is supported");
+        assert_eq!(source.text().len(), MAX_SOURCE_BYTES);
+        assert_eq!(source.position(MAX_SOURCE_BYTES - 1), (1, MAX_SOURCE_BYTES));
+
+        let past_limit = vec![b'a'; MAX_SOURCE_BYTES + 1];
+        let failure = Source::from_bytes(&past_limit).expect_err("8 MiB + 1 is refused");
+        assert_eq!(failure.offset, 0);
+        assert!(failure.message.contains("8 MiB"));
+    }
 }

@@ -15,6 +15,25 @@ unsafe extern "C" {
     fn tree_sitter_verse() -> *const ();
 }
 
+/// Documented in `docs/parser-design.md` as "two-second parse budget".
+const PARSE_BUDGET: Duration = Duration::from_secs(2);
+/// Documented in `docs/parser-design.md` as "CST depth 512".
+const MAX_CST_DEPTH: usize = 512;
+/// Documented in `docs/parser-design.md` as "one million fingerprint events".
+const MAX_FINGERPRINT_EVENTS: usize = 1_000_000;
+
+/// Budget predicate, kept separate from the closure so tests can prove the
+/// mechanism directly instead of making a real parse take two seconds.
+fn parse_budget_exceeded(elapsed: Duration, budget: Duration) -> bool {
+    elapsed > budget
+}
+
+/// Depth and fingerprint-event guard shared by the single CST walk.
+fn tree_limit(depth: usize, events: usize) -> Option<&'static str> {
+    (depth > MAX_CST_DEPTH || events >= MAX_FINGERPRINT_EVENTS)
+        .then_some("syntax tree resource limit exceeded")
+}
+
 #[derive(Debug)]
 pub struct Document {
     pub tokens: Vec<Token>,
@@ -23,6 +42,10 @@ pub struct Document {
 
 impl Document {
     pub fn parse(source: &Source) -> Result<Self, Failure> {
+        Self::parse_with_budget(source, PARSE_BUDGET)
+    }
+
+    fn parse_with_budget(source: &Source, budget: Duration) -> Result<Self, Failure> {
         let tokens = lex::scan(source)?;
         // SAFETY: the function is linked from the pinned generated grammar and
         // returns a static TSLanguage with ABI 15, supported by tree-sitter 0.25.
@@ -33,7 +56,8 @@ impl Document {
             .map_err(|e| Failure::new(0, format!("grammar ABI failure: {e}")))?;
         let bytes = &source.text().as_bytes()[source.body_start()..];
         let started = Instant::now();
-        let mut cancel = |_: &tree_sitter::ParseState| started.elapsed() > Duration::from_secs(2);
+        let mut cancel =
+            |_: &tree_sitter::ParseState| parse_budget_exceeded(started.elapsed(), budget);
         let tree = parser
             .parse_with_options(
                 &mut |i, _| bytes.get(i..).unwrap_or_default(),
@@ -92,10 +116,10 @@ impl Document {
                     "unsupported or incomplete Verse syntax; use UEFN for compiler diagnostics",
                 ));
             }
-            if depth > 512 || shape.len() >= 1_000_000 {
+            if let Some(message) = tree_limit(depth, shape.len()) {
                 return Err(Failure::new(
                     node.start_byte() + source.body_start(),
-                    "syntax tree resource limit exceeded",
+                    message,
                 ));
             }
             shape.push((node.kind_id(), true));
@@ -286,5 +310,88 @@ mod tests {
             let source = Source::from_bytes(text.as_bytes()).unwrap();
             assert!(Document::parse(&source).is_err(), "{text}");
         }
+    }
+
+    /// `docs/parser-design.md` advertises a two-second parse budget. The
+    /// predicate is asserted directly, and the real cancel closure is exercised
+    /// with a zero budget: making a real parse take two seconds would flake on
+    /// a loaded runner, but a zero budget must refuse as soon as any work has
+    /// happened, which is deterministic.
+    #[test]
+    fn parse_budget_predicate_trips_only_after_the_budget_elapses() {
+        let budget = Duration::from_secs(2);
+        assert!(!parse_budget_exceeded(Duration::ZERO, budget));
+        assert!(!parse_budget_exceeded(Duration::from_millis(1_999), budget));
+        // The bound is exclusive: exactly the budget is still allowed.
+        assert!(!parse_budget_exceeded(budget, budget));
+        assert!(parse_budget_exceeded(
+            budget + Duration::from_nanos(1),
+            budget
+        ));
+        assert!(parse_budget_exceeded(Duration::from_millis(2_001), budget));
+        assert_eq!(PARSE_BUDGET, budget);
+    }
+
+    /// A zero budget refuses a real parse instead of returning a partial tree.
+    /// The input is large enough that parsing must consume measurable time, so
+    /// this does not depend on how fast the machine is.
+    #[test]
+    fn zero_parse_budget_refuses_a_real_parse() {
+        let mut text = String::new();
+        for index in 0..2_000 {
+            text.push_str(&format!("V{index}:int={index}\n"));
+        }
+        let source = Source::from_bytes(text.as_bytes()).unwrap();
+        let failure = match Document::parse_with_budget(&source, Duration::ZERO) {
+            Err(failure) => failure,
+            Ok(_) => panic!("a spent budget must refuse the parse"),
+        };
+        assert!(failure.message.contains("parse budget exceeded"));
+        assert_eq!(failure.offset, 0);
+        // The same source parses once the documented budget is restored.
+        Document::parse(&source).expect("the documented budget accepts this source");
+    }
+
+    /// The `Some` branch is a real refusal, not a warning: a source whose CST
+    /// is one level past the documented depth must fail, and the depth at the
+    /// boundary must parse.
+    #[test]
+    fn cst_depth_limit_refuses_one_level_past_512_and_accepts_512() {
+        // Each `X.Y` member access adds two CST levels. 510 repeats reaches
+        // exactly depth 512; one more repeat reaches 513, one past the bound.
+        let at_limit = format!("A := X{}\n", ".Y".repeat(510));
+        let source = Source::from_bytes(at_limit.as_bytes()).unwrap();
+        match Document::parse(&source) {
+            Ok(document) => assert!(!document.tokens.is_empty()),
+            Err(failure) => panic!("512 CST levels must be supported: {failure}"),
+        }
+
+        let past_limit = format!("A := X{}\n", ".Y".repeat(511));
+        let source = Source::from_bytes(past_limit.as_bytes()).unwrap();
+        let failure = match Document::parse(&source) {
+            Err(failure) => failure,
+            Ok(_) => panic!("a CST deeper than 512 levels must be refused"),
+        };
+        assert!(failure.message.contains("syntax tree resource limit"));
+        assert!(failure.offset > 0);
+    }
+
+    /// `docs/parser-design.md` advertises one million fingerprint events. The
+    /// guard refuses at exactly one million recorded events (`>=`), which is
+    /// the pre-existing behavior: 999,999 pass and 1,000,000 fail. A real input
+    /// needs roughly a million CST events, so the shared guard is asserted here
+    /// and the full-size input is gated in `tests/limits-cli.rs`.
+    #[test]
+    fn fingerprint_event_limit_guard_refuses_at_one_million_events() {
+        assert_eq!(tree_limit(0, 0), None);
+        assert_eq!(tree_limit(MAX_CST_DEPTH, MAX_FINGERPRINT_EVENTS - 1), None);
+        assert_eq!(
+            tree_limit(MAX_CST_DEPTH, MAX_FINGERPRINT_EVENTS),
+            Some("syntax tree resource limit exceeded")
+        );
+        assert_eq!(
+            tree_limit(MAX_CST_DEPTH + 1, 0),
+            Some("syntax tree resource limit exceeded")
+        );
     }
 }

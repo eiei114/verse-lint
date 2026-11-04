@@ -3,6 +3,9 @@ use std::ops::Range;
 
 use crate::source::{Failure, MAX_NESTING, Source};
 
+/// `docs/parser-design.md`: "250,000 tokens".
+pub const MAX_TOKENS: usize = 250_000;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
     Bom,
@@ -200,7 +203,7 @@ pub fn scan(source: &Source) -> Result<Vec<Token>, Failure> {
         });
     }
     while i < scanner.bytes.len() {
-        if tokens.len() >= 250_000 {
+        if tokens.len() >= MAX_TOKENS {
             return Err(Failure::new(i, "source exceeds 250000 lexical tokens"));
         }
         let start = i;
@@ -334,5 +337,46 @@ mod tests {
             let source = Source::from_bytes(text.as_bytes()).unwrap();
             assert!(scan(&source).is_err());
         }
+    }
+
+    /// `docs/parser-design.md` advertises nesting 256. The bound is inclusive:
+    /// 256 levels lex cleanly and 257 is refused, at the delimiter that opens
+    /// the 257th level.
+    #[test]
+    fn nesting_boundary_is_inclusive_at_256_levels() {
+        let at_limit = format!("{}1{}", "(".repeat(MAX_NESTING), ")".repeat(MAX_NESTING));
+        let source = Source::from_bytes(at_limit.as_bytes()).unwrap();
+        assert!(scan(&source).is_ok(), "256 levels are supported");
+
+        let past_limit = format!(
+            "{}1{}",
+            "(".repeat(MAX_NESTING + 1),
+            ")".repeat(MAX_NESTING + 1)
+        );
+        let source = Source::from_bytes(past_limit.as_bytes()).unwrap();
+        let failure = scan(&source).expect_err("257 levels are refused");
+        assert!(failure.message.contains("nesting exceeds 256 levels"));
+        assert_eq!(failure.offset, MAX_NESTING);
+    }
+
+    /// `docs/parser-design.md` advertises 250,000 tokens. Exactly 250,000 is
+    /// scanned; the token after it is refused. Two tokens per line keeps the
+    /// input small enough for the ordinary verification path.
+    #[test]
+    fn token_limit_accepts_250000_tokens_and_refuses_the_next() {
+        let per_line = 2; // line comment + newline
+        let lines = MAX_TOKENS / per_line;
+        let at_limit = "# a\n".repeat(lines);
+        let source = Source::from_bytes(at_limit.as_bytes()).unwrap();
+        let tokens = scan(&source).expect("exactly 250,000 tokens are supported");
+        assert_eq!(tokens.len(), MAX_TOKENS);
+
+        let past_limit = "# a\n".repeat(lines + 1);
+        let source = Source::from_bytes(past_limit.as_bytes()).unwrap();
+        let failure = scan(&source).expect_err("250,002 tokens are refused");
+        assert!(failure.message.contains("250000 lexical tokens"));
+        // Refused at the first token beyond the bound, not at end of input.
+        assert_eq!(failure.offset, at_limit.len());
+        assert!(failure.offset < past_limit.len());
     }
 }

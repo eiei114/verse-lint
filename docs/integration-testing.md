@@ -5,6 +5,29 @@ crate, binary, or runtime dependency. This developer-only script accepts a
 formatter release binary and the formatter's self-authored golden corpus to
 verify the tools' on-disk convergence contract.
 
+## Resource-limit boundary tests
+
+`tests/limits-cli.rs` covers every limit advertised in [cli.md](cli.md) and
+[parser-design.md](parser-design.md) at the boundary and one step past it. Two
+cases need a heavy input (a 64 MiB aggregate read and a one-million-event CST)
+and are skipped by default so the ordinary verification path stays fast. Enable
+them explicitly:
+
+```powershell
+$env:VERSE_LINT_HEAVY_LIMIT_TESTS = '1'
+cargo test --locked --test limits-cli
+```
+
+Without the variable, those two tests print a skip notice and assert nothing.
+Both limits are still proven in the default path by their unit tests over the
+shared predicates (`files::total_bytes_exceeded`, `syntax::tree_limit`), so a
+regression in the boundary comparison still fails `scripts/verify.ps1`.
+
+The two-second parse budget is not tested by making a real parse exceed it: that
+would flake on a loaded runner. `syntax::tests` asserts the budget predicate on
+both sides of the bound, asserts the documented duration constant, and proves
+that a zero budget refuses a real parse.
+
 ## Paired fix/format convergence
 
 From the linter worktree, after building both release binaries:

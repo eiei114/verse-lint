@@ -47,7 +47,7 @@ fn run_using(
         let result: Result<Candidate, String> = (|| {
             let snapshot = write::Snapshot::read(&path)?;
             total += snapshot.bytes.len();
-            if total > files::MAX_TOTAL_BYTES {
+            if files::total_bytes_exceeded(total) {
                 return Err("inputs exceed the 64 MiB total limit; no fixes written".into());
             }
             let source = Source::from_bytes(&snapshot.bytes).map_err(|e| e.to_string())?;
@@ -72,7 +72,7 @@ fn run_using(
             }
             Err(e) => report.error(Some(label), e),
         }
-        if total > files::MAX_TOTAL_BYTES {
+        if files::total_bytes_exceeded(total) {
             break;
         }
     }
