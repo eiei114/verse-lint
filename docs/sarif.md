@@ -13,8 +13,17 @@ invoke external services.
   registry order never decides which rule a result belongs to. Actual selected
   rules determine results; metadata never implies unselected rules were
   executed.
-- Results retain JSON/text ordering, IDs, severity and messages. Suppressed
-  findings are omitted; run properties preserve the same summary counts.
+- Results retain JSON/text ordering, IDs, severity and messages. Result `level`
+  is the effective severity after `[lint.severity]`, while
+  `defaultConfiguration.level` keeps the registry default because it describes
+  the tool, not this project's policy. Suppressed
+  findings are omitted from `results`; run properties preserve the same summary
+  counts. `--show-suppressed` (see [CLI](cli.md#suppressed-findings)) makes them
+  visible in text and JSON only: SARIF has one representation for a suppressed
+  result, so a run would have to choose between omitting and marking. This tool
+  omits, which means a SARIF `results` array is always active findings, and
+  `properties.summary.suppressed` carries the count of what was removed. No
+  custom property duplicates what SARIF `suppressions` would mean.
 - `columnKind` is `unicodeCodePoints`: one-based scalar columns, not visual
   tab width or UTF-16 units. Regions include start/end lines/columns plus
   zero-based original UTF-8 byte offsets and lengths including BOM. EOF

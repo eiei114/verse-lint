@@ -36,7 +36,14 @@ pub fn run(
         } else {
             cli.paths.clone()
         };
-        let discovered = files::discover(&paths, &config.root, &config.settings.files.exclude)?;
+        // Same discovery as a lint run, including `verse-lint.ignore` (or its
+        // absence under `--no-ignore-file`), so the dumped file set matches.
+        let discovered = files::discover(
+            &paths,
+            &config.root,
+            &config.settings.files.exclude,
+            config.ignore_file.as_ref(),
+        )?;
         if cli.verbose {
             for reason in discovered.excluded {
                 eprintln!("{reason}");

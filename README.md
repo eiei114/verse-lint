@@ -18,9 +18,35 @@ verse-lint . --output-format json
 verse-lint . --output-format sarif
 verse-lint . --fix
 verse-lint . --select V2001,V2002 --deny-warnings
+verse-lint . --show-suppressed
+verse-lint . --no-ignore-file
 verse-lint --show-config
 verse-lint Content/device.verse --dump-scopes
 ```
+
+```toml
+# verse.toml: make an opt-in policy rule a hard failure for this project
+[lint]
+select = ["V1001", "V1002", "V1003", "V2001"] # config select replaces the defaults
+[lint.severity]
+V2001 = "error"
+```
+
+`select`/`ignore` also accept a rule-family prefix, so `--select V2` enables every
+registered V2 rule at once; `--show-config` prints the expanded complete IDs.
+
+```text
+# verse-lint.ignore, at the directory owning verse.toml (or CWD)
+# one relative forward-slash glob per line; blank lines and # comments are skipped
+Content/Generated/**
+Vendor/**
+```
+
+`verse-lint.ignore` is a shared exclusion list for a project that needs the same
+skips in several repositories. It combines with `[files] exclude` as a union —
+neither overrides the other — and is read only from that one location: no parent
+search, no nested ignore files. `--no-ignore-file` skips it for one run, and
+`--verbose` names which source excluded a path.
 
 `--dump-scopes` prints the model's scope graph as JSON for rule authors, runs no
 rule, and is an **unstable** surface rather than a public contract; see
@@ -34,7 +60,10 @@ UEFN compiler rejects it. Prefer file input in Windows PowerShell 5.1 because
 text pipelines can recode bytes before the tool receives them.
 
 Defaults: V1001 trailing whitespace, V1002 final newline, V1003 tab indentation.
-V2001 line length and V2002 bare TODO comments are opt-in warnings. Safe fixes
+V2001 line length and V2002 bare TODO comments are opt-in warnings. `[lint.severity]`
+can promote or demote a registered rule per project (`"error"`/`"warning"` only);
+unknown IDs or values exit 2. It changes severity only, so a promoted rule still
+has to be selected. Safe fixes
 only remove unprotected trailing trivia and add a final newline; they never
 guess tab widths, rename symbols or reflow comments. Use version control and
 avoid simultaneous editor/UEFN saves during `--fix`.

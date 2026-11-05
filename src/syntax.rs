@@ -16,11 +16,11 @@ unsafe extern "C" {
 }
 
 /// Documented in `docs/parser-design.md` as "two-second parse budget".
-const PARSE_BUDGET: Duration = Duration::from_secs(2);
+pub const PARSE_BUDGET: Duration = Duration::from_secs(2);
 /// Documented in `docs/parser-design.md` as "CST depth 512".
-const MAX_CST_DEPTH: usize = 512;
+pub const MAX_CST_DEPTH: usize = 512;
 /// Documented in `docs/parser-design.md` as "one million fingerprint events".
-const MAX_FINGERPRINT_EVENTS: usize = 1_000_000;
+pub const MAX_FINGERPRINT_EVENTS: usize = 1_000_000;
 
 /// Budget predicate, kept separate from the closure so tests can prove the
 /// mechanism directly instead of making a real parse take two seconds.
@@ -206,6 +206,10 @@ fn validate(
         }
     }
 }
+
+#[cfg(test)]
+#[path = "doc-drift-tests.rs"]
+mod doc_drift_tests;
 
 #[cfg(test)]
 #[path = "range-binding-tests.rs"]

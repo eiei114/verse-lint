@@ -29,10 +29,12 @@ pub struct Cli {
     /// Apply only validated, safe edits to files; not supported on stdin.
     #[arg(long)]
     pub fix: bool,
-    /// Select comma-separated complete rule IDs, replacing configured selection.
+    /// Select comma-separated complete rule IDs or rule-family prefixes (`V1`),
+    /// replacing configured selection.
     #[arg(long, value_delimiter = ',')]
     pub select: Option<Vec<String>>,
-    /// Ignore comma-separated complete rule IDs, replacing configured ignores.
+    /// Ignore comma-separated complete rule IDs or rule-family prefixes (`V2`),
+    /// replacing configured ignores.
     #[arg(long, value_delimiter = ',')]
     pub ignore: Option<Vec<String>>,
     /// Diagnostic format. Machine formats never contain ANSI colors.
@@ -48,16 +50,26 @@ pub struct Cli {
     #[arg(long)]
     pub config: Option<PathBuf>,
     /// Print the resolved configuration without processing source files.
-    #[arg(long, conflicts_with_all = ["paths", "fix", "deny_warnings", "output_format"])]
+    #[arg(
+        long,
+        conflicts_with_all = ["paths", "fix", "deny_warnings", "output_format", "show_suppressed"]
+    )]
     pub show_config: bool,
     /// Print the per-file scope graph as JSON and run no rule. This is an
     /// UNSTABLE diagnostic surface for rule authors, not a stable public
     /// contract; its shape may change without notice.
     #[arg(long)]
     pub dump_scopes: bool,
+    /// Also report findings removed by a `verse-lint:` suppression directive.
+    /// They are marked as suppressed and never change the exit code.
+    #[arg(long)]
+    pub show_suppressed: bool,
     /// Explain file exclusions on stderr.
     #[arg(long)]
     pub verbose: bool,
+    /// Ignore `verse-lint.ignore` at the configuration root for this run.
+    #[arg(long)]
+    pub no_ignore_file: bool,
     #[arg(long, value_enum, default_value_t = Color::Auto)]
     pub color: Color,
 }

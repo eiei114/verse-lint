@@ -6,6 +6,8 @@ mod files;
 mod fix;
 mod fix_run;
 mod lex;
+#[cfg(test)]
+mod limits;
 mod report;
 mod rules;
 mod sarif;
@@ -47,6 +49,7 @@ fn main() -> ExitCode {
     };
     let mut report = report::Report::default();
     report.stdin = cli.paths.iter().any(|p| p.as_os_str() == "-");
+    report.show_suppressed = cli.show_suppressed;
     match cli.validate().and_then(|()| run(&cli, &mut report)) {
         Ok(Some(config)) => {
             return match std::io::stdout().lock().write_all(config.as_bytes()) {
@@ -98,7 +101,11 @@ fn requested_machine_format(args: &[OsString]) -> Option<cli::OutputFormat> {
 }
 
 fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, String> {
-    let mut config = config::resolve(cli.config.as_deref(), cli.stdin_filepath.as_deref())?;
+    let mut config = config::resolve(
+        cli.config.as_deref(),
+        cli.stdin_filepath.as_deref(),
+        cli.no_ignore_file,
+    )?;
     report.source_root = Some(
         config
             .root
@@ -116,7 +123,8 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
         // `--show-config` still validates the effective rule selection, as it did
         // before `--dump-scopes` moved the `active()` call. Without this, an
         // unknown rule ID or an empty selection would print a configuration and
-        // exit 0 where the CLI used to exit 2.
+        // exit 0 where the CLI used to exit 2. `active()` also validates
+        // `[lint.severity]`, so an invalid override still exits 2 here.
         config.settings.lint.active()?;
         return Ok(Some(config.show()?));
     }
@@ -127,6 +135,7 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
         return dump::run(cli, &config, report);
     }
     let active = config.settings.lint.active()?;
+    let severities = config.settings.lint.severity_overrides()?;
     if cli.paths.first().is_some_and(|p| p.as_os_str() == "-") {
         let label = match &cli.stdin_filepath {
             Some(path) => path
@@ -139,6 +148,7 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
             read(std::io::stdin()),
             &label,
             &active,
+            &severities,
             config.settings.lint.max_line_length,
             report,
         );
@@ -148,7 +158,12 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
         } else {
             cli.paths.clone()
         };
-        let discovered = files::discover(&paths, &config.root, &config.settings.files.exclude)?;
+        let discovered = files::discover(
+            &paths,
+            &config.root,
+            &config.settings.files.exclude,
+            config.ignore_file.as_ref(),
+        )?;
         if cli.verbose {
             for reason in discovered.excluded {
                 eprintln!("{reason}");
@@ -163,7 +178,9 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
                 discovered.paths,
                 &config.root,
                 &active,
+                &severities,
                 config.settings.lint.max_line_length,
+                cli.show_suppressed,
                 report,
             );
             return Ok(None);
@@ -188,6 +205,7 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
                 bytes,
                 &label,
                 &active,
+                &severities,
                 config.settings.lint.max_line_length,
                 report,
             );
@@ -212,6 +230,7 @@ fn inspect(
     bytes: Result<Vec<u8>, String>,
     label: &str,
     active: &std::collections::BTreeSet<String>,
+    severities: &rules::SeverityOverrides,
     max_line_length: usize,
     report: &mut report::Report,
 ) {
@@ -221,8 +240,9 @@ fn inspect(
             &source,
             label,
             active,
+            severities,
             max_line_length,
-            rules::MAX_DIAGNOSTICS - report.diagnostics.len() - report.summary.suppressed,
+            rules::MAX_DIAGNOSTICS - report.budget_used,
         )
         .map_err(|e| {
             let (line, column) = source.position(e.offset);
@@ -232,8 +252,7 @@ fn inspect(
     match result {
         Ok(result) => {
             report.summary.files_checked += 1;
-            report.diagnostics.extend(result.diagnostics);
-            report.summary.suppressed += result.suppressed;
+            report.record(&result);
         }
         Err(error) => report.error(Some(label.into()), error),
     }

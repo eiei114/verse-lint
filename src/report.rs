@@ -5,6 +5,7 @@ use serde::Serialize;
 use crate::{
     cli::{Color, OutputFormat},
     diagnostic::Diagnostic,
+    rules::{self, Severity},
 };
 
 #[derive(Debug, Serialize)]
@@ -24,6 +25,11 @@ pub struct Summary {
     pub suppressed: usize,
     pub complete: bool,
 }
+
+/// Appended to a suppressed finding's text line so it stays visible without
+/// reading as an active finding. No active line can contain it, because rule
+/// messages never do; `docs/cli.md` documents it as the stable marker.
+pub const SUPPRESSED_MARKER: &str = " (suppressed)";
 
 #[derive(Serialize)]
 pub struct Tool {
@@ -45,6 +51,15 @@ pub struct Report {
     pub source_root: Option<String>,
     #[serde(skip)]
     pub exit_code: u8,
+    /// Findings already taken from the 10,000-diagnostic budget, suppressed or
+    /// not. Suppressed findings enter `diagnostics` only under
+    /// `--show-suppressed`, so the budget cannot be derived from the list alone.
+    #[serde(skip)]
+    pub budget_used: usize,
+    /// Reporting policy, not data: whether suppressed findings are listed. It
+    /// never changes what is analyzed, what the budget counts or the exit code.
+    #[serde(skip)]
+    pub show_suppressed: bool,
 }
 
 impl Default for Report {
@@ -61,6 +76,8 @@ impl Default for Report {
             stdin: false,
             source_root: None,
             exit_code: 0,
+            budget_used: 0,
+            show_suppressed: false,
         }
     }
 }
@@ -73,6 +90,34 @@ impl Report {
         });
     }
 
+    /// Record one analyzed source's findings. A suppressed finding consumes the
+    /// same budget a reported one does and always counts in
+    /// `summary.suppressed`; it reaches `diagnostics` only when the caller asked
+    /// for suppressed findings, where its `suppressed` flag marks it.
+    pub fn record(&mut self, result: &rules::LintResult) {
+        self.budget_used += result.diagnostics.len() + result.suppressed_count();
+        self.summary.suppressed += result.suppressed_count();
+        self.diagnostics.extend(result.diagnostics.iter().cloned());
+        if self.show_suppressed {
+            self.diagnostics.extend(result.suppressed.iter().cloned());
+        }
+    }
+
+    /// Replace one path's recorded findings after a successful save. Like
+    /// reported findings, shown suppressed findings describe the saved source.
+    pub fn replace(&mut self, path: &str, before: &rules::LintResult, after: &rules::LintResult) {
+        self.budget_used = self.budget_used - before.diagnostics.len() - before.suppressed_count()
+            + after.diagnostics.len()
+            + after.suppressed_count();
+        self.summary.suppressed =
+            self.summary.suppressed - before.suppressed_count() + after.suppressed_count();
+        self.diagnostics.retain(|d| d.path != path);
+        self.diagnostics.extend(after.diagnostics.iter().cloned());
+        if self.show_suppressed {
+            self.diagnostics.extend(after.suppressed.iter().cloned());
+        }
+    }
+
     pub fn finish(&mut self, deny_warnings: bool) -> u8 {
         self.diagnostics.sort_by(|a, b| {
             (&a.path, a.range.start.byte_offset, a.rule_id).cmp(&(
@@ -81,15 +126,17 @@ impl Report {
                 b.rule_id,
             ))
         });
+        // Suppressed findings are visible but never severity-bearing: they must
+        // not reach `errors`/`warnings`, `--deny-warnings` or the exit code.
         self.summary.errors = self
             .diagnostics
             .iter()
-            .filter(|d| d.severity == "error")
+            .filter(|d| !d.suppressed && d.severity == Severity::Error)
             .count();
         self.summary.warnings = self
             .diagnostics
             .iter()
-            .filter(|d| d.severity == "warning")
+            .filter(|d| !d.suppressed && d.severity == Severity::Warning)
             .count();
         self.summary.complete = self.execution_errors.is_empty();
         self.exit_code = if !self.summary.complete {
@@ -121,13 +168,18 @@ impl Report {
                     };
                     writeln!(
                         out,
-                        "{begin}{}:{}:{}: {} {} {}{end}",
+                        "{begin}{}:{}:{}: {} {} {}{}{end}",
                         diagnostic.path,
                         diagnostic.range.start.line,
                         diagnostic.range.start.column,
                         diagnostic.severity,
                         diagnostic.rule_id,
-                        diagnostic.message
+                        diagnostic.message,
+                        if diagnostic.suppressed {
+                            SUPPRESSED_MARKER
+                        } else {
+                            ""
+                        }
                     )
                     .map_err(|e| e.to_string())?;
                 }

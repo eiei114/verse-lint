@@ -19,6 +19,7 @@ try {
         @{ Arguments = @('bad.verse'); Exit = 1 },
         @{ Arguments = @('bad.verse', '--fix'); Exit = 0 },
         @{ Arguments = @('suppressed.verse'); Exit = 0 },
+        @{ Arguments = @('suppressed.verse', '--show-suppressed'); Exit = 0 },
         @{ Arguments = @('missing.verse'); Exit = 2 },
         @{ Arguments = @('--invalid-flag'); Exit = 2 },
         @{ Arguments = @('日 space #%.verse', '--select=V1001,V2002'); Exit = 1 },

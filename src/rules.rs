@@ -6,9 +6,50 @@ use crate::{
     syntax::Document,
 };
 use serde::{Deserialize, Serialize};
-use std::{collections::BTreeSet, ops::Range};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    ops::Range,
+};
 
 pub const MAX_DIAGNOSTICS: usize = 10_000;
+
+/// How a finding is reported. [`REGISTRY`] holds the tool default; `[lint.severity]`
+/// may override it per project. Only these two values exist, so no configuration
+/// can invent a third or an unknown casing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Severity {
+    Error,
+    Warning,
+}
+
+impl Severity {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Error => "error",
+            Self::Warning => "warning",
+        }
+    }
+
+    /// Accepts exactly the two documented literals; anything else is rejected.
+    pub fn parse(text: &str) -> Option<Self> {
+        match text {
+            "error" => Some(Self::Error),
+            "warning" => Some(Self::Warning),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for Severity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// Effective severity overrides keyed by complete rule ID. Empty means every
+/// rule keeps its registry default.
+pub type SeverityOverrides = BTreeMap<String, Severity>;
 
 /// Single source of truth for rule identity and policy. SARIF metadata, the
 /// default rule selection and CLI/config validation all read this registry, so
@@ -20,7 +61,7 @@ pub struct Rule {
     /// SARIF `reportingDescriptor.name`; the rule document lives next to the
     /// lowercase ID (`docs/rules/<id>.md`), not at this name.
     pub name: &'static str,
-    pub severity: &'static str,
+    pub severity: Severity,
     pub message: &'static str,
     pub fixable: bool,
     /// Selected when configuration omits `[lint] select`.
@@ -30,7 +71,7 @@ pub const REGISTRY: [Rule; 5] = [
     Rule {
         id: "V1001",
         name: "TrailingWhitespace",
-        severity: "error",
+        severity: Severity::Error,
         message: "Trailing whitespace",
         fixable: true,
         selected_by_default: true,
@@ -38,7 +79,7 @@ pub const REGISTRY: [Rule; 5] = [
     Rule {
         id: "V1002",
         name: "MissingFinalNewline",
-        severity: "error",
+        severity: Severity::Error,
         message: "Missing final newline",
         fixable: true,
         selected_by_default: true,
@@ -46,7 +87,7 @@ pub const REGISTRY: [Rule; 5] = [
     Rule {
         id: "V1003",
         name: "TabIndentation",
-        severity: "error",
+        severity: Severity::Error,
         message: "Tab in structural indentation",
         fixable: false,
         selected_by_default: true,
@@ -54,7 +95,7 @@ pub const REGISTRY: [Rule; 5] = [
     Rule {
         id: "V2001",
         name: "LineTooLong",
-        severity: "warning",
+        severity: Severity::Warning,
         message: "Line exceeds configured maximum length",
         fixable: false,
         selected_by_default: false,
@@ -62,7 +103,7 @@ pub const REGISTRY: [Rule; 5] = [
     Rule {
         id: "V2002",
         name: "BareTodoComment",
-        severity: "warning",
+        severity: Severity::Warning,
         message: "TODO comment needs a nonempty parenthesized reference",
         fixable: false,
         selected_by_default: false,
@@ -82,6 +123,49 @@ pub const V2002: &str = "V2002";
 #[cfg(test)]
 pub const DETECTOR_IDS: [&str; 5] = [V1001, V1002, V1003, V2001, V2002];
 
+/// `select`/`ignore` entries accept a complete ID (`V1001`) or a numeric prefix
+/// (`V`, `V1`, `V2`). A complete ID is itself a valid prefix, so one shape check
+/// covers both forms: a leading `V` followed only by ASCII digits. Anything else
+/// — `v1`, `V1001x`, an empty string — is malformed, never guessed at.
+fn is_well_formed_entry(entry: &str) -> bool {
+    entry
+        .strip_prefix('V')
+        .is_some_and(|digits| digits.bytes().all(|b| b.is_ascii_digit()))
+}
+
+/// Expand one `select`/`ignore` entry against the registry, in registry order.
+/// A well-formed entry that matches no registered rule is a failure rather than
+/// a silent no-op, so a typo can neither empty nor unexpectedly widen a run.
+/// New rules become reachable through an existing prefix automatically, because
+/// expansion always reads the current registry.
+pub fn expand_entry(entry: &str) -> Result<Vec<&'static str>, String> {
+    if !is_well_formed_entry(entry) {
+        return Err(format!(
+            "invalid rule entry {entry:?} in select/ignore; use a complete rule ID like \"V1001\" or a prefix of \"V\" plus digits like \"V1\""
+        ));
+    }
+    let matched: Vec<&'static str> = REGISTRY
+        .iter()
+        .map(|rule| rule.id)
+        .filter(|id| id.starts_with(entry))
+        .collect();
+    if matched.is_empty() {
+        return Err(format!(
+            "rule prefix {entry:?} in select/ignore matched no registered rule"
+        ));
+    }
+    Ok(matched)
+}
+
+/// Expand every entry of one list, collapsing duplicates into stable ID order.
+fn expand_entries(entries: &[String]) -> Result<BTreeSet<String>, String> {
+    let mut expanded = BTreeSet::new();
+    for entry in entries {
+        expanded.extend(expand_entry(entry)?.into_iter().map(str::to_owned));
+    }
+    Ok(expanded)
+}
+
 fn lookup<'a>(registry: &'a [Rule], id: &str) -> &'a Rule {
     registry
         .iter()
@@ -95,12 +179,37 @@ pub fn rule(id: &str) -> &'static Rule {
     lookup(&REGISTRY, id)
 }
 
+/// Read `[lint.severity]` as text keyed by rule ID. Values are validated in
+/// [`Settings::validate`], which can name both the rule and the accepted
+/// literals; a non-string value is rejected here so the message still names the
+/// offending key instead of a bare "invalid type".
+fn deserialize_severity<'de, D>(deserializer: D) -> Result<BTreeMap<String, String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    let raw = BTreeMap::<String, toml::Value>::deserialize(deserializer)?;
+    raw.into_iter()
+        .map(|(id, value)| match value {
+            toml::Value::String(text) => Ok((id, text)),
+            other => Err(Error::custom(format!(
+                "invalid severity {other} for {id} in [lint.severity]; expected a quoted \"error\" or \"warning\""
+            ))),
+        })
+        .collect()
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(default, deny_unknown_fields, rename_all = "kebab-case")]
 pub struct Settings {
     pub select: Vec<String>,
     pub ignore: Vec<String>,
     pub max_line_length: usize,
+    /// `[lint.severity]`: rule ID to replacement severity text. Kept as text so
+    /// [`Settings::validate`] can name the offending key itself instead of
+    /// deferring to a generic deserializer message.
+    #[serde(deserialize_with = "deserialize_severity")]
+    pub severity: BTreeMap<String, String>,
 }
 impl Default for Settings {
     fn default() -> Self {
@@ -112,26 +221,83 @@ impl Default for Settings {
                 .collect(),
             ignore: vec![],
             max_line_length: 120,
+            severity: BTreeMap::new(),
         }
     }
 }
 impl Settings {
     pub fn validate(&self) -> Result<(), String> {
-        for id in self.select.iter().chain(&self.ignore) {
-            if !REGISTRY.iter().any(|r| r.id == id) {
-                return Err(format!("unknown rule ID {id:?}; use complete IDs"));
-            }
-        }
+        // Expansion is the validation: a malformed entry, or a prefix that
+        // matches nothing, can never be silently dropped from `select` or
+        // `ignore`. Syntactically complete IDs stay complete IDs, so existing
+        // configurations keep their meaning.
+        self.expanded_select()?;
+        self.expanded_ignore()?;
         if self.max_line_length == 0 || self.max_line_length > 1_000_000 {
             return Err("max-line-length must be between 1 and 1000000".into());
         }
+        for (id, value) in &self.severity {
+            if !REGISTRY.iter().any(|r| r.id == id) {
+                return Err(format!(
+                    "unknown rule ID {id:?} in [lint.severity]; use complete IDs"
+                ));
+            }
+            if Severity::parse(value).is_none() {
+                return Err(format!(
+                    "invalid severity {value:?} for {id} in [lint.severity]; expected \"error\" or \"warning\""
+                ));
+            }
+        }
         Ok(())
     }
+
+    /// Effective per-rule severity overrides. Independent of selection: an
+    /// override on an unselected rule is accepted and simply has no finding to
+    /// apply to.
+    pub fn severity_overrides(&self) -> Result<SeverityOverrides, String> {
+        let mut overrides = SeverityOverrides::new();
+        for (id, value) in &self.severity {
+            let severity = Severity::parse(value).ok_or_else(|| {
+                format!(
+                    "invalid severity {value:?} for {id} in [lint.severity]; expected \"error\" or \"warning\""
+                )
+            })?;
+            overrides.insert(id.clone(), severity);
+        }
+        Ok(overrides)
+    }
+
+    /// Every registered rule with the severity it would report at today, in
+    /// stable ID order. `--show-config` renders this map.
+    pub fn effective_severity(&self) -> Result<BTreeMap<String, String>, String> {
+        let overrides = self.severity_overrides()?;
+        Ok(REGISTRY
+            .iter()
+            .map(|rule| {
+                let severity = overrides.get(rule.id).copied().unwrap_or(rule.severity);
+                (rule.id.to_owned(), severity.as_str().to_owned())
+            })
+            .collect())
+    }
+    /// Complete IDs behind the configured `select` list, in stable ID order.
+    /// `--show-config` renders this so an effective set containing no prefix is
+    /// unambiguous.
+    pub fn expanded_select(&self) -> Result<Vec<String>, String> {
+        Ok(expand_entries(&self.select)?.into_iter().collect())
+    }
+
+    /// Complete IDs behind the configured `ignore` list, in stable ID order.
+    pub fn expanded_ignore(&self) -> Result<Vec<String>, String> {
+        Ok(expand_entries(&self.ignore)?.into_iter().collect())
+    }
+
     pub fn active(&self) -> Result<BTreeSet<String>, String> {
         self.validate()?;
-        let mut selected: BTreeSet<_> = self.select.iter().cloned().collect();
-        for id in &self.ignore {
-            selected.remove(id);
+        // Both lists are expanded before subtraction, so `--select V --ignore V2`
+        // is the V1 family and a prefix never subtracts by string identity.
+        let mut selected = expand_entries(&self.select)?;
+        for id in expand_entries(&self.ignore)? {
+            selected.remove(&id);
         }
         if selected.is_empty() {
             return Err("no active lint rules".into());
@@ -142,18 +308,38 @@ impl Settings {
 
 #[derive(Clone, Debug, Default)]
 pub struct LintResult {
+    /// Findings that will be reported. Suppressed findings are never in here.
     pub diagnostics: Vec<Diagnostic>,
-    pub suppressed: usize,
+    /// Findings a suppression directive removed, kept so `--show-suppressed` can
+    /// report them. The count is the only trace a default run prints, and it is
+    /// what the diagnostic budget and `summary.suppressed` use.
+    pub suppressed: Vec<Diagnostic>,
+}
+
+impl LintResult {
+    /// Findings removed by suppression directives, shown or not.
+    pub fn suppressed_count(&self) -> usize {
+        self.suppressed.len()
+    }
 }
 
 pub fn lint(
     source: &Source,
     path: &str,
     active: &BTreeSet<String>,
+    severities: &SeverityOverrides,
     max_line_length: usize,
     budget: usize,
 ) -> Result<LintResult, Failure> {
-    lint_with(source, path, active, max_line_length, budget, &REGISTRY)
+    lint_with(
+        source,
+        path,
+        active,
+        severities,
+        max_line_length,
+        budget,
+        &REGISTRY,
+    )
 }
 
 /// Lint against an explicit registry order. Detector dispatch is by rule ID, so
@@ -162,6 +348,7 @@ fn lint_with(
     source: &Source,
     path: &str,
     active: &BTreeSet<String>,
+    severities: &SeverityOverrides,
     max_line_length: usize,
     budget: usize,
     registry: &[Rule],
@@ -182,9 +369,13 @@ fn lint_with(
             ));
         }
         count += 1;
-        let diagnostic = Diagnostic::new(path, source, range, rule);
+        let mut diagnostic =
+            Diagnostic::new(path, source, range, rule, severities.get(rule.id).copied());
         if suppressions.contains(diagnostic.range.start.line, rule.id) {
-            result.suppressed += 1;
+            // Marked at the source of truth: the flag travels with the finding,
+            // so text, JSON and SARIF cannot disagree about what was suppressed.
+            diagnostic.suppressed = true;
+            result.suppressed.push(diagnostic);
         } else {
             result.diagnostics.push(diagnostic);
         }
@@ -276,9 +467,11 @@ fn lint_with(
             offset += line.len();
         }
     }
-    result
-        .diagnostics
-        .sort_by_key(|d| (d.range.start.byte_offset, d.rule_id));
+    // Both lists use the same key, so showing suppressed findings never changes
+    // the order active findings are printed in.
+    let order = |d: &Diagnostic| (d.range.start.byte_offset, d.rule_id);
+    result.diagnostics.sort_by_key(order);
+    result.suppressed.sort_by_key(order);
     Ok(result)
 }
 
@@ -310,6 +503,7 @@ mod tests {
             &sample(),
             "sample.verse",
             active,
+            &SeverityOverrides::new(),
             12,
             MAX_DIAGNOSTICS,
             registry,
@@ -330,7 +524,7 @@ mod tests {
             let rule = rule(id);
             assert_eq!(rule.id, id);
             assert_eq!(rule.name, name, "{id} SARIF name");
-            assert_eq!(rule.severity, severity, "{id} severity");
+            assert_eq!(rule.severity.as_str(), severity, "{id} severity");
             assert_eq!(rule.fixable, fixable, "{id} fixable");
             assert_eq!(
                 rule.selected_by_default, selected_by_default,
@@ -377,7 +571,7 @@ mod tests {
         };
         // Same findings, same rule identity: a reorder cannot rebind detectors.
         assert_eq!(outcome(&baseline), outcome(&reversed));
-        assert_eq!(baseline.suppressed, reversed.suppressed);
+        assert_eq!(baseline.suppressed_count(), reversed.suppressed_count());
         // Each finding still reports the metadata of the rule that produced it.
         for diagnostic in &reversed.diagnostics {
             let documented = DOCUMENTED
@@ -385,7 +579,8 @@ mod tests {
                 .find(|(id, ..)| *id == diagnostic.rule_id)
                 .expect("diagnostic rule is documented");
             assert_eq!(
-                diagnostic.severity, documented.2,
+                diagnostic.severity.as_str(),
+                documented.2,
                 "{} severity",
                 documented.0
             );
@@ -415,6 +610,167 @@ mod tests {
     }
 
     #[test]
+    fn suppressed_findings_are_retained_marked_and_ordered_like_reported_ones() {
+        let source = Source::from_bytes(
+            b"A := 1  \n# verse-lint: disable-next-line V1001 -- reason\nB := 2  \nC := 3  \n",
+        )
+        .expect("sample source");
+        let result = lint_with(
+            &source,
+            "sample.verse",
+            &active(&[V1001]),
+            &SeverityOverrides::new(),
+            120,
+            MAX_DIAGNOSTICS,
+            &REGISTRY,
+        )
+        .expect("lint succeeds");
+
+        // Retained, not merely counted: the finding keeps its identity and
+        // carries the flag a consumer filters on.
+        assert_eq!(result.suppressed_count(), 1);
+        assert!(result.suppressed.iter().all(|d| d.suppressed));
+        assert!(result.diagnostics.iter().all(|d| !d.suppressed));
+        assert_eq!(result.suppressed[0].rule_id, V1001);
+        assert_eq!(result.suppressed[0].range.start.line, 3);
+
+        // Both lists are sorted by the same key, so printing one after the other
+        // and re-sorting is the same list in the same order.
+        let order = |d: &Diagnostic| (d.range.start.byte_offset, d.rule_id);
+        let mut combined: Vec<_> = result
+            .diagnostics
+            .iter()
+            .chain(&result.suppressed)
+            .cloned()
+            .collect();
+        combined.sort_by_key(order);
+        let lines: Vec<_> = combined.iter().map(|d| d.range.start.line).collect();
+        assert_eq!(lines, [1, 3, 4]);
+        assert!(combined[1].suppressed);
+
+        // The same input without a directive yields the same findings and an
+        // empty suppressed list: the flag never changes detection.
+        let plain = Source::from_bytes(b"A := 1  \nB := 2  \nC := 3  \n").unwrap();
+        let without = lint_with(
+            &plain,
+            "sample.verse",
+            &active(&[V1001]),
+            &SeverityOverrides::new(),
+            120,
+            MAX_DIAGNOSTICS,
+            &REGISTRY,
+        )
+        .unwrap();
+        assert_eq!(without.suppressed_count(), 0);
+        let outcome = |r: &LintResult| {
+            r.diagnostics
+                .iter()
+                .chain(&r.suppressed)
+                .map(|d| (d.rule_id, d.message))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(outcome(&result).len(), 3);
+        assert_eq!(outcome(&result), outcome(&without));
+    }
+
+    fn settings_with(select: &[&str], ignore: &[&str]) -> Settings {
+        Settings {
+            select: select.iter().map(|id| (*id).into()).collect(),
+            ignore: ignore.iter().map(|id| (*id).into()).collect(),
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn a_prefix_expands_to_every_matching_registered_rule_in_registry_order() {
+        let family = expand_entry("V1").expect("V1 is registered");
+        assert_eq!(family, [V1001, V1002, V1003]);
+        let policy = expand_entry("V2").expect("V2 is registered");
+        assert_eq!(policy, [V2001, V2002]);
+        // `V` is a prefix of every ID, so it is the whole registry.
+        let all: Vec<_> = REGISTRY.iter().map(|rule| rule.id).collect();
+        assert_eq!(expand_entry("V").unwrap(), all);
+        // A complete ID is a prefix of itself and of nothing else in the registry.
+        assert_eq!(expand_entry(V1001).unwrap(), [V1001]);
+        assert_eq!(expand_entry("V2001").unwrap(), [V2001]);
+        // Registry order, not alphabetical or hash order, drives expansion.
+        assert_eq!(
+            expand_entry("V").unwrap(),
+            REGISTRY.iter().map(|rule| rule.id).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn zero_match_and_malformed_entries_are_errors_that_name_the_entry() {
+        // A well-formed prefix that no registered ID starts with.
+        let error = expand_entry("V9").unwrap_err();
+        assert!(error.contains("\"V9\""), "{error}");
+        assert!(error.contains("matched no registered rule"), "{error}");
+        assert!(expand_entry("V0000000").unwrap_err().contains("V0000000"));
+        // Malformed shapes are never guessed at: lowercase, trailing junk,
+        // empty, a bare leading V-less ID and non-ASCII digits all fail.
+        for entry in [
+            "v1", "V1x", "V1001x", "", "1001", "V1 ", " V1", "V１", "VV1", "V-1", "V1.0",
+        ] {
+            let error = expand_entry(entry)
+                .err()
+                .unwrap_or_else(|| panic!("{entry:?} must be rejected"));
+            assert!(error.contains("invalid rule entry"), "{entry:?}: {error}");
+        }
+    }
+
+    #[test]
+    fn select_and_ignore_are_expanded_before_subtraction_and_duplicates_collapse() {
+        // Documented example: the whole registry minus the V2 family is V1.
+        let settings = settings_with(&["V"], &["V2"]);
+        assert_eq!(settings.active().unwrap(), active(&[V1001, V1002, V1003]));
+        // A prefix subtracts the rule it actually names, not the literal text.
+        assert_eq!(
+            settings_with(&["V1", "V2"], &["V2002"]).active().unwrap(),
+            active(&[V1001, V1002, V1003, V2001])
+        );
+        // Overlapping entries collapse to one effective set.
+        assert_eq!(
+            settings_with(&["V", "V1", V1001, "V1001"], &["V1", V1002])
+                .active()
+                .unwrap(),
+            active(&[V2001, V2002])
+        );
+        // Subtracting everything is still the existing empty-selection failure.
+        let error = settings_with(&["V1"], &["V1"]).active().unwrap_err();
+        assert!(error.contains("no active lint rules"), "{error}");
+        assert!(
+            settings_with(&["V"], &["V"])
+                .active()
+                .unwrap_err()
+                .contains("no active lint rules")
+        );
+    }
+
+    #[test]
+    fn validation_rejects_prefixes_only_where_the_contract_forbids_them() {
+        // A zero-match prefix in either list fails validation, not just active().
+        for bad in [settings_with(&["V9"], &[]), settings_with(&[], &["V9"])] {
+            assert!(bad.validate().unwrap_err().contains("V9"));
+        }
+        // Prefix acceptance is confined to select/ignore: `[lint.severity]` keeps
+        // requiring complete registered IDs.
+        let error = settings(&[("V1", "error")]).validate().unwrap_err();
+        assert!(error.contains("rule ID"), "{error}");
+        assert!(
+            !error.contains("entry"),
+            "severity must not accept prefixes: {error}"
+        );
+    }
+
+    #[test]
+    fn expanded_lists_render_complete_ids_for_show_config() {
+        let settings = settings_with(&["V2", V1002, V1002], &["V1"]);
+        assert_eq!(settings.expanded_select().unwrap(), [V1002, V2001, V2002]);
+        assert_eq!(settings.expanded_ignore().unwrap(), [V1001, V1002, V1003]);
+    }
+
+    #[test]
     fn registry_names_are_unique_and_map_to_existing_rule_documents() {
         let mut ids: Vec<_> = REGISTRY.iter().map(|r| r.id).collect();
         let mut names: Vec<_> = REGISTRY.iter().map(|r| r.name).collect();
@@ -441,5 +797,125 @@ mod tests {
                 rule.name
             );
         }
+    }
+
+    fn settings(severity: &[(&str, &str)]) -> Settings {
+        Settings {
+            severity: severity
+                .iter()
+                .map(|(id, value)| ((*id).into(), (*value).into()))
+                .collect(),
+            ..Settings::default()
+        }
+    }
+
+    #[test]
+    fn severity_accepts_only_the_two_exact_literals() {
+        assert_eq!(Severity::parse("error"), Some(Severity::Error));
+        assert_eq!(Severity::parse("warning"), Some(Severity::Warning));
+        for invalid in ["Error", "Warning", "ERROR", "", "notice", "err", " error"] {
+            assert_eq!(Severity::parse(invalid), None, "{invalid:?}");
+        }
+        assert_eq!(Severity::Error.to_string(), "error");
+        assert_eq!(Severity::Warning.to_string(), "warning");
+    }
+
+    #[test]
+    fn overrides_are_validated_against_the_registry_and_never_select_rules() {
+        let overriding = settings(&[(V2001, "error"), (V1001, "warning")]);
+        overriding.validate().expect("registered IDs are accepted");
+        // Severity must not participate in selection.
+        let with_override = overriding.active().unwrap();
+        let without = Settings::default().active().unwrap();
+        assert_eq!(with_override, without);
+        assert!(!with_override.contains(V2001), "V2001 stays opt-in");
+
+        for bad in [
+            settings(&[("V9999", "error")]),
+            settings(&[("V1", "error")]),
+        ] {
+            let error = bad.validate().unwrap_err();
+            assert!(error.contains("rule ID"), "{error}");
+        }
+        for value in ["Error", "", "notice"] {
+            let error = settings(&[(V2001, value)]).validate().unwrap_err();
+            assert!(error.contains(V2001), "{error}");
+            assert!(error.contains("severity"), "{error}");
+        }
+    }
+
+    #[test]
+    fn effective_severity_covers_every_rule_in_stable_id_order() {
+        let settings = settings(&[(V2001, "error"), (V1003, "warning")]);
+        let effective = settings.effective_severity().unwrap();
+        let ordered: Vec<_> = effective
+            .iter()
+            .map(|(id, s)| (id.as_str(), s.as_str()))
+            .collect();
+        assert_eq!(
+            ordered,
+            [
+                (V1001, "error"),
+                (V1002, "error"),
+                (V1003, "warning"),
+                (V2001, "error"),
+                (V2002, "warning"),
+            ]
+        );
+        // Every registered rule is present, and the key order is the stable
+        // ID order that `--show-config` relies on.
+        assert_eq!(effective.len(), REGISTRY.len());
+        let mut ids: Vec<_> = effective.keys().cloned().collect();
+        ids.sort();
+        assert_eq!(ids, effective.keys().cloned().collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn effective_severity_reaches_diagnostics_without_touching_detection() {
+        let ids = active(&DETECTOR_IDS);
+        let baseline = lint_all(&REGISTRY, &ids);
+        let overrides: SeverityOverrides = [
+            (V1001.to_owned(), Severity::Warning),
+            (V2002.to_owned(), Severity::Error),
+        ]
+        .into_iter()
+        .collect();
+        let overridden = lint_with(
+            &sample(),
+            "sample.verse",
+            &ids,
+            &overrides,
+            12,
+            MAX_DIAGNOSTICS,
+            &REGISTRY,
+        )
+        .expect("lint succeeds");
+
+        let identity = |result: &LintResult| {
+            result
+                .diagnostics
+                .iter()
+                .map(|d| (d.rule_id, d.message, d.fixable))
+                .collect::<Vec<_>>()
+        };
+        // Only the reported severity changed: same findings, same order, same
+        // fixability, so detectors and dispatch are untouched.
+        assert_eq!(identity(&baseline), identity(&overridden));
+        assert_eq!(baseline.suppressed_count(), overridden.suppressed_count());
+        for diagnostic in &overridden.diagnostics {
+            let expected = match diagnostic.rule_id {
+                V1001 => Severity::Warning,
+                V2002 => Severity::Error,
+                other => rule(other).severity,
+            };
+            assert_eq!(diagnostic.severity, expected, "{}", diagnostic.rule_id);
+        }
+        assert!(
+            overridden
+                .diagnostics
+                .iter()
+                .any(|d| d.severity != rule(d.rule_id).severity),
+            "sample must exercise an override"
+        );
     }
 }
