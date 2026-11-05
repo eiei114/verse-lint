@@ -4,6 +4,7 @@ mod diagnostic;
 mod files;
 mod fix;
 mod fix_run;
+mod github;
 mod lex;
 #[cfg(test)]
 mod limits;
@@ -91,6 +92,7 @@ fn requested_machine_format(args: &[OsString]) -> Option<cli::OutputFormat> {
             requested = Some(match value {
                 "json" => cli::OutputFormat::Json,
                 "sarif" => cli::OutputFormat::Sarif,
+                "github" => cli::OutputFormat::Github,
                 _ => return None,
             });
         }
