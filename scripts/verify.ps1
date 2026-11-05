@@ -1,4 +1,10 @@
 # Works in a fresh PowerShell shell. Leaves build artifacts for further inspection.
+param(
+    # Forwarded to verify-baseline-parity.ps1 so a PR that intentionally changes
+    # rule output can name its pre-slice baseline instead of deleting the gate.
+    [string]$BaseRef = '',
+    [string]$BaselineBinary = ''
+)
 $ErrorActionPreference = 'Stop'
 $saved = @{ Path = $env:Path; RUSTUP_TOOLCHAIN = $env:RUSTUP_TOOLCHAIN; RUSTC = $env:RUSTC; RUSTDOC = $env:RUSTDOC }
 Push-Location (Split-Path -Parent $PSScriptRoot)
@@ -36,6 +42,14 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'cargo test failed' }
     cargo build --release --locked --target x86_64-pc-windows-msvc
     if ($LASTEXITCODE -ne 0) { throw 'Windows release build failed' }
+    # Primary regression gate for the retained-CST slice: the pre-slice binary
+    # and this HEAD must produce byte-identical text, JSON and SARIF for every
+    # self-authored fixture. A mismatch fails verification.
+    $parity = @{ Profile = 'release'; ToolchainBin = $bin }
+    if ($BaseRef) { $parity.BaseRef = $BaseRef }
+    if ($BaselineBinary) { $parity.BaselineBinary = $BaselineBinary }
+    & "$PSScriptRoot/verify-baseline-parity.ps1" @parity
+    if ($LASTEXITCODE -ne 0) { throw 'Baseline output parity failed' }
     & "$PSScriptRoot/verify-json.ps1"
     # The Python harness is a developer tool, not a runtime dependency; skip it
     # explicitly rather than silently instead of failing on a Python-less host.

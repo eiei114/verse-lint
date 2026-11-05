@@ -46,3 +46,38 @@ No formatter layout pass runs during lint. Current tests are parser/tool tests;
 **UEFN compiler and runtime acceptance have not been performed**. The original
 formatter probe ran on Rust 1.98.1; current verification explicitly resolves
 the pinned Rust 1.97.0 instead of trusting PATH ordering.
+
+## Retained CST and the semantic layer
+
+`Document` now retains the parsed tree alongside `tokens` and `shape`, so the
+scope graph in `src/semantic.rs` can walk it. Retaining the tree changes no
+coverage decision: the lexical scan, coverage validation, adjacent-statement
+guard, budgets, block-comment boundary match and `shape` fingerprint all run in
+the same order and still fail closed.
+
+A non-empty skip map makes the graph incomplete, and a semantic rule must refuse
+to report from an incomplete graph rather than guess. See
+[semantic model](semantic-model.md). No semantic rule exists yet.
+
+## Baseline output parity
+
+"Byte-identical diagnostics" is a claim that has to be reproducible, so it is a
+committed gate rather than a one-off observation.
+`scripts/verify-baseline-parity.ps1` builds the pre-slice binary from the merge
+base with the base branch, builds HEAD, and compares **stdout bytes, stderr
+bytes and the exit code** for every source in `tests/fixtures/baseline/` in
+text, JSON and SARIF, under both the default rule selection and an all-rules
+selection, plus whole-corpus and stdin runs. A mismatch prints the differing
+bytes and fails the script.
+
+`scripts/verify.ps1` runs that script, so a regression cannot reach a green
+Windows verification path, and `ci.yml` checks out full history so the merge
+base is resolvable on the runner. The sweep also asserts its own
+non-vacuity: the corpus runs must actually report rule IDs, and the JSON and
+SARIF documents must contain their diagnostic containers, so a format that
+silently serialized nothing cannot pass by comparing equal empty strings.
+
+The fixture set is self-authored (see `tests/fixtures/provenance.md`) and
+covers clean input, each of the five rules, suppression, string and comment
+protection, Unicode literals, and the grammar refusals the linter documents. It
+is not compiler acceptance and does not need UEFN.

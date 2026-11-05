@@ -12,6 +12,8 @@ jobs:
   verify:
     runs-on: windows-2025
     steps:
+      # Full history so the baseline parity gate in scripts/verify.ps1 can
+      # resolve the merge base with main and rebuild the pre-slice binary.
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # scripts/verify-parity.ps1 must resolve the declared linter revision,

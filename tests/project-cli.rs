@@ -221,3 +221,36 @@ fn zero_sources_unexpanded_globs_and_diagnostic_limit_are_errors() {
     );
     assert!(value["diagnostics"].as_array().unwrap().len() <= 10_000);
 }
+
+/// `--show-config` used to validate rule selection before printing. Moving the
+/// `active()` call after the `--show-config` branch (for `--dump-scopes`) must
+/// not let an invalid selection print a configuration and exit 0.
+#[test]
+fn show_config_still_validates_rule_selection() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::write(root.join("verse.toml"), "[lint]\nselect=[]\n").unwrap();
+    // No active rules: an error, not a printed configuration.
+    let out = run(root, &["--show-config"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(out.stdout.is_empty());
+    assert!(
+        String::from_utf8(out.stderr)
+            .unwrap()
+            .contains("no active lint rules")
+    );
+    // Unknown rule ID: also an error. Since rule-family prefixes, an unknown
+    // complete-looking ID is reported as a prefix that matched no rule.
+    let out = run(root, &["--show-config", "--select=V9999"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(out.stdout.is_empty());
+    assert!(
+        String::from_utf8(out.stderr)
+            .unwrap()
+            .contains("\"V9999\" in select/ignore matched no registered rule")
+    );
+    // A valid selection still prints the configuration and exits 0.
+    let out = run(root, &["--show-config", "--select=V1001"]);
+    assert_eq!(out.status.code(), Some(0));
+    assert!(String::from_utf8(out.stdout).unwrap().contains("select"));
+}

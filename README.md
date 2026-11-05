@@ -62,6 +62,7 @@ verse-lint . --select V2001,V2002 --deny-warnings
 verse-lint . --show-suppressed
 verse-lint . --no-ignore-file
 verse-lint --show-config
+verse-lint Content/device.verse --dump-scopes
 ```
 
 ```toml
@@ -88,6 +89,10 @@ neither overrides the other — and is read only from that one location: no pare
 search, no nested ignore files. `--no-ignore-file` skips it for one run, and
 `--verbose` names which source excluded a path.
 
+`--dump-scopes` prints the model's scope graph as JSON for rule authors, runs no
+rule, and is an **unstable** surface rather than a public contract; see
+[the semantic model][semantic].
+
 No arguments inspects CWD. Exit 0 means inspection completed without selected
 errors; 1 means lint violations; 2 means incomplete inspection/config/I/O failure.
 Readable-file diagnostics survive failures in other files. Strings/comments are
@@ -106,6 +111,7 @@ avoid simultaneous editor/UEFN saves during `--fix`.
 
 See [CLI/config and JSON contract][cli], [rule index][rules], [safe fixes][fixes],
 [pinned independent syntax snapshot][snapshot],
+[the scope graph and semantic model][semantic],
 [paired/shell integration checks][integration] and
 [local packaging and future mise usage][packaging]. No installed formatter,
 Node.js or runtime network access is needed.
@@ -200,6 +206,7 @@ repository's `docs/` directory: a relative link is dead there. They point at
 [rules]: https://github.com/eiei114/verse-lint/blob/main/docs/rules.md
 [fixes]: https://github.com/eiei114/verse-lint/blob/main/docs/fixes.md
 [snapshot]: https://github.com/eiei114/verse-lint/blob/main/docs/syntax-snapshot.md
+[semantic]: https://github.com/eiei114/verse-lint/blob/main/docs/semantic-model.md
 [integration]: https://github.com/eiei114/verse-lint/blob/main/docs/integration-testing.md
 [packaging]: https://github.com/eiei114/verse-lint/blob/main/docs/packaging-and-mise.md
 [sarif]: https://github.com/eiei114/verse-lint/blob/main/docs/sarif.md

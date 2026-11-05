@@ -1,6 +1,7 @@
 mod cli;
 mod config;
 mod diagnostic;
+mod dump;
 mod files;
 mod fix;
 mod fix_run;
@@ -11,6 +12,7 @@ mod limits;
 mod report;
 mod rules;
 mod sarif;
+mod semantic;
 mod source;
 mod suppressions;
 mod syntax;
@@ -119,11 +121,23 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
     if let Some(ignore) = &cli.ignore {
         config.settings.lint.ignore = ignore.clone();
     }
-    let active = config.settings.lint.active()?;
-    let severities = config.settings.lint.severity_overrides()?;
     if cli.show_config {
+        // `--show-config` still validates the effective rule selection, as it did
+        // before `--dump-scopes` moved the `active()` call. Without this, an
+        // unknown rule ID or an empty selection would print a configuration and
+        // exit 0 where the CLI used to exit 2. `active()` also validates
+        // `[lint.severity]`, so an invalid override still exits 2 here.
+        config.settings.lint.active()?;
         return Ok(Some(config.show()?));
     }
+    if cli.dump_scopes {
+        // Rule IDs stay validated, but no rule selection is required because
+        // this path runs no rule.
+        config.settings.lint.validate()?;
+        return dump::run(cli, &config, report);
+    }
+    let active = config.settings.lint.active()?;
+    let severities = config.settings.lint.severity_overrides()?;
     if cli.paths.first().is_some_and(|p| p.as_os_str() == "-") {
         let label = match &cli.stdin_filepath {
             Some(path) => path

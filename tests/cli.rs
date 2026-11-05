@@ -12,9 +12,21 @@ fn help_succeeds_without_reading_input() {
     let out = cli(&["--help"]);
     assert!(out.status.success());
     let help = String::from_utf8(out.stdout).unwrap();
-    for flag in ["--fix", "--select", "--ignore", "--output-format"] {
+    for flag in [
+        "--fix",
+        "--select",
+        "--ignore",
+        "--output-format",
+        "--dump-scopes",
+    ] {
         assert!(help.contains(flag), "missing {flag}");
     }
+    // The unstable diagnostic surface must say so in the help text itself.
+    let help_lower = help.to_lowercase();
+    assert!(
+        help_lower.contains("unstable"),
+        "--dump-scopes help must label the surface unstable"
+    );
     assert!(
         help.contains("--show-suppressed"),
         "missing the opt-in flag"

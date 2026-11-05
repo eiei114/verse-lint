@@ -57,6 +57,11 @@ pub struct Cli {
         conflicts_with_all = ["paths", "fix", "deny_warnings", "output_format", "show_suppressed"]
     )]
     pub show_config: bool,
+    /// Print the per-file scope graph as JSON and run no rule. This is an
+    /// UNSTABLE diagnostic surface for rule authors, not a stable public
+    /// contract; its shape may change without notice.
+    #[arg(long)]
+    pub dump_scopes: bool,
     /// Also report findings removed by a `verse-lint:` suppression directive.
     /// They are marked as suppressed and never change the exit code.
     #[arg(long)]
@@ -83,6 +88,20 @@ impl Cli {
         }
         if self.stdin_filepath.is_some() && !stdin && !self.show_config {
             return Err("--stdin-filepath requires stdin '-'".into());
+        }
+        if self.dump_scopes {
+            if self.fix {
+                return Err("--dump-scopes cannot be combined with --fix".into());
+            }
+            if self.show_config {
+                return Err("--dump-scopes cannot be combined with --show-config".into());
+            }
+            if !matches!(self.output_format, OutputFormat::Text) {
+                return Err(
+                    "--dump-scopes emits its own JSON; drop --output-format (only the default text setting is accepted)"
+                        .into(),
+                );
+            }
         }
         Ok(())
     }

@@ -72,7 +72,12 @@ and the [parity checklist](../CONTRIBUTING.md).
 Local adaptations: config validates `[lint]` and tolerates sibling `[format]`;
 syntax removes formatter-only spacing/call offsets. CST shape is walked
 and bounded, with equivalent-tree regression checks and production fix
-revalidation. Formatter indentation
+revalidation. **The parsed CST is now retained** in `Document` for the scope
+graph in [semantic-model.md](semantic-model.md); retention changes no guard, and
+`Document::parse` keeps its signature and every failure mode. That the retained
+tree changes no rule output is enforced by the byte-exact pre-slice-versus-HEAD
+sweep in `scripts/verify-baseline-parity.ps1`, which `scripts/verify.ps1` runs
+over text, JSON and SARIF. Formatter indentation
 normalization is not imported: linter must be able to diagnose tabs without
 guessing their visual width. Rules/reports/orchestration are independent.
 
