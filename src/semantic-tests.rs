@@ -399,3 +399,101 @@ fn file_scope_is_the_root_and_every_other_scope_has_a_parent() {
         assert_eq!(here, all, "references of scope {index}");
     }
 }
+
+/// Names of the bindings [`ScopeGraph::unused`] returns, in declaration order.
+fn unused_names(model: &ScopeGraph, parameters: bool) -> Vec<&str> {
+    model
+        .unused(parameters)
+        .into_iter()
+        .map(|binding| binding.name.as_str())
+        .collect()
+}
+
+#[test]
+fn unused_reports_function_body_locals_and_nothing_else() {
+    let (_, model) = graph(concat!(
+        "Top:int = 1\n",
+        "F(Param:int):void =\n",
+        "    Local:int = 2\n",
+        "    Read:int = 3\n",
+        "    Print(Read)\n",
+    ));
+    assert_eq!(unused_names(&model, false), ["Local"]);
+    // The file-scope binding is reachable from elsewhere and the parameter is
+    // excluded until the switch asks for it.
+    assert_eq!(unused_names(&model, true), ["Param", "Local"]);
+}
+
+#[test]
+fn unused_treats_exports_and_the_underscore_marker_as_used() {
+    let (_, model) = graph(concat!(
+        "probe<public> := class:\n",
+        "    Field<public>:int = 1\n",
+        "    Get():void =\n",
+        "        Local:int = 1\n",
+    ));
+    // `Get` is not exported but it is a class member, not a body local: only
+    // `Local` qualifies, and the public names are excluded by `exported`.
+    assert_eq!(unused_names(&model, false), ["Local"]);
+    let (_, marker) = graph("F():void =\n    _Skipped:int = 1\n");
+    assert_eq!(unused_names(&marker, false), Vec::<&str>::new());
+    assert_eq!(unused_names(&marker, true), Vec::<&str>::new());
+}
+
+#[test]
+fn exported_is_recorded_per_binding_from_the_declaration_specifiers() {
+    let (_, model) = graph(concat!(
+        "probe<public> := class:\n",
+        "    Visible<public>:int = 1\n",
+        "    Hidden:int = 2\n",
+    ));
+    // The top-level type name is exported because it is the module surface.
+    // `Name := class<public>` would put the specifier on the value instead, so
+    // both shapes must reach the same answer.
+    assert!(binding(&model, "probe").exported);
+    assert!(binding(&model, "Visible").exported);
+    assert!(!binding(&model, "Hidden").exported);
+    let (_, value_side) = graph("probe := class<public>:\n    Field:int = 1\n");
+    assert!(binding(&value_side, "probe").exported);
+}
+
+#[test]
+fn unused_is_a_documented_no_op_on_an_incomplete_graph() {
+    let (_, model) = graph("F():void =\n    Local:int = 1\n    Print(other.Value)\n");
+    assert!(!model.is_complete());
+    // Even with parameters enabled the incomplete graph reports nothing, which
+    // is the invariant the rule layer relies on.
+    assert!(model.unused(false).is_empty());
+    assert!(model.unused(true).is_empty());
+    assert!(model.reportable().is_none());
+}
+
+#[test]
+fn unused_respects_shadowing_and_nested_block_ownership() {
+    let (_, model) = graph(concat!(
+        "F():void =\n",
+        "    Value:int = 1\n",
+        "    if (true):\n",
+        "        Value:int = 2\n",
+        "    Print(Value)\n",
+    ));
+    // The inner declaration is the unreferenced one; the outer is read after the
+    // block, so exactly one binding is reported and it is the inner one.
+    let reported = model.unused(false);
+    assert_eq!(reported.len(), 1);
+    assert!(reported[0].range.start > 20, "{}", reported[0].range.start);
+}
+
+#[test]
+fn for_and_if_bindings_are_never_unused_candidates() {
+    let (_, model) = graph(concat!(
+        "F():void =\n",
+        "    for (Key -> Value : Values):\n",
+        "        Print(\"x\")\n",
+        "    if (Bound := Get()):\n",
+        "        Print(\"y\")\n",
+    ));
+    // The bound value is tested or iterated by the construct that binds it; that
+    // is not evidence the declaration is dead.
+    assert_eq!(unused_names(&model, true), Vec::<&str>::new());
+}

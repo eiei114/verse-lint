@@ -78,6 +78,13 @@ SARIF documents must contain their diagnostic containers, so a format that
 silently serialized nothing cannot pass by comparing equal empty strings.
 
 The fixture set is self-authored (see `tests/fixtures/provenance.md`) and
-covers clean input, each of the five rules, suppression, string and comment
+covers clean input, each of the five style rules, suppression, string and comment
 protection, Unicode literals, and the grammar refusals the linter documents. It
 is not compiler acceptance and does not need UEFN.
+
+The sweep's all-rules selection is the five style IDs it names explicitly, not
+the whole live registry, because the baseline binary does not know V3001: a
+selection naming a rule the baseline has not registered is a configuration
+failure there and the comparison would fail for the wrong reason. V3001 is off
+by default, so the default-selection runs stay byte-identical too. The rule's own
+non-regression is covered by `tests/v3001-cli.rs` instead.

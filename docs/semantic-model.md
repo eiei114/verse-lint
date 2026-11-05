@@ -3,7 +3,8 @@
 This is the canonical description of the semantic layer verse-lint builds on top
 of its retained CST. It covers what a scope is, what a binding is, which CST
 nodes are modelled, what `isComplete: false` means, and the invariant every
-semantic rule must obey. It does not describe a lint rule: this layer adds none.
+semantic rule must obey. V3001 (unused declaration) is its only consumer; the
+rule itself is documented in [its own page](rules/v3001.md).
 
 ## Why the tree is retained
 
@@ -58,7 +59,8 @@ not a member of the type it derives from.
 ## Bindings
 
 A binding is a declaration. It records its name, the scope that owns it, the
-byte range of the declaration name (BOM included), a kind, and a `mutable` flag.
+byte range of the declaration name (BOM included), a kind, a `mutable` flag and
+an `exported` flag.
 
 | kind | CST node |
 |---|---|
@@ -79,6 +81,14 @@ variant reserved.
 A declaration whose name is not a plain `identifier` — a scoped name, an
 operator function name — is **not** silently reclassified; it is recorded as an
 unsupported kind, which makes the graph incomplete.
+
+`exported` means *reachable from outside this file*, which is the only thing a
+one-file model can know: a `public` or `protected` specifier on the declaration
+(or on the `class` value of a `Name := class<public>` definition) sets it, and so
+does any top-level `class` / `struct` / `interface` / `enum` name, because that
+name is the module's public surface. It is not a visibility model and it never
+resolves a cross-file reference — it exists so a rule cannot call an exported
+name unused on intra-file evidence. `--dump-scopes` prints it per binding.
 
 ## References and resolution
 
@@ -147,13 +157,38 @@ Because every recorded skip clears `is_complete()`, a grammar shape added in a
 future slice cannot silently start producing confident findings: it makes the
 file unreportable until the model is taught to classify it.
 
+## The unused-binding query
+
+`unused(parameters)` returns the bindings with zero resolved references, in
+declaration order. It re-checks `is_complete()` internally and returns an empty
+list for an incomplete graph, so a caller cannot bypass the invariant by
+forgetting `reportable()`.
+
+A reference counts whether it reads or writes, so the query proves *no reference
+at all*, never "no read": an assigned-but-unread local stays silent. Candidates
+are deliberately narrow, because an `unused` claim on a live project is worse
+than no rule:
+
+| candidate | why |
+|---|---|
+| `variable` / `constant` in a function-body scope | the only category that is provably local to the code this graph sees |
+| `parameter`, only with `parameters = true` | an unused parameter is usually a callback signature; the switch is opt-in |
+
+Everything else is excluded by construction: an `exported` binding needs no
+intra-file reference, a `moduleImport` may be re-exported or untraceable, a
+`for`/`if` binding exists to test or iterate its value, and a `_`-prefixed name
+is the conventional "deliberately unused" marker. A file-scope or class-member
+binding is reachable from elsewhere, so only a function-body local is reported.
+
+V3001 is the only consumer: see [the rule](rules/v3001.md).
+
 ## The `--dump-scopes` diagnostic surface
 
 `verse-lint --dump-scopes <path>` prints the graph as JSON and exits 0 without
 running any rule. Output is versioned (`schemaVersion`), deterministic, and
 contains scopes (kind, parent), bindings (name, kind, scope, byte range,
-mutable), references (name, byte range, scope, resolved binding index or null),
-and the skipped-kind counts with `isComplete`. See [CLI](cli.md).
+mutable, exported), references (name, byte range, scope, resolved binding index
+or null), and the skipped-kind counts with `isComplete`. See [CLI](cli.md).
 
 **`--dump-scopes` is an unstable diagnostic surface for rule authors, not a
 stable public contract.** Its shape may change without notice and without a
@@ -168,8 +203,8 @@ complete.
 ## Non-goals
 
 - No type inference, effect inference, or cross-file resolution.
-- No rule in this layer; V3001 and its siblings come later and must all consume
-  this graph through `reportable()`.
+- No second semantic rule in this layer; V3001 is its only consumer, and a
+  sibling must also consume the graph through `reportable()`.
 - No replacement of the lossless lexer or of strict coverage validation with
   tree-sitter error recovery.
 - Coverage counts describe the *tool's* coverage. They are not a code-quality
