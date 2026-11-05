@@ -105,12 +105,19 @@ fn selection_unknown_rules_and_empty_effective_selection_are_checked() {
     fs::write(root.join("verse.toml"), "[lint]\nselect=[]\n").unwrap();
     let (out, _) = json(root, &["--select", "V1001,V1001"]);
     assert_eq!(out.status.code(), Some(1));
+    // `V1` is now a valid family prefix, so it reaches the default selection's
+    // V1001 and still reports the trailing whitespace.
+    let (out, _) = json(root, &["--select", "V1"]);
+    assert_eq!(out.status.code(), Some(1));
+    // A registered prefix that names nothing, and an empty effective set, stay
+    // failures; prefix support must not turn a typo into a passing run.
     for args in [
-        vec!["--select", "V1"],
         vec!["--ignore", "V9999"],
+        vec!["--select", "V9"],
         vec!["--select", "V1001", "--ignore", "V1001"],
+        vec!["--select", "v1"],
     ] {
-        assert_eq!(json(root, &args).0.status.code(), Some(2));
+        assert_eq!(json(root, &args).0.status.code(), Some(2), "{args:?}");
     }
 }
 

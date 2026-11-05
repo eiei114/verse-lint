@@ -15,6 +15,14 @@ fn help_succeeds_without_reading_input() {
     for flag in ["--fix", "--select", "--ignore", "--output-format"] {
         assert!(help.contains(flag), "missing {flag}");
     }
+    assert!(
+        help.contains("--show-suppressed"),
+        "missing the opt-in flag"
+    );
+    assert!(
+        help.contains("--no-ignore-file"),
+        "missing the ignore-file opt-out flag"
+    );
 }
 
 #[test]

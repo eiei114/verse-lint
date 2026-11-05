@@ -51,7 +51,12 @@ pub fn render(report: &Report) -> Value {
         "defaultConfiguration": {"level":rule.severity.as_str(),"enabled":rule.selected_by_default},
         "properties": {"tags":["style"],"fixable":rule.fixable}
     })).collect();
-    let paths: BTreeSet<_> = report.diagnostics.iter().map(|d| d.path.as_str()).collect();
+    let paths: BTreeSet<_> = report
+        .diagnostics
+        .iter()
+        .filter(|d| !d.suppressed)
+        .map(|d| d.path.as_str())
+        .collect();
     let mut artifacts = Vec::new();
     let mut locations = BTreeMap::new();
     let mut needs_base = false;
@@ -74,7 +79,7 @@ pub fn render(report: &Report) -> Value {
             locations.insert(path, location);
         }
     }
-    let results: Vec<_> = report.diagnostics.iter().map(|d| {
+    let results: Vec<_> = report.diagnostics.iter().filter(|d| !d.suppressed).map(|d| {
         let start = &d.range.start;let end = &d.range.end;
         json!({
             "ruleId":d.rule_id,"ruleIndex":REGISTRY.iter().position(|r|r.id==d.rule_id).expect("registered diagnostic rule"),

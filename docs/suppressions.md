@@ -24,4 +24,8 @@ directives prevent every file's fix during preflight.
 
 Only diagnostics from selected, non-ignored rules contribute to `suppressed`.
 They are removed from ordinary output, but count toward the 10,000-finding
-resource bound. No unused-directive cleanup or show-suppressed option exists.
+resource bound. `--show-suppressed` lists them again for review: text appends
+` (suppressed)` after the message, JSON sets the per-diagnostic `suppressed`
+boolean, and SARIF keeps them out of `results`. They never affect the exit code.
+There is no unused-directive cleanup and no automatic deletion of stale
+suppressions; deciding that a directive is obsolete stays a human edit.

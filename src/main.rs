@@ -5,6 +5,8 @@ mod files;
 mod fix;
 mod fix_run;
 mod lex;
+#[cfg(test)]
+mod limits;
 mod report;
 mod rules;
 mod sarif;
@@ -45,6 +47,7 @@ fn main() -> ExitCode {
     };
     let mut report = report::Report::default();
     report.stdin = cli.paths.iter().any(|p| p.as_os_str() == "-");
+    report.show_suppressed = cli.show_suppressed;
     match cli.validate().and_then(|()| run(&cli, &mut report)) {
         Ok(Some(config)) => {
             return match std::io::stdout().lock().write_all(config.as_bytes()) {
@@ -96,7 +99,11 @@ fn requested_machine_format(args: &[OsString]) -> Option<cli::OutputFormat> {
 }
 
 fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, String> {
-    let mut config = config::resolve(cli.config.as_deref(), cli.stdin_filepath.as_deref())?;
+    let mut config = config::resolve(
+        cli.config.as_deref(),
+        cli.stdin_filepath.as_deref(),
+        cli.no_ignore_file,
+    )?;
     report.source_root = Some(
         config
             .root
@@ -137,7 +144,12 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
         } else {
             cli.paths.clone()
         };
-        let discovered = files::discover(&paths, &config.root, &config.settings.files.exclude)?;
+        let discovered = files::discover(
+            &paths,
+            &config.root,
+            &config.settings.files.exclude,
+            config.ignore_file.as_ref(),
+        )?;
         if cli.verbose {
             for reason in discovered.excluded {
                 eprintln!("{reason}");
@@ -154,6 +166,7 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
                 &active,
                 &severities,
                 config.settings.lint.max_line_length,
+                cli.show_suppressed,
                 report,
             );
             return Ok(None);
@@ -215,7 +228,7 @@ fn inspect(
             active,
             severities,
             max_line_length,
-            rules::MAX_DIAGNOSTICS - report.diagnostics.len() - report.summary.suppressed,
+            rules::MAX_DIAGNOSTICS - report.budget_used,
         )
         .map_err(|e| {
             let (line, column) = source.position(e.offset);
@@ -225,8 +238,7 @@ fn inspect(
     match result {
         Ok(result) => {
             report.summary.files_checked += 1;
-            report.diagnostics.extend(result.diagnostics);
-            report.summary.suppressed += result.suppressed;
+            report.record(&result);
         }
         Err(error) => report.error(Some(label.into()), error),
     }

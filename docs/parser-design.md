@@ -4,8 +4,19 @@ Linter uses the pinned snapshot described in [syntax-snapshot.md](syntax-snapsho
 A strict lossless UTF-8 lexer protects strings, interpolation, characters,
 line comments and nested block comments before the pinned CST is accepted.
 Reject ERROR/MISSING nodes, unterminated spans, bare-CR endings, NUL, UTF-16
-and invalid UTF-8. Mixed LF/CRLF files are scanned losslessly. Limits: 8 MiB/source, nesting 256, 250,000 tokens, two-second
-parse budget, CST depth 512 and one million fingerprint events.
+and invalid UTF-8. Mixed LF/CRLF files are scanned losslessly.
+
+Limits:
+
+- 8 MiB per source file
+- 256 nesting levels
+- 250,000 tokens
+- 2-second parse budget
+- 512 CST depth
+- 1,000,000 fingerprint events
+
+Each bullet is machine-checked against its constant by `src/doc-drift-tests.rs`;
+keep one limit per bullet.
 
 Initial supported examples include assignments, creative devices, class fields,
 methods/specifiers, using paths and nested literal/comment spans. Known rejected

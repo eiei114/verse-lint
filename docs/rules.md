@@ -21,10 +21,16 @@ rule ID. Adding a rule means one registry entry, its `rules/<id>.md` document
 and one row here — never a parallel positional array. The severity column is the
 registry default; a project may override it without changing this table.
 
-Select complete IDs only. CLI selections replace config selections; ignores
-then subtract from them. Warnings exit 0 unless `--deny-warnings` is set.
-Execution errors always exit 2 and cannot be suppressed. See
-[suppression syntax](suppressions.md), [configuration](cli.md) and [fixes](fixes.md).
+Select a complete ID (`V1001`), or a rule-family prefix of `V` plus digits: `--select
+V2` enables every registered V2 rule and `--ignore V2` removes that family. Prefixes
+expand over the live registry before subtraction, and `--show-config` prints the
+resulting complete IDs. A prefix matching nothing, a malformed entry and an empty
+effective set are configuration errors (exit 2). CLI selections replace config
+selections; ignores then subtract from them. Warnings exit 0 unless `--deny-warnings`
+is set. Execution errors always exit 2 and cannot be suppressed. Prefixes apply
+only here — `[lint.severity]` keys and suppression directives still need complete
+IDs. See [suppression syntax](suppressions.md), [configuration](cli.md) and
+[fixes](fixes.md).
 
 ## Per-project severity
 
@@ -40,8 +46,9 @@ V1001 = "warning" # default error is demoted for this project only
 ```
 
 Only complete registered IDs are accepted, and only the exact values `"error"`
-and `"warning"`; an unknown ID, an unknown value or a non-string value is a
-configuration error (exit 2) that names the offending key. The override changes
+and `"warning"`; a prefix, an unknown ID, an unknown value or a non-string value
+is a configuration error (exit 2) that names the offending key. The override
+changes
 reported severity — text, JSON `severity`, JSON `errors`/`warnings` and SARIF
 `results[].level` — and nothing else. It does not select a rule, suppress a
 finding, disable a safe fix or bypass `--deny-warnings`, and SARIF

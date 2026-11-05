@@ -9,10 +9,37 @@ is supported and schema-validated. Compiler/UEFN acceptance is not established.
 `verse-lint` defaults to CWD; file and directory paths can be combined. `-` must
 be used alone; `--stdin-filepath` is a virtual Unicode path, not a write target.
 `--select V1001` replaces configured selection; `--ignore V1001` replaces
-configured ignore, then subtracts from selection. Duplicates collapse; unknown
-or empty-string IDs, prefixes and zero effective rules fail. Each rule has a
-registry default severity; `[lint.severity]` overrides it per project.
+configured ignore, then subtracts from selection. Each rule has a registry
+default severity; `[lint.severity]` overrides it per project.
 `--deny-warnings` promotes remaining warnings to exit 1 without changing severity.
+`--show-suppressed` also lists findings a suppression directive removed; see
+[suppressed findings](#suppressed-findings). `--no-ignore-file` skips
+`verse-lint.ignore` for one run; see [ignore file](#ignore-file).
+
+### Rule selection and family prefixes
+
+`select`/`ignore` entries — on the command line and in the `[lint]` arrays — are
+either a complete rule ID (`V1001`) or a rule-family prefix: `V` followed by zero
+or more ASCII digits (`V`, `V1`, `V2`). A prefix expands to every registered rule
+whose ID starts with it, so `--select V1` is the V1001/V1002/V1003 family and
+`--select V` is the whole registry. Expansion reads the live registry, so a rule
+added in a later release becomes reachable through an existing prefix without
+editing the selection.
+
+Both lists are expanded before subtraction, so `--select V --ignore V2` keeps the
+V1 family: an `ignore` prefix removes the rules it names, never a literal string.
+Duplicates and overlapping entries collapse to one effective set, which is still
+ordered by ID. `--show-config` always prints the expanded complete IDs, never a
+prefix, so the effective set is unambiguous.
+
+Anything that cannot be resolved is a configuration error with exit 2 before any
+source is inspected: a prefix matching zero registered rules (`V9`) names the
+prefix and that no registered rule matched; a malformed entry (lowercase `v1`,
+`V1001x`, a bare number `1001`, `--select ""` or a trailing comma) names the
+offending entry and the accepted forms. A typo is never silently ignored, and an
+effective set that subtracts to zero rules is still an error. Prefixes are
+accepted only for `select`/`ignore`: `[lint.severity]` keys and
+[suppression](suppressions.md) directives keep requiring complete IDs.
 
 ## Configuration
 
@@ -35,13 +62,16 @@ config per invocation, no nested/global merging. Exclude/label root is config
 parent or CWD. Unknown top-level, files, lint and `[lint.severity]` keys fail;
 sibling `[format]` is required to be a table but its own keys/values are
 deliberately not validated. `max-line-length` must be 1..1,000,000.
-`--show-config` shows effective CLI rule overrides, the effective severity of
-every registered rule, config source and root without inspecting inputs.
+`--show-config` shows effective CLI rule overrides, the expanded complete rule
+IDs behind `select`/`ignore`, the effective severity of every registered rule,
+config source and root without inspecting inputs.
 
 `[lint.severity]` promotes or demotes an already-registered rule for this
 project; it never adds a rule. Keys must be complete rule IDs that appear in the
-registry — an unknown or abbreviated ID (`V1`, `V9999`) is a configuration error,
-exactly like `select`/`ignore`. Values must be the exact lowercase literals
+registry — an unknown or abbreviated ID (`V1`, `V9999`) is a configuration error.
+Unlike `select`/`ignore`, a prefix such as `V1` is never expanded here: a severity
+override has to name one rule.
+Values must be the exact lowercase literals
 `"error"` or `"warning"`; anything else, including `"Error"`, an empty string or
 a non-string TOML value, is a configuration error that names the offending key.
 Both fail the run with exit 2 before any source is inspected, so stdout carries
@@ -66,22 +96,107 @@ are deduplicated (including tested Windows case aliases).
 Distinct hard-link paths are separate read-only inputs; `--fix` refuses hard-linked
 sources before writing.
 There is no CLI glob expansion. Zero sources is exit 2, not successful inspection.
-`--verbose` explains exclusions on stderr.
+`--verbose` explains exclusions on stderr, naming the source that excluded each
+path (`verse.toml`, `verse-lint.ignore` or `.gitignore`).
+
+### Ignore file
+
+`verse-lint.ignore` is one shared exclusion list for a project that needs the same
+skips in several repositories. It is read from **one** location: the directory
+owning the resolved `verse.toml`, or CWD when no configuration was found. There is
+no parent-directory search, no nested per-subdirectory ignore file and no
+user-level ignore file.
+
+```text
+# generated output and vendored dependencies
+Content/Generated/**
+Vendor/**
+Saved_*/Intermediate/**
+```
+
+One relative forward-slash glob per line. A blank line, and a line whose first
+non-blank character is `#`, is skipped; each entry is trimmed. A `#` that is not
+leading belongs to the pattern, so `build#1.verse` is a pattern, not a comment.
+Accepted entries follow exactly the `[files] exclude` grammar, so the same forms
+are rejected as a configuration error with exit 2 and the offending line number:
+
+- negation (`!name.verse`)
+- an absolute path (`/Content/**`)
+- a drive letter or colon (`C:/project/**`)
+- a backslash (`Content\**`)
+- an entry longer than 4,096 bytes
+
+The file may hold at most 256 effective patterns and be at most 256 KiB; comments
+and blank lines do not consume the pattern budget. Both numbers are
+machine-checked in [Limits](#output-contract) below. Exceeding either is exit 2,
+reported before any source is inspected and before any fix is written.
+
+`[files] exclude` and `verse-lint.ignore` combine as a union: a path either source
+matches is skipped. Neither overrides the other, and there is no "last match
+wins" rule. An explicit file argument bypasses `verse-lint.ignore` exactly as it
+bypasses `[files] exclude`; generated-file protections (`Saved`, `Intermediate`,
+`*.digest.verse`, `.git`) stay non-bypassable. A missing ignore file is not an
+error; an unreadable one is exit 2 with a message naming the path.
+
+`--no-ignore-file` disables the file for one invocation without touching it, which
+restores the behaviour of a directory that has none. `--show-config` reports in a
+header comment whether an ignore file was found, its path, and the merged
+effective pattern count (its own patterns plus `[files] exclude`), so the number
+that actually excludes is visible in one place. `--verbose` keeps the
+attribution per path, so `verse.toml`, `verse-lint.ignore` and `.gitignore`
+exclusions remain distinguishable.
+
+## Suppressed findings
+
+Suppression directives ([suppressions](suppressions.md)) remove findings from
+ordinary output. `--show-suppressed` lists them again, so a suppression written
+for code that has since changed can be reviewed without editing the source first.
+The flag changes reporting only:
+
+- Without it, output is exactly as before: suppressed findings are not printed
+  and `summary.suppressed` is their only trace.
+- With it, suppressed findings are reported alongside active ones, marked as
+  suppressed, and sorted by the same path/byte-offset/rule-ID key, so a mixed
+  list still reads in source order.
+- Text output appends ` (suppressed)` after the message. The marker is stable: no
+  rule message ends with it, so a line without it is an active finding.
+- JSON sets the per-diagnostic `suppressed` boolean, present on every diagnostic
+  in every run. `summary.suppressed` keeps its meaning and still counts these
+  findings; `errors`, `warnings` and SARIF `results` count only active ones.
+- SARIF omits suppressed findings from `results` (see [SARIF](sarif.md)); the run
+  summary still reports the `suppressed` count.
+
+Suppressed findings never change the exit code, with or without the flag, and
+`--deny-warnings` ignores them. They still count toward the 10,000-diagnostic
+budget, as before. `--show-suppressed --show-config` is rejected like every other
+`--show-config` conflict (exit 2).
+
+With `--fix`, a suppressed finding is reported at its position in the **saved**
+source, consistent with how active diagnostics are reported after a successful
+write. A file the run could not save keeps inspected-original positions, which
+the execution error states explicitly; the same applies without the flag.
+
+The JSON addition is additive: existing fields keep their meaning and the new
+boolean is always present, so a consumer that ignores unknown fields keeps
+working. `schemaVersion` therefore stays `1`, and
+[diagnostics.schema.json](diagnostics.schema.json) documents `suppressed` as
+required in the same release.
 
 ## Output contract
 
 Text stdout: `path:line:column: severity rule-id message`, no success banners.
 Execution errors go to stderr. `--color auto|always|never` affects text only;
 auto respects terminal detection and `NO_COLOR`.
-
 JSON stdout conforms to [diagnostics.schema.json](diagnostics.schema.json).
 `schemaVersion` is 1. Every run contains `tool`, `diagnostics`, `executionErrors`
 and `summary`, including recoverable argument/config failures when a valid JSON
 output request can be identified. Invalid output format itself uses stderr only.
 Help/version bypass config. JSON never contains ANSI color or progress logs.
 
-- Every diagnostic has path, ruleId, severity, message, range and fixable.
-  `severity` is the effective value after `[lint.severity]`.
+- Every diagnostic has path, ruleId, severity, message, range, fixable and
+  suppressed. `severity` is the effective value after `[lint.severity]`.
+  `suppressed` is always present: `false` for a reported finding and `true` for
+  a finding `--show-suppressed` listed after a directive removed it.
 - Range is half-open. Start/end contain zero-based UTF-8 byteOffset including
   BOM, and one-based line/Unicode-scalar column excluding initial BOM. Columns
   are not visual widths or UTF-16 units. CRLF counts as one line ending.
@@ -93,20 +208,37 @@ Help/version bypass config. JSON never contains ANSI color or progress logs.
   run IDs. Same arguments/input yield identical JSON apart from external errors.
 - Execution errors contain a message and optional path. They are not lint rules.
 - `filesChecked` counts successfully analyzed files, not failed attempts.
-  `errors`/`warnings` count reported diagnostics. `filesChanged` counts successful
-  writes only; `suppressed` counts otherwise emitted active-rule diagnostics
-  removed by directives. Text mode reports nonzero changed/suppressed counts on
-  stderr. `complete=false` if any execution error occurred.
+  `errors`/`warnings` count active diagnostics only, never suppressed ones.
+  `filesChanged` counts successful writes only; `suppressed` counts otherwise
+  emitted active-rule diagnostics removed by directives, whether or not
+  `--show-suppressed` listed them. Text mode reports nonzero changed/suppressed
+  counts on stderr. `complete=false` if any execution error occurred.
 - Partial inspection retains diagnostics from successfully analyzed files but
   exits 2. Otherwise errors (or warnings with deny-warnings) exit 1; clean is 0.
   Failure to write stdout also exits 2.
 
-Limits: 8 MiB/source, 64 MiB total successfully read input, 10,000 source files,
-100,000 visited entries, 128 directory levels, 256 KiB config/ignore file,
-256 exclude globs of up to 4,096 bytes. At most 10,000 diagnostics per invocation;
-including suppressed findings. An exceeding file produces an execution error instead of claiming its partial
-diagnostics complete. Previously completed files remain in output. No fixing
-begins on limit failure. Parser limits are in [parser-design.md](parser-design.md).
+Limits:
+
+- 8 MiB per source file
+- 64 MiB total successfully read input
+- 10,000 source files
+- 100,000 visited entries
+- 128 directory levels
+- 256 KiB config file
+- 256 KiB ignore file
+- 256 exclude globs
+- 256 ignore patterns
+- 4,096 bytes per exclude glob
+- 10,000 diagnostics per invocation
+
+The diagnostic count includes suppressed findings. An exceeding file produces an
+execution error instead of claiming its partial diagnostics complete. Previously
+completed files remain in output. No fixing begins on limit failure. Parser
+limits are in [parser-design.md](parser-design.md).
+
+Each bullet above is machine-checked against the constant that enforces it by
+`src/doc-drift-tests.rs`, so the prose cannot advertise a number the code no
+longer uses. Keep one limit per bullet.
 
 ### Limit coverage
 
@@ -148,3 +280,10 @@ real parse to take two seconds.
 `scripts/verify-json.ps1` validates real release-binary JSON and SARIF for exit
 0/1/2, fixes, suppression, Unicode paths, virtual stdin, I/O and argument failure
 with PowerShell 7's JSON Schema validator. An invalid version must be rejected.
+
+`verse-lint.ignore` is covered end to end by `tests/ignore-file-cli.rs`: discovery
+exclusion, the union with `[files] exclude`, comment/whitespace handling, every
+rejected entry form with its line number, both caps at their boundary and one past
+it, `--no-ignore-file`, explicit-argument bypass, `--verbose` attribution and
+`--show-config` output. The parser and loader are also unit tested in
+`src/files.rs`.

@@ -18,6 +18,8 @@ verse-lint . --output-format json
 verse-lint . --output-format sarif
 verse-lint . --fix
 verse-lint . --select V2001,V2002 --deny-warnings
+verse-lint . --show-suppressed
+verse-lint . --no-ignore-file
 verse-lint --show-config
 ```
 
@@ -28,6 +30,22 @@ select = ["V1001", "V1002", "V1003", "V2001"] # config select replaces the defau
 [lint.severity]
 V2001 = "error"
 ```
+
+`select`/`ignore` also accept a rule-family prefix, so `--select V2` enables every
+registered V2 rule at once; `--show-config` prints the expanded complete IDs.
+
+```text
+# verse-lint.ignore, at the directory owning verse.toml (or CWD)
+# one relative forward-slash glob per line; blank lines and # comments are skipped
+Content/Generated/**
+Vendor/**
+```
+
+`verse-lint.ignore` is a shared exclusion list for a project that needs the same
+skips in several repositories. It combines with `[files] exclude` as a union —
+neither overrides the other — and is read only from that one location: no parent
+search, no nested ignore files. `--no-ignore-file` skips it for one run, and
+`--verbose` names which source excluded a path.
 
 No arguments inspects CWD. Exit 0 means inspection completed without selected
 errors; 1 means lint violations; 2 means incomplete inspection/config/I/O failure.
