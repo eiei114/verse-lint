@@ -10,6 +10,45 @@ Linter for Epic Games' Verse language and UEFN projects.
 > distribution checks remain pending. This is not a Verse compiler or a
 > supported stable release.
 
+## Installation
+
+verse-lint is **not published anywhere yet**: there is no crates.io crate and no
+released binary. Read the labels below before running a command — two of the
+three paths do not work today.
+
+### Prebuilt Windows binary via mise — not yet available
+
+The intended path is a version-pinned `mise` entry against a future GitHub
+Release asset. No such release exists, so this path cannot install anything yet.
+The illustrative `mise.toml` in [the packaging note][packaging] is unverified:
+asset selection, checksum checks and clean-machine installation have not been
+tested with mise. Do not run it expecting an install.
+
+### `cargo install verse-lint` — not yet published
+
+The crate metadata is prepared for a future publish, but nothing has been
+uploaded. `cargo install verse-lint` fails today because crates.io has no such
+crate. Do not treat the command as working until a published version is visible
+on crates.io.
+
+### Building from source — available today
+
+This is the only path that works now. Requirements: Windows x64 (the initial
+target), Rust 1.97.0 with the MSVC toolchain — pinned in `rust-toolchain.toml` —
+the MSVC build tools, and the C compiler they ship, because `build.rs` compiles
+the vendored Tree-sitter grammar.
+
+```powershell
+git clone https://github.com/eiei114/verse-lint
+Set-Location verse-lint
+cargo build --release --locked --target x86_64-pc-windows-msvc
+./target/x86_64-pc-windows-msvc/release/verse-lint.exe --version
+```
+
+`cargo install --path .` installs the same build into your Cargo bin directory
+from a local checkout. Either way the binary is local and unpublished, so do not
+redistribute it as a release.
+
 ## Current usage
 
 ```powershell
@@ -65,19 +104,18 @@ only remove unprotected trailing trivia and add a final newline; they never
 guess tab widths, rename symbols or reflow comments. Use version control and
 avoid simultaneous editor/UEFN saves during `--fix`.
 
-See [CLI/config and JSON contract](docs/cli.md), [rule index](docs/rules.md),
-[safe fixes](docs/fixes.md) and
-[pinned independent syntax snapshot](docs/syntax-snapshot.md) and
-[paired/shell integration checks](docs/integration-testing.md), plus
-[local packaging and future mise usage](docs/packaging-and-mise.md). No
-installed formatter, Node.js or runtime network access is needed.
+See [CLI/config and JSON contract][cli], [rule index][rules], [safe fixes][fixes],
+[pinned independent syntax snapshot][snapshot],
+[paired/shell integration checks][integration] and
+[local packaging and future mise usage][packaging]. No installed formatter,
+Node.js or runtime network access is needed.
 
 The formatter parity contract is declared in `parity.json` and checked
 structurally by `scripts/verify.ps1`; only `scripts/verify-pair.py` can claim
-actual convergence. See the [parity checklist](CONTRIBUTING.md) before changing
+actual convergence. See the [parity checklist][contributing] before changing
 the grammar snapshot, the corpus or safe-fix bytes.
 
-[SARIF 2.1.0](docs/sarif.md) is validated against the pinned official OASIS
+[SARIF 2.1.0][sarif] is validated against the pinned official OASIS
 schema. Emitting SARIF writes the report to stdout only; the command has no
 network access and uploads nothing.
 
@@ -102,7 +140,7 @@ complete report. `file=` is resolved against the repository root, which is where
 the configuration root has to sit for annotations to line up — a nested
 `verse.toml` still emits config-root-relative paths, exactly as text and JSON do.
 That limitation, and why this format does not discover the checkout root, are in
-[the CLI reference](docs/cli.md#github-annotations).
+[the CLI reference][cli-github].
 
 Properties escape `%`, CR, LF, `:` and `,` (`%25`, `%0D`, `%0A`, `%3A`, `%2C`),
 and a message escapes `%`, CR and LF, so a path or message containing them
@@ -116,8 +154,7 @@ access, no GitHub API call and no token handling happen in any of these formats.
 
 This project does not upload SARIF to GitHub code scanning and ships no upload
 workflow or code-scanning configuration. That is a recorded decision, not a
-missing feature: see
-[ADR 0001: do not upload SARIF to GitHub code scanning](docs/adr/0001-sarif-upload-policy.md).
+missing feature: see [ADR 0001: do not upload SARIF to GitHub code scanning][adr].
 Uploading, if you want it, is your own CI step in your own repository, under
 your permissions and licence. This is a style linter — its findings are not
 security findings, and error-level style alerts in a Security tab would be
@@ -135,12 +172,15 @@ when building from source. Consumers of future prebuilt binaries will not need C
 cargo run -- --help
 ```
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing the syntax snapshot, the
+Read [CONTRIBUTING.md][contributing] before changing the syntax snapshot, the
 formatter corpus or safe-fix bytes.
 
 Tests and the release build do not replace manual UEFN acceptance. CI never
 publishes packages or creates releases. `verse-lint.dev` is a planned, unregistered
 project domain, not an active homepage. The linter is independent of `verse-fmt`.
+Neither the crate nor a binary is published; [the release checklist][checklist]
+lists the human-owned steps a publish would need, and the reasons each one is a
+decision rather than a re-run of CI.
 
 The project is community-built and is not affiliated with or endorsed by Epic Games.
 
@@ -148,7 +188,22 @@ The project is community-built and is not affiliated with or endorsed by Epic Ga
 
 Licensed under either of:
 
-- [MIT](LICENSE-MIT)
-- [Apache License 2.0](LICENSE-APACHE)
+- [MIT](https://github.com/eiei114/verse-lint/blob/main/LICENSE-MIT)
+- [Apache License 2.0](https://github.com/eiei114/verse-lint/blob/main/LICENSE-APACHE)
 
-at your option.
+Links in this file are absolute and mostly written as reference definitions at
+the bottom, because crates.io renders this file without serving the
+repository's `docs/` directory: a relative link is dead there. They point at
+`main`, which may be newer than a published version.
+
+[cli]: https://github.com/eiei114/verse-lint/blob/main/docs/cli.md
+[rules]: https://github.com/eiei114/verse-lint/blob/main/docs/rules.md
+[fixes]: https://github.com/eiei114/verse-lint/blob/main/docs/fixes.md
+[snapshot]: https://github.com/eiei114/verse-lint/blob/main/docs/syntax-snapshot.md
+[integration]: https://github.com/eiei114/verse-lint/blob/main/docs/integration-testing.md
+[packaging]: https://github.com/eiei114/verse-lint/blob/main/docs/packaging-and-mise.md
+[sarif]: https://github.com/eiei114/verse-lint/blob/main/docs/sarif.md
+[adr]: https://github.com/eiei114/verse-lint/blob/main/docs/adr/0001-sarif-upload-policy.md
+[checklist]: https://github.com/eiei114/verse-lint/blob/main/docs/release-checklist.md
+[cli-github]: https://github.com/eiei114/verse-lint/blob/main/docs/cli.md#github-annotations
+[contributing]: https://github.com/eiei114/verse-lint/blob/main/CONTRIBUTING.md

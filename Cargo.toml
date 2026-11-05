@@ -5,11 +5,34 @@ edition = "2024"
 rust-version = "1.97"
 description = "A linter for Epic Games' Verse language."
 license = "MIT OR Apache-2.0"
+# `license` names both shipped texts (LICENSE-MIT and LICENSE-APACHE), so
+# `license-file` stays unset. Declaring both is not an error, but Cargo warns
+# "only one of `license` or `license-file` is necessary" (`license-file` is for
+# a non-standard licence), and neither shipped text carries the dual
+# `MIT OR Apache-2.0` wording on its own.
 repository = "https://github.com/eiei114/verse-lint"
 homepage = "https://github.com/eiei114/verse-lint"
 readme = "README.md"
 keywords = ["verse", "uefn", "linter"]
 categories = ["command-line-utilities", "development-tools"]
+# Developer-only tooling and vendored grammar sources that no build step reads.
+# The vendored LICENSE files, the hash manifest, the vendor provenance record,
+# the rule documents and every file a test reads stay in the package; see
+# docs/release-checklist.md for the reviewed file list.
+#
+# No [package.metadata.docs.rs]. This package has no library target, so docs.rs
+# would build an empty binary crate: nothing a reader can use, while implying
+# that generated API docs are the documentation. The documented contract lives
+# in docs/, which neither crates.io nor docs.rs serves, so the honest place to
+# point is the repository; see docs/release-checklist.md.
+exclude = [
+  "/scripts",
+  "/tests/test_package.py",
+  "/vendor/tree-sitter-verse/grammar.js",
+  "/vendor/tree-sitter-verse/tree-sitter.json",
+  "/vendor/tree-sitter-verse/src/grammar.json",
+  "/vendor/tree-sitter-verse/src/node-types.json",
+]
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
