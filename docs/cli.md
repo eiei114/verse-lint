@@ -318,3 +318,5 @@ the conflict through the normal machine envelope rather than printing a graph.
 The flag counts toward the existing per-source byte, nesting and token limits and
 fails closed — exit 2 with no graph — on inputs that today fail coverage
 validation. It never runs a rule, so it needs no active rule selection.
+File discovery is the same as a lint run: `[files] exclude` and
+`verse-lint.ignore` apply, and `--no-ignore-file` skips the ignore file.

@@ -239,14 +239,15 @@ fn show_config_still_validates_rule_selection() {
             .unwrap()
             .contains("no active lint rules")
     );
-    // Unknown rule ID: also an error.
+    // Unknown rule ID: also an error. Since rule-family prefixes, an unknown
+    // complete-looking ID is reported as a prefix that matched no rule.
     let out = run(root, &["--show-config", "--select=V9999"]);
     assert_eq!(out.status.code(), Some(2));
     assert!(out.stdout.is_empty());
     assert!(
         String::from_utf8(out.stderr)
             .unwrap()
-            .contains("unknown rule ID")
+            .contains("\"V9999\" in select/ignore matched no registered rule")
     );
     // A valid selection still prints the configuration and exits 0.
     let out = run(root, &["--show-config", "--select=V1001"]);

@@ -211,3 +211,32 @@ fn dump_does_not_change_lint_exit_codes_or_output() {
     let again = run(directory.path(), &["trailing.verse"], None);
     assert_eq!(again.status.code(), Some(1));
 }
+
+#[test]
+fn dump_discovers_the_same_files_as_a_lint_run_including_the_ignore_file() {
+    // `--dump-scopes` shares discovery with a lint run, so `verse-lint.ignore`
+    // excludes a file from the dump and `--no-ignore-file` brings it back.
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    std::fs::write(root.join("verse.toml"), "").unwrap();
+    std::fs::write(root.join("verse-lint.ignore"), "Generated/**\n").unwrap();
+    std::fs::create_dir(root.join("Generated")).unwrap();
+    std::fs::write(root.join("kept.verse"), "F():void = {}\n").unwrap();
+    std::fs::write(root.join("Generated/skipped.verse"), "G():void = {}\n").unwrap();
+    let paths = |args: &[&str]| -> Vec<String> {
+        let out = run(root, args, None);
+        assert_eq!(out.status.code(), Some(0), "{out:?}");
+        let value: Value = serde_json::from_slice(&out.stdout).unwrap();
+        value["files"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|file| file["path"].as_str().unwrap().to_owned())
+            .collect()
+    };
+    assert_eq!(paths(&["--dump-scopes"]), ["kept.verse"]);
+    assert_eq!(
+        paths(&["--dump-scopes", "--no-ignore-file"]),
+        ["Generated/skipped.verse", "kept.verse"]
+    );
+}
