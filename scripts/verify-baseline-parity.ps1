@@ -35,9 +35,44 @@ param(
     [string]$FixtureDir = "$PSScriptRoot/../tests/fixtures/baseline",
     [string]$ReportDir = "$PSScriptRoot/../target/verification/baseline-parity",
     [string]$ToolchainBin = '',
-    [string]$BaselineBinary = ''
+    [string]$BaselineBinary = '',
+    [switch]$SelfTest
 )
 $ErrorActionPreference = 'Stop'
+
+# The accept/reject decision for one comparison, isolated so its truth table can
+# be checked without building two binaries. The SARIF exception relaxes the
+# stdout comparison only: the exit code and stderr must match in every case,
+# SARIF included.
+function Test-ComparisonAccepted {
+    param([bool]$SameExit, [bool]$SameOut, [bool]$SameErr, [bool]$SarifStdoutAccepted)
+    return ($SameExit -and ($SameOut -or $SarifStdoutAccepted) -and $SameErr)
+}
+
+if ($SelfTest) {
+    # Each row is a comparison the sweep must judge. The two `$true` SarifOnly
+    # rows with a differing exit code or stderr are the defect this check
+    # exists for: an earlier version skipped the failure check entirely when the
+    # SARIF stdout exception applied, so a changed exit code or stderr passed.
+    $rows = @(
+        @{ Name = 'all equal'; Exit = $true; Out = $true; Err = $true; Sarif = $false; Accept = $true },
+        @{ Name = 'stdout differs, no exception'; Exit = $true; Out = $false; Err = $true; Sarif = $false; Accept = $false },
+        @{ Name = 'stdout differs, driver rule added'; Exit = $true; Out = $false; Err = $true; Sarif = $true; Accept = $true },
+        @{ Name = 'exit differs'; Exit = $false; Out = $true; Err = $true; Sarif = $false; Accept = $false },
+        @{ Name = 'exit differs, driver rule added'; Exit = $false; Out = $false; Err = $true; Sarif = $true; Accept = $false },
+        @{ Name = 'stderr differs'; Exit = $true; Out = $true; Err = $false; Sarif = $false; Accept = $false },
+        @{ Name = 'stderr differs, driver rule added'; Exit = $true; Out = $false; Err = $false; Sarif = $true; Accept = $false },
+        @{ Name = 'exit and stderr differ, driver rule added'; Exit = $false; Out = $false; Err = $false; Sarif = $true; Accept = $false }
+    )
+    foreach ($row in $rows) {
+        $actual = Test-ComparisonAccepted -SameExit $row.Exit -SameOut $row.Out -SameErr $row.Err -SarifStdoutAccepted $row.Sarif
+        if ($actual -ne $row.Accept) {
+            throw "Comparison decision self-check failed for '$($row.Name)': expected accepted=$($row.Accept), got $actual"
+        }
+    }
+    Write-Output "Comparison decision self-check passed ($($rows.Count) rows): the SARIF exception relaxes stdout only, never the exit code or stderr."
+    exit 0
+}
 if ($Profile -notin @('release', 'dev')) { throw "Unsupported profile '$Profile'; use release or dev" }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $FixtureDir = (Resolve-Path $FixtureDir).Path
@@ -297,9 +332,14 @@ try {
                 stdoutSha256     = (Get-HexDigest $after.Stdout)
                 stdoutBytes      = $after.Stdout.Length
             })
-        if (-not $sarifOnly -and -not ($sameExit -and $sameOut -and $sameErr)) {
-            $detail = "MISMATCH $Name [$($Arguments -join ' ')]: exit $($before.ExitCode)->$($after.ExitCode), stdoutSame=$sameOut, stderrSame=$sameErr"
-            if (-not $sameOut) {
+        # The exception above is about stdout only. A differing exit code or a
+        # differing stderr fails every case, SARIF included, so that check cannot
+        # be skipped when `$sarifOnly` is `$true`.
+        if (-not (Test-ComparisonAccepted -SameExit $sameExit -SameOut $sameOut -SameErr $sameErr -SarifStdoutAccepted $sarifOnly)) {
+            $detail = "MISMATCH $Name [$($Arguments -join ' ')]: exit $($before.ExitCode)->$($after.ExitCode), stdoutSame=$sameOut, stderrSame=$sameErr, driverRuleAdditionAccepted=$sarifOnly"
+            # An accepted SARIF stdout difference is explained by the report field,
+            # so dumping two whole documents would only bury the real defect.
+            if (-not $sameOut -and -not $sarifOnly) {
                 $detail += "`n  baseline stdout:`n$([Text.Encoding]::UTF8.GetString($before.Stdout))"
                 $detail += "`n  head stdout:`n$([Text.Encoding]::UTF8.GetString($after.Stdout))"
             }

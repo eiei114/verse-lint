@@ -70,6 +70,19 @@ text, JSON and SARIF, under both the default rule selection and an all-rules
 selection, plus whole-corpus and stdin runs. A mismatch prints the differing
 bytes and fails the script.
 
+Text and JSON comparisons are byte-exact. SARIF output cannot be, because
+`runs[].tool.driver.rules` is derived from the live rule registry, so a slice
+that registers a rule gains one driver entry in every SARIF document. A SARIF
+case is therefore accepted when that is the *only* difference: with the
+driver-rule list removed from both documents every remaining field must be
+identical, every rule the baseline emitted must reappear byte-for-byte
+unchanged, and at least one rule must have been added. The acceptance relaxes
+the stdout comparison and nothing else — a different exit code or any stderr
+difference still fails — and it is recorded per case in the report as
+`sarifDriverRuleAdded`, whose total is `sarifDriverRuleAdditionCount`. The
+accept/reject condition itself is exercised by `-SelfTest`, which
+`scripts/verify.ps1` runs first.
+
 `scripts/verify.ps1` runs that script, so a regression cannot reach a green
 Windows verification path, and `ci.yml` checks out full history so the merge
 base is resolvable on the runner. The sweep also asserts its own
@@ -86,5 +99,7 @@ The sweep's all-rules selection is the five style IDs it names explicitly, not
 the whole live registry, because the baseline binary does not know V3001: a
 selection naming a rule the baseline has not registered is a configuration
 failure there and the comparison would fail for the wrong reason. V3001 is off
-by default, so the default-selection runs stay byte-identical too. The rule's own
+by default, so the default-selection text and JSON runs stay byte-identical; the
+default-selection SARIF runs may instead gain its registry-derived driver-rule
+entry. The rule's own
 non-regression is covered by `tests/v3001-cli.rs` instead.
