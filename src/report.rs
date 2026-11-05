@@ -189,6 +189,9 @@ impl Report {
                     .map_err(|e| e.to_string())?;
                 writeln!(out).map_err(|e| e.to_string())?;
             }
+            // Colors never apply here: a workflow command carries no ANSI. This
+            // also keeps `--color=always` deterministic in a machine format.
+            OutputFormat::Github => crate::github::emit(self, &mut out)?,
         }
         if !self.execution_errors.is_empty() {
             let mut err = std::io::stderr().lock();

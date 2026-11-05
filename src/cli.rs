@@ -16,6 +16,7 @@ pub enum OutputFormat {
     Text,
     Json,
     Sarif,
+    Github,
 }
 
 #[derive(Debug, Parser)]
@@ -37,7 +38,8 @@ pub struct Cli {
     /// replacing configured ignores.
     #[arg(long, value_delimiter = ',')]
     pub ignore: Option<Vec<String>>,
-    /// Diagnostic format. Machine formats never contain ANSI colors.
+    /// Diagnostic format. Machine formats never contain ANSI colors;
+    /// `github` prints Actions workflow commands only.
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     pub output_format: OutputFormat,
     /// Exit 1 for warnings as well as errors.
@@ -65,6 +67,7 @@ pub struct Cli {
     /// Ignore `verse-lint.ignore` at the configuration root for this run.
     #[arg(long)]
     pub no_ignore_file: bool,
+    /// ANSI color for text output. Accepted but inert for machine formats.
     #[arg(long, value_enum, default_value_t = Color::Auto)]
     pub color: Color,
 }

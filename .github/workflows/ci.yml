@@ -13,6 +13,10 @@ jobs:
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # scripts/verify-parity.ps1 must resolve the declared linter revision,
+          # which a shallow clone would not contain.
+          fetch-depth: 0
       - name: Verify pinned toolchain and Windows CLI
         shell: pwsh
         run: ./scripts/verify.ps1
