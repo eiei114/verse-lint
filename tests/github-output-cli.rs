@@ -461,3 +461,41 @@ fn fix_runs_report_saved_source_regions_as_annotations() {
         b"A := 1\nB := 2\n"
     );
 }
+
+#[test]
+fn only_a_repository_root_configuration_root_aligns_annotations() {
+    // Pins the docs/cli.md guidance: the working directory does not decide the
+    // annotation path, the configuration root does.
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::create_dir(root.join(".git")).unwrap();
+    fs::create_dir_all(root.join("Content/Sub")).unwrap();
+    fs::write(root.join("Content/verse.toml"), "schema-version = 1\n").unwrap();
+    fs::write(root.join("Content/Sub/device.verse"), "A := 1  \n").unwrap();
+    let content = root.join("Content");
+
+    // Moving the job into the nested configuration root does not help: the path
+    // is still relative to `Content`, which GitHub cannot resolve.
+    let (code, out) = stdout(&content, &["Sub", "--output-format=github"]);
+    assert_eq!(code, 1);
+    assert!(out.starts_with("::error file=Sub/device.verse,"), "{out}");
+
+    // From the checkout root without `--config`, the upward search starts at the
+    // CWD and never finds the nested file, so the CWD is the root and aligns.
+    let (code, out) = stdout(root, &["Content", "--output-format=github"]);
+    assert_eq!(code, 1);
+    assert!(
+        out.starts_with("::error file=Content/Sub/device.verse,"),
+        "{out}"
+    );
+
+    // A configuration at the checkout root aligns from any working directory.
+    fs::remove_file(root.join("Content/verse.toml")).unwrap();
+    fs::write(root.join("verse.toml"), "schema-version = 1\n").unwrap();
+    let (code, out) = stdout(&content, &[".", "--output-format=github"]);
+    assert_eq!(code, 1);
+    assert!(
+        out.starts_with("::error file=Content/Sub/device.verse,"),
+        "{out}"
+    );
+}

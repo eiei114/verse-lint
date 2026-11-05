@@ -334,10 +334,17 @@ configuration lives in a subdirectory, the path is still relative to it and
 GitHub cannot find the file: for a nested `Content/verse.toml`, a finding in
 `Content/Sub/device.verse` is emitted as `file=Sub/device.verse`. This format
 does not discover the checkout root to rewrite it, because that would report a
-path text and SARIF never emit and this slice adds no repository discovery. Run
-the PR job from the configuration root, or keep the configuration at the
-repository root, when annotations must land on the diff. JSON and SARIF are
-unaffected either way: their paths are explicitly based at the config root.
+path text and SARIF never emit and this slice adds no repository discovery.
+Changing the job's working directory does not help: from `Content` the same
+finding is still `file=Sub/device.verse`, because the path stays relative to the
+configuration root while GitHub still resolves it against the repository root.
+What aligns annotations is making the configuration root the repository root:
+keep `verse.toml` at the top of the checkout, or, with no `verse.toml` there, run
+from the top of the checkout without `--config` (CWD is then the root; a nested
+`Content/verse.toml` is not found by the upward search and does not apply). A run
+from a subdirectory with no configuration above it makes that subdirectory the
+root and misaligns the same way. JSON and SARIF are unaffected either way: their
+paths are explicitly based at the config root.
 - Ordering is the shared diagnostic order (path, byte offset, rule ID), so the
 same input yields the same bytes.
 - Nothing else goes to stdout: no summary line, no banner, no `::group::`,
