@@ -5,6 +5,37 @@ crate, binary, or runtime dependency. This developer-only script accepts a
 formatter release binary and the formatter's self-authored golden corpus to
 verify the tools' on-disk convergence contract.
 
+## Declared parity vs. verified convergence
+
+The parity contract has two layers, and only one of them is checkable without the
+formatter.
+
+- `parity.json` at the repository root is the **declaration**: the expected
+  formatter corpus SHA-256, the expected golden-case count, the formatter grammar
+  base revision the snapshot was mirrored from, and the formatter/linter
+  revisions of the last real paired run.
+- `scripts/verify-parity.ps1` validates the declaration only. It checks that the
+  file exists, parses, has exactly the documented keys with well-formed values,
+  and that `lastVerifiedLinterRevision` is `HEAD` or an ancestor of it. It needs
+  no formatter binary, no formatter checkout and no network, and `verify.ps1`
+  runs it, so a malformed or stale declaration fails the ordinary verification
+  path.
+- `scripts/verify-pair.py` is the **verification**: it reads its expected corpus
+  hash and golden-case count from `parity.json`, then runs both real binaries
+  over the whole corpus and asserts byte-level convergence. It is the only thing
+  that can claim convergence.
+
+`verify.ps1` passing means the declaration is structurally sound and its
+recorded linter revision is still reachable. It does **not** mean the corpus or
+the formatter still agree with the linter, and it never fails merely because the
+formatter moved on after the last paired run. Between paired updates that drift
+is expected; the checklist in [CONTRIBUTING](../CONTRIBUTING.md) is what keeps it
+from going unnoticed.
+
+A missing, unparseable or partially populated `parity.json` is a hard failure in
+both scripts. Neither falls back to built-in constants, so the pin cannot quietly
+disappear.
+
 ## Resource-limit boundary tests
 
 `tests/limits-cli.rs` covers every limit advertised in [cli.md](cli.md) and
@@ -59,14 +90,28 @@ python scripts/verify-pair.py `
   --output target\verification\paired\convergence.json
 ```
 
-The script pins the corpus SHA-256 and requires its 64 golden-success inputs.
-It locates the formatter checkout from the tracked corpus path, so the release
+The script takes the corpus SHA-256 and the required golden-case count from
+`parity.json` and requires the corpus to match both. It locates the formatter
+checkout from the tracked corpus path, so the release
 binary may live under `target/release` or an external `CARGO_TARGET_DIR`.
-For each case it runs `verse-lint --fix`, then `verse-fmt --write`, checks the
-formatter's independent golden bytes, and repeats both tools to prove the
-second cycle changes nothing. It uses isolated temporary files and removes
-them on exit. The 18 explicit formatter refusals are not sent through a
-successful paired-fix path. Reports are local artifacts and are not committed.
+It exercises **one** order per case, linter first and formatter second: for each
+case it runs `verse-lint --fix`, then `verse-fmt --write`, checks the formatter's
+independent golden bytes, and repeats the same linter-then-formatter pair to
+prove the second cycle changes nothing. The reverse order (formatter first) is
+not run, so a defect that only appears when `verse-fmt` writes before
+`verse-lint --fix` is outside what this harness observes. It uses isolated
+temporary files and removes them on exit. The 23 explicit formatter refusals are
+not sent through a successful paired-fix path; this harness does not exercise
+them at all.
+
+The one report that backs the current `parity.json` revisions is committed as
+[`docs/evidence/parity-paired-2026-11-05-full.json`](evidence/parity-paired-2026-11-05-full.json),
+with a short summary beside it in
+[`parity-paired-2026-11-05.json`](evidence/parity-paired-2026-11-05.json).
+[`parity.json`](../parity.json) may only quote revisions that a committed report
+names; an unrecorded run in a discussion comment is not evidence. Other runs
+stay local artifacts and are reported in the pull request with the corpus hash,
+both full 40-character revisions and the case counts.
 
 On 2026-09-23, all 52/52 cases passed with formatter revision
 `ae191de08058a217d331640f0b098d6fb76435f3` and linter revision
@@ -89,10 +134,26 @@ and key/value `for` iterators. That paired run validated 58 golden cases;
 the corpus SHA-256 is `68918abdf3f7b574ccdc803c4af34bc1f5ebeaf1cc0637e8330fcfa6f1465f28`.
 
 P1 extends the corpus to 87 cases (64 goldens and 23 refusals), adding bounded
-`:=` range generators. The current harness pins SHA-256
-`27e0497bbccaba2bed56dfc93efcda762887f3888c9cd0c5707f0ae670050b47`.
-Historical runs above do not validate the six new goldens; run the current
-harness against rebuilt clean checkouts before claiming current convergence.
+`:=` range generators.
+
+On 2026-11-05 a paired run validated all 64/64 goldens with formatter revision
+`27d3dc76a61e569a394a9115d5c0c37a63345626` and linter revision
+`a9b43c6c137be9f03618869d0c2ec6635dd42e29`; corpus SHA-256 was
+`27e0497bbccaba2bed56dfc93efcda762887f3888c9cd0c5707f0ae670050b47` (87 corpus
+cases, 64 goldens, 23 refusals). Both binaries were built from clean checkouts
+with the pinned 1.97.0 MSVC toolchain, the formatter corpus was the tracked file
+at that formatter revision, and every case reported exit 0 for both tools with
+zero second-cycle changes. The full per-case report is committed at
+[`docs/evidence/parity-paired-2026-11-05-full.json`](evidence/parity-paired-2026-11-05-full.json).
+`parity.json` quotes exactly those two revisions and that corpus hash.
+
+That linter revision is the commit the harness actually ran in. The pin update
+that quotes it is a declaration-only descendant: `parity.json`, this document
+and the evidence file are not compiled into either binary, so the tested bytes
+are unchanged. A pin can never name the commit that contains it, which is why
+the recorded revision is the tested parent rather than the declaring commit.
+Historical runs above do not validate the six P1 goldens; only the 2026-11-05
+run does.
 
 ## Shell matrix
 

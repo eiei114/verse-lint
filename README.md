@@ -72,6 +72,11 @@ See [CLI/config and JSON contract](docs/cli.md), [rule index](docs/rules.md),
 [local packaging and future mise usage](docs/packaging-and-mise.md). No
 installed formatter, Node.js or runtime network access is needed.
 
+The formatter parity contract is declared in `parity.json` and checked
+structurally by `scripts/verify.ps1`; only `scripts/verify-pair.py` can claim
+actual convergence. See the [parity checklist](CONTRIBUTING.md) before changing
+the grammar snapshot, the corpus or safe-fix bytes.
+
 [SARIF 2.1.0](docs/sarif.md) is validated against the pinned official OASIS
 schema. Emitting SARIF writes the report to stdout only; the command has no
 network access and uploads nothing.
@@ -129,6 +134,9 @@ when building from source. Consumers of future prebuilt binaries will not need C
 ./scripts/verify.ps1
 cargo run -- --help
 ```
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing the syntax snapshot, the
+formatter corpus or safe-fix bytes.
 
 Tests and the release build do not replace manual UEFN acceptance. CI never
 publishes packages or creates releases. `verse-lint.dev` is a planned, unregistered
