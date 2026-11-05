@@ -17,8 +17,10 @@ alpha.
   `TODO` comment (opt-in warnings). Each rule has a document under `docs/rules/`.
 - Narrow line suppression: only lexer-confirmed line comments whose content
   begins exactly `verse-lint:` are directives, so strings and block comments can
-  never suppress a finding. `--show-suppressed` also reports the findings a
-  directive removed, with the directive that removed them.
+  never suppress a finding. `--show-suppressed` also lists the findings a
+  directive removed, marked ` (suppressed)` in text and `"suppressed": true` in
+  JSON (SARIF keeps them out of `results`); it does not say which directive
+  removed them, and they never change the exit code.
 - Text, JSON and SARIF 2.1.0 output. The JSON contract has a published schema in
   `docs/diagnostics.schema.json`; SARIF is validated against the pinned official
   OASIS schema and is emitted to stdout only, with no network access and no

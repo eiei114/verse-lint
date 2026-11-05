@@ -277,7 +277,8 @@ fn manifest_licence_declaration_matches_the_shipped_texts() {
     );
     assert!(
         !package.contains_key("license-file"),
-        "declaring `license-file` alongside `license` is a crates.io error; the two \
+        "keep `license-file` unset: next to an SPDX `license` it only draws Cargo's \
+         \"only one of `license` or `license-file` is necessary\" warning; the two \
          licence texts ship as LICENSE-MIT and LICENSE-APACHE"
     );
     for name in ["LICENSE-MIT", "LICENSE-APACHE", "NOTICE", "README.md"] {

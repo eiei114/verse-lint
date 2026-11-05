@@ -46,8 +46,10 @@ any of them.
 - [ ] `LICENSE-MIT`, `LICENSE-APACHE` and `NOTICE` are the versions you intend
       to ship, and the licence choice in the changelog matches them.
 - [ ] `Cargo.toml` declares `license = "MIT OR Apache-2.0"` and does **not** set
-      `license-file`: declaring both `license` and `license-file` is a crates.io
-      error, and neither shipped text carries the dual wording on its own.
+      `license-file`. Declaring both is not an error — `cargo package` and
+      `cargo publish --dry-run` still succeed — but Cargo warns that only one of
+      them is necessary, `license-file` being meant for a non-standard licence.
+      Neither shipped text carries the dual wording on its own.
 - [ ] `NOTICE` still names the imported formatter revision and the vendored
       Tree-sitter grammar with its copyright holder.
 - [ ] Both vendored licence texts (`vendor/tree-sitter-verse/LICENSE`,

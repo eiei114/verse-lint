@@ -6,8 +6,10 @@ rust-version = "1.97"
 description = "A linter for Epic Games' Verse language."
 license = "MIT OR Apache-2.0"
 # `license` names both shipped texts (LICENSE-MIT and LICENSE-APACHE), so
-# `license-file` stays unset: declaring both is a crates.io error, and neither
-# shipped text carries the dual `MIT OR Apache-2.0` wording on its own.
+# `license-file` stays unset. Declaring both is not an error, but Cargo warns
+# "only one of `license` or `license-file` is necessary" (`license-file` is for
+# a non-standard licence), and neither shipped text carries the dual
+# `MIT OR Apache-2.0` wording on its own.
 repository = "https://github.com/eiei114/verse-lint"
 homepage = "https://github.com/eiei114/verse-lint"
 readme = "README.md"
