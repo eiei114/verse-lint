@@ -368,6 +368,7 @@ try {
         fixtures         = @($fixtures.Name)
         comparisons      = $comparisons.Count
         formatsExercised = $formatsSeen
+        sarifDriverRuleAdditionCount = @($comparisons | Where-Object { $_.sarifDriverRuleAdded }).Count
         mismatchCount    = $failures.Count
         results          = $comparisons
     } | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $ReportDir 'report.json') -Encoding utf8
@@ -376,7 +377,15 @@ try {
         foreach ($failure in $failures) { Write-Output $failure }
         throw "Pattern parity failed: $($failures.Count) of $($comparisons.Count) comparisons differ between $baseSha and $headSha"
     }
-    Write-Output "Pattern parity: BYTE-IDENTICAL across $($comparisons.Count) comparisons ($($fixtures.Count) fixtures x text/JSON/SARIF + corpus and stdin runs) between $baseSha and $headSha."
+    # State exactly what was proven: byte equality everywhere except the SARIF
+    # cases whose only difference was an added registry-derived driver rule.
+    $added = @($comparisons | Where-Object { $_.sarifDriverRuleAdded }).Count
+    $byteExact = $comparisons.Count - $added
+    $summary = "Pattern parity: BYTE-IDENTICAL across $byteExact comparisons ($($fixtures.Count) fixtures x text/JSON/SARIF + corpus and stdin runs) between $baseSha and $headSha."
+    if ($added -gt 0) {
+        $summary += " A further $added SARIF comparison(s) differ only by registry-derived driver rule entries, with every other SARIF field and every existing driver rule unchanged; see sarifDriverRuleAdded in the report."
+    }
+    Write-Output $summary
 } finally {
     Pop-Location
     $env:Path = $savedPath
