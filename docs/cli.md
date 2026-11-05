@@ -320,8 +320,10 @@ construct, so a semantic rule must not report from that file. See
 
 `--dump-scopes` conflicts with `--fix` and `--show-config`, and with every
 `--output-format` other than the default text setting (naming `text` explicitly
-is accepted). Each conflict exits 2. A requested machine format still reports
-the conflict through the normal machine envelope rather than printing a graph.
+is accepted). Each conflict exits 2. A requested `json` or `sarif` format still
+reports the conflict through its normal envelope rather than printing a graph;
+`github` reports it on stderr with the text-format wording, like any execution
+error.
 The flag counts toward the existing per-source byte, nesting and token limits and
 fails closed — exit 2 with no graph — on inputs that today fail coverage
 validation. It never runs a rule, so it needs no active rule selection.
