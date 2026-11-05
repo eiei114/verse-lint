@@ -1,0 +1,7 @@
+{
+  "corpusSha256": "27e0497bbccaba2bed56dfc93efcda762887f3888c9cd0c5707f0ae670050b47",
+  "goldenCaseCount": 64,
+  "formatterGrammarBaseRevision": "6b5433e37b52c03c4c07f9468bf7cc11e45f2f82",
+  "lastVerifiedFormatterRevision": "27d3dc76a61e569a394a9115d5c0c37a63345626",
+  "lastVerifiedLinterRevision": "a9b43c6c137be9f03618869d0c2ec6635dd42e29"
+}
