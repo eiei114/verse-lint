@@ -4,7 +4,9 @@ Shared toolchain contract version **1**. Five [style rules](rules.md) and
 [suppression](suppressions.md) are implemented. Defaults are V1001/V1002/V1003;
 V2001/V2002 are opt-in warnings. `--fix` applies only validated V1001/V1002 edits
 using guarded Windows replacement; see [fixes](fixes.md). [SARIF 2.1.0](sarif.md)
-is supported and schema-validated. Compiler/UEFN acceptance is not established.
+is supported and schema-validated, and `--output-format github` emits GitHub
+Actions annotations for a pull-request job. Compiler/UEFN acceptance is not
+established.
 
 `verse-lint` defaults to CWD; file and directory paths can be combined. `-` must
 be used alone; `--stdin-filepath` is a virtual Unicode path, not a write target.
@@ -12,6 +14,8 @@ be used alone; `--stdin-filepath` is a virtual Unicode path, not a write target.
 configured ignore, then subtracts from selection. Each rule has a registry
 default severity; `[lint.severity]` overrides it per project.
 `--deny-warnings` promotes remaining warnings to exit 1 without changing severity.
+`--output-format text|json|sarif|github` selects the diagnostic format; see
+[GitHub annotations](#github-annotations) for the fourth.
 `--show-suppressed` also lists findings a suppression directive removed; see
 [suppressed findings](#suppressed-findings). `--no-ignore-file` skips
 `verse-lint.ignore` for one run; see [ignore file](#ignore-file).
@@ -83,7 +87,8 @@ rule that is not overridden keeps its registry severity. Suppression directives,
 `--deny-warnings` and safe fixes behave as before. Text output keeps the
 `path:line:column: severity rule-id message` shape, and JSON `errors`/`warnings`,
 SARIF `results[].level` and the SARIF run summary all count the effective
-severity. SARIF `tool.driver.rules[].defaultConfiguration.level` deliberately
+severity. A `github` annotation follows it too: `::error` for error severity and
+`::warning` for warning severity. SARIF `tool.driver.rules[].defaultConfiguration.level` deliberately
 keeps the registry default: it documents the tool default, not this project's
 policy.
 
@@ -163,6 +168,8 @@ The flag changes reporting only:
 - JSON sets the per-diagnostic `suppressed` boolean, present on every diagnostic
   in every run. `summary.suppressed` keeps its meaning and still counts these
   findings; `errors`, `warnings` and SARIF `results` count only active ones.
+- [GitHub annotations](#github-annotations) report a shown suppressed finding as
+  `::notice`, which cannot fail a check run or change the exit code.
 - SARIF omits suppressed findings from `results` (see [SARIF](sarif.md)); the run
   summary still reports the `suppressed` count.
 
@@ -320,3 +327,103 @@ fails closed — exit 2 with no graph — on inputs that today fail coverage
 validation. It never runs a rule, so it needs no active rule selection.
 File discovery is the same as a lint run: `[files] exclude` and
 `verse-lint.ignore` apply, and `--no-ignore-file` skips the ignore file.
+
+## GitHub annotations
+
+`--output-format github` turns each reported diagnostic into one
+[GitHub Actions workflow command](https://docs.github.com/actions/reference/workflow-commands-for-github-actions)
+on stdout, so a pull-request job annotates the diff with no code-scanning setup
+and no upload:
+
+```text
+::error file=Content/device.verse,line=12,col=7,endLine=12,endColumn=9,title=V1001 TrailingWhitespace::Trailing whitespace
+```
+
+```powershell
+verse-lint Content --output-format github
+```
+
+GitHub shows at most **10 warning and 10 error annotations per step**; further
+workflow commands still run but are not attached to the diff. Use
+`--output-format json` or `sarif` when you need the complete list. Because the
+count is per step, splitting a run does not raise it: select the rules that
+matter for the PR job, or keep the annotations for review and the JSON for
+reporting.
+
+- Command level follows the finding, not the rule family: `::error` for an
+error-severity diagnostic, `::warning` for a warning-severity one.
+- Region properties are the same numbers JSON and SARIF report for that input —
+one-based `line`/`col`/`endLine`/`endColumn` with Unicode scalar columns, not
+visual widths — so an annotation, a JSON `range` and a SARIF `region` describe
+the same bytes.
+- Paths are the same `/`-separated, config-root-relative paths text and JSON use,
+so they line up with SARIF artifacts. Escaping is applied on top; it changes the
+annotation only, never the reported path.
+
+  GitHub resolves `file=` against the **repository root**, so an annotation
+aligns only when the resolved configuration root is that root — the ordinary
+case of a `verse.toml` (or CWD) at the top of the checkout. When the
+configuration lives in a subdirectory, the path is still relative to it and
+GitHub cannot find the file: for a nested `Content/verse.toml`, a finding in
+`Content/Sub/device.verse` is emitted as `file=Sub/device.verse`. This format
+does not discover the checkout root to rewrite it, because that would report a
+path text and SARIF never emit and this slice adds no repository discovery.
+Changing the job's working directory does not help: from `Content` the same
+finding is still `file=Sub/device.verse`, because the path stays relative to the
+configuration root while GitHub still resolves it against the repository root.
+What aligns annotations is making the configuration root the repository root:
+keep `verse.toml` at the top of the checkout, or, with no `verse.toml` there, run
+from the top of the checkout without `--config` (CWD is then the root; a nested
+`Content/verse.toml` is not found by the upward search and does not apply). A run
+from a subdirectory with no configuration above it makes that subdirectory the
+root and misaligns the same way. JSON and SARIF are unaffected either way: their
+paths are explicitly based at the config root.
+- Ordering is the shared diagnostic order (path, byte offset, rule ID), so the
+same input yields the same bytes.
+- Nothing else goes to stdout: no summary line, no banner, no `::group::`,
+`::set-output` or `::add-matcher`. Execution errors keep the text-format stderr
+wording, and a run with them still exits 2. Exit codes are unchanged: 0 clean,
+1 violations (or warnings under `--deny-warnings`), 2 incomplete or
+configuration failure.
+- `--color` is accepted and inert here. A workflow command never carries ANSI,
+so `auto`, `always` and `never` produce identical bytes.
+- No network access, no GitHub API call, no token handling and no `GITHUB_*`
+sniffing. The format is explicit: there is no `GITHUB_ACTIONS`
+auto-detection mode.
+
+Escaping is mandatory, because a raw `%`, CR, LF, `:` or `,` inside a value
+would otherwise terminate the property list and silently truncate or
+mis-attribute the annotation. It is applied in exactly two places:
+
+| Field | Escaped sequences |
+| --- | --- |
+| `message` (after `::`) | `%` → `%25`, CR → `%0D`, LF → `%0A` |
+| Every property value (`file`, `title`) | the same, plus `:` → `%3A`, `,` → `%2C` |
+
+A message keeps its colons and commas, so ordinary prose is unchanged; a path
+containing `,`, `:` or a newline stays one property value. Non-ASCII characters
+pass through unchanged — the annotation is UTF-8 and only the five reserved
+characters need a sequence. Escaping is lossless and single-pass: an already
+escaped `%25` becomes `%2525`, and the runner decodes it back.
+
+Suppressed findings (see [suppressed findings](#suppressed-findings)) are
+reported as `::notice`, not `::error`, when `--show-suppressed` asks for them:
+GitHub's command vocabulary has no per-finding suppression field, and inventing
+a non-standard property would make the annotation depend on a consumer that does
+not exist. `::notice` is the documented choice because a notice cannot fail a
+check run, which matches the rule that a suppressed finding never changes the
+exit code. Without the flag they are not annotated at all.
+
+An example workflow step in your own repository:
+
+```yaml
+- name: Lint Verse
+  shell: pwsh
+  run: ./verse-lint.exe Content --output-format github
+```
+
+Run it in the pull-request job that already builds or tests the project. The
+step annotates the files in that PR because GitHub associates a workflow command
+with the run, not with an uploaded report. This repository ships no such
+workflow: see [SARIF](sarif.md#upload-policy-none) and
+[ADR 0001](adr/0001-sarif-upload-policy.md) for why no upload path exists.

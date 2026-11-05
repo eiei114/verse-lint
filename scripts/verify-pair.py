@@ -3,13 +3,63 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 
-EXPECTED_CORPUS_SHA256 = "27e0497bbccaba2bed56dfc93efcda762887f3888c9cd0c5707f0ae670050b47"
+LINTER_ROOT = Path(__file__).resolve().parents[1]
+PIN_PATH = LINTER_ROOT / "parity.json"
+PIN_KEYS = (
+    "corpusSha256",
+    "goldenCaseCount",
+    "formatterGrammarBaseRevision",
+    "lastVerifiedFormatterRevision",
+    "lastVerifiedLinterRevision",
+)
+SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
+REVISION_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+def read_pin(path: Path = PIN_PATH) -> dict:
+    """Read the declared parity pin; never fall back to built-in defaults."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise SystemExit(f"missing parity pin: {path}")
+    except OSError as error:
+        raise SystemExit(f"unreadable parity pin {path}: {error}")
+    try:
+        declared = json.loads(text)
+    except json.JSONDecodeError as error:
+        raise SystemExit(f"malformed parity pin {path}: {error}")
+    if not isinstance(declared, dict):
+        raise SystemExit(f"malformed parity pin {path}: top level must be an object")
+    missing = [key for key in PIN_KEYS if key not in declared]
+    if missing:
+        raise SystemExit(f"incomplete parity pin {path}: missing {', '.join(missing)}")
+    corpus_sha = declared["corpusSha256"]
+    if not isinstance(corpus_sha, str) or not SHA256_PATTERN.match(corpus_sha):
+        raise SystemExit(
+            f"malformed parity pin {path}: corpusSha256 must be 64 lowercase hex digits"
+        )
+    golden_count = declared["goldenCaseCount"]
+    if not isinstance(golden_count, int) or isinstance(golden_count, bool) or golden_count < 1:
+        raise SystemExit(
+            f"malformed parity pin {path}: goldenCaseCount must be a positive integer"
+        )
+    for key in (
+        "formatterGrammarBaseRevision",
+        "lastVerifiedFormatterRevision",
+        "lastVerifiedLinterRevision",
+    ):
+        value = declared[key]
+        if not isinstance(value, str) or not REVISION_PATTERN.match(value):
+            raise SystemExit(
+                f"malformed parity pin {path}: {key} must be a 40-character lowercase revision"
+            )
+    return declared
 
 def run(args, cwd):
     result = subprocess.run(args, cwd=cwd, capture_output=True, timeout=30)
@@ -39,9 +89,14 @@ def main():
     parser.add_argument("--corpus", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
+    # Read the declared pin first, so a malformed declaration fails with its own
+    # message instead of hiding behind a checkout or binary problem.
+    pin = read_pin()
+    expected_corpus_sha = pin["corpusSha256"]
+    expected_cases = pin["goldenCaseCount"]
     formatter = args.formatter.resolve(strict=True)
     corpus_path = args.corpus.resolve(strict=True)
-    lint = Path(__file__).resolve().parents[1] / "target/x86_64-pc-windows-msvc/release/verse-lint.exe"
+    lint = LINTER_ROOT / "target/x86_64-pc-windows-msvc/release/verse-lint.exe"
     if not lint.is_file():
         raise SystemExit(f"missing built linter binary: {lint}")
     # The binary may come from target/release or an external CARGO_TARGET_DIR.
@@ -51,17 +106,22 @@ def main():
         ["git", "-C", str(corpus_path.parent), "rev-parse", "--show-toplevel"],
         capture_output=True, text=True, encoding="utf-8", check=True, timeout=30,
     ).stdout.strip())
-    linter_root = Path(__file__).resolve().parents[1]
+    linter_root = LINTER_ROOT
     formatter_revision = require_clean_checkout(formatter_root)
     linter_revision = require_clean_checkout(linter_root)
     corpus_bytes = corpus_path.read_bytes()
     corpus_sha = sha256(corpus_bytes)
-    if corpus_sha != EXPECTED_CORPUS_SHA256:
-        raise SystemExit(f"formatter corpus revision/hash mismatch: {corpus_sha}")
+    if corpus_sha != expected_corpus_sha:
+        raise SystemExit(
+            f"formatter corpus revision/hash mismatch: {corpus_sha} "
+            f"(parity.json declares {expected_corpus_sha})"
+        )
     cases = json.loads(corpus_bytes)
     positives = [item for item in cases["cases"] if "expected" in item]
-    if len(positives) != 64:
-        raise SystemExit(f"expected 64 golden cases, got {len(positives)}")
+    if len(positives) != expected_cases:
+        raise SystemExit(
+            f"expected {expected_cases} golden cases from parity.json, got {len(positives)}"
+        )
     report = {
         "corpus_sha256": corpus_sha,
         "formatter_version": run([str(formatter), "--version"], corpus_path.parent).stdout.decode().strip(),

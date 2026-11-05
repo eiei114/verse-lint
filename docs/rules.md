@@ -49,8 +49,9 @@ Only complete registered IDs are accepted, and only the exact values `"error"`
 and `"warning"`; a prefix, an unknown ID, an unknown value or a non-string value
 is a configuration error (exit 2) that names the offending key. The override
 changes
-reported severity — text, JSON `severity`, JSON `errors`/`warnings` and SARIF
-`results[].level` — and nothing else. It does not select a rule, suppress a
-finding, disable a safe fix or bypass `--deny-warnings`, and SARIF
+reported severity — text, JSON `severity`, JSON `errors`/`warnings`, SARIF
+`results[].level` and the GitHub annotation command level — and nothing else. It
+does not select a rule, suppress a finding, disable a safe fix or bypass
+`--deny-warnings`, and SARIF
 driver `defaultConfiguration.level` still reports the tool default. `--show-config`
 prints the resolved map for every rule in stable ID order.

@@ -10,6 +10,9 @@ $saved = @{ Path = $env:Path; RUSTUP_TOOLCHAIN = $env:RUSTUP_TOOLCHAIN; RUSTC = 
 Push-Location (Split-Path -Parent $PSScriptRoot)
 try {
     & "$PSScriptRoot/verify-grammar.ps1"
+    # The call operator does not propagate a child script's exit code on its own.
+    & "$PSScriptRoot/verify-parity.ps1"
+    if ($LASTEXITCODE -ne 0) { throw 'Declared parity check failed' }
     $match = Select-String -Path rust-toolchain.toml -Pattern '^channel\s*=\s*"([^"]+)"'
     if (-not $match) { throw 'No pinned Rust channel found' }
     $channel = $match.Matches[0].Groups[1].Value
@@ -48,6 +51,15 @@ try {
     & "$PSScriptRoot/verify-baseline-parity.ps1" @parity
     if ($LASTEXITCODE -ne 0) { throw 'Baseline output parity failed' }
     & "$PSScriptRoot/verify-json.ps1"
+    # The Python harness is a developer tool, not a runtime dependency; skip it
+    # explicitly rather than silently instead of failing on a Python-less host.
+    $python = Get-Command python -ErrorAction SilentlyContinue
+    if ($python) {
+        & $python.Source -X utf8 "$PSScriptRoot/../tests/test_parity_pin.py"
+        if ($LASTEXITCODE -ne 0) { throw 'Parity pin self-check failed' }
+    } else {
+        Write-Output 'skipped: parity pin self-check (python not on PATH)'
+    }
     Write-Output 'Verification passed (UEFN acceptance is a separate gate).'
 } finally {
     foreach ($key in $saved.Keys) { [Environment]::SetEnvironmentVariable($key, $saved[$key], 'Process') }

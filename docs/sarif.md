@@ -19,11 +19,12 @@ invoke external services.
   the tool, not this project's policy. Suppressed
   findings are omitted from `results`; run properties preserve the same summary
   counts. `--show-suppressed` (see [CLI](cli.md#suppressed-findings)) makes them
-  visible in text and JSON only: SARIF has one representation for a suppressed
-  result, so a run would have to choose between omitting and marking. This tool
-  omits, which means a SARIF `results` array is always active findings, and
-  `properties.summary.suppressed` carries the count of what was removed. No
-  custom property duplicates what SARIF `suppressions` would mean.
+  visible in text, JSON and [GitHub
+  annotations](cli.md#github-annotations) only: SARIF has one representation for
+  a suppressed result, so a run would have to choose between omitting and
+  marking. This tool omits, which means a SARIF `results` array is always active
+  findings, and `properties.summary.suppressed` carries the count of what was
+  removed. No custom property duplicates what SARIF `suppressions` would mean.
 - `columnKind` is `unicodeCodePoints`: one-based scalar columns, not visual
   tab width or UTF-16 units. Regions include start/end lines/columns plus
   zero-based original UTF-8 byte offsets and lengths including BOM. EOF
@@ -50,6 +51,10 @@ release-binary outputs with PowerShell 7 Test-Json. Binary tests additionally
 check URI semantics, code-point ranges, stdin, no edit payloads, deterministic
 ordering and text/JSON/SARIF count agreement. Invalid schema-version probes
 verify the validator is enforcing the schemas rather than merely parsing JSON.
+
+If you only need pull-request annotations and not a machine-readable report,
+`--output-format github` writes [workflow commands](cli.md#github-annotations)
+straight to stdout and needs no code-scanning setup at all.
 
 Reference: https://docs.oasis-open.org/sarif/sarif/v2.1.0/os/sarif-v2.1.0-os.html
 
