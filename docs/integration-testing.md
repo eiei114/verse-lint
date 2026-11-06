@@ -23,7 +23,9 @@ formatter.
 - `scripts/verify-pair.py` is the **verification**: it reads its expected corpus
   hash and golden-case count from `parity.json`, then runs both real binaries
   over the whole corpus and asserts byte-level convergence. It is the only thing
-  that can claim convergence.
+  that can claim convergence. `--update-pin` refreshes the declaration only
+  after every golden passes; `--dry-run` reports the candidate without writing
+  any files.
 
 `verify.ps1` passing means the declaration is structurally sound and its
 recorded linter revision is still reachable. It does **not** mean the corpus or
@@ -81,79 +83,60 @@ together, and never delete a claim to silence it.
 
 ## Paired fix/format convergence
 
-From the linter worktree, after building both release binaries:
+The paired harness is a deliberate developer operation; CI does not check out
+the formatter or run this script. It locates the formatter checkout from the
+tracked corpus path, so the release binary may live under `target/release` or
+an external `CARGO_TARGET_DIR`.
 
-```powershell
-python scripts/verify-pair.py `
-  --formatter ..\verse-fmt-implementation\target\x86_64-pc-windows-msvc\release\verse-fmt.exe `
-  --corpus ..\verse-fmt-implementation\tests\fixtures\corpus.json `
-  --output target\verification\paired\convergence.json
-```
+For each golden, it runs `verse-lint --fix` followed by `verse-fmt --write`,
+checks the formatter's independent golden bytes, and repeats the same pair to
+prove the second cycle changes nothing. This **second-cycle byte-invariance
+assertion remains required**. The reverse order (formatter first) is not run,
+and the 23 explicit formatter refusals are not exercised by this successful
+paired-fix path.
 
-The script takes the corpus SHA-256 and the required golden-case count from
-`parity.json` and requires the corpus to match both. It locates the formatter
-checkout from the tracked corpus path, so the release
-binary may live under `target/release` or an external `CARGO_TARGET_DIR`.
-It exercises **one** order per case, linter first and formatter second: for each
-case it runs `verse-lint --fix`, then `verse-fmt --write`, checks the formatter's
-independent golden bytes, and repeats the same linter-then-formatter pair to
-prove the second cycle changes nothing. The reverse order (formatter first) is
-not run, so a defect that only appears when `verse-fmt` writes before
-`verse-lint --fix` is outside what this harness observes. It uses isolated
-temporary files and removes them on exit. The 23 explicit formatter refusals are
-not sent through a successful paired-fix path; this harness does not exercise
-them at all.
+### Update procedure
 
-The one report that backs the current `parity.json` revisions is committed as
+Use one sequence; do not hand-edit the pin:
+
+1. Update the linter snapshot and corpus-driven regressions, and build both
+   release binaries.
+2. Ensure **both** linter and formatter checkouts are clean. The harness refuses
+   either dirty checkout; this requirement cannot be bypassed.
+3. From the linter root, run the complete harness with `--update-pin`. Choose
+   an output path under `docs/evidence/` so the full report is ready to commit:
+
+   ```powershell
+   python scripts/verify-pair.py `
+     --formatter ..\verse-fmt\target\x86_64-pc-windows-msvc\release\verse-fmt.exe `
+     --corpus ..\verse-fmt\tests\fixtures\corpus.json `
+     --output docs\evidence\parity-paired-YYYY-MM-DD-full.json `
+     --update-pin
+   ```
+
+   Replace `YYYY-MM-DD` with the run date. The script updates `parity.json`
+   only after every corpus golden passed and records the corpus hash, golden
+   count, and both observed revisions. `formatterGrammarBaseRevision` remains
+   the declared snapshot-origin fact. Add `--dry-run` to preview the changes;
+   that still runs every case but writes neither the pin nor the report.
+4. Commit the updated `parity.json` and the report produced by `--output`
+   together with the paired corpus/snapshot change. Record both full revisions,
+   the corpus hash, and the case counts in the pull request.
+
+Without `--update-pin`, a corpus hash or golden-count mismatch against
+`parity.json` still fails the run. The updater refuses dirty checkouts, failed
+cases, incomplete or skipped results, and a mismatch between observed goldens
+and the corpus's declared golden set. Each refusal names the reason and leaves
+`parity.json` untouched. A pinned hash never replaces running the harness.
+
+The report behind the current pin is committed as
 [`docs/evidence/parity-paired-2026-11-05-full.json`](evidence/parity-paired-2026-11-05-full.json),
-with a short summary beside it in
+with a summary at
 [`parity-paired-2026-11-05.json`](evidence/parity-paired-2026-11-05.json).
-[`parity.json`](../parity.json) may only quote revisions that a committed report
-names; an unrecorded run in a discussion comment is not evidence. Other runs
-stay local artifacts and are reported in the pull request with the corpus hash,
-both full 40-character revisions and the case counts.
-
-On 2026-09-23, all 52/52 cases passed with formatter revision
-`ae191de08058a217d331640f0b098d6fb76435f3` and linter revision
-`8ecb25acfebdf22d08accfcf56ecf145a72bf9cd`; corpus SHA-256 was
-`5b981328c3020541697d95a21db76031386347a6d4902aef2fb2428b35ecf5f7`.
-This is a tool-to-tool invariant test, not UEFN compiler acceptance.
-
-After mixed LF/CRLF preservation became supported, the corpus grew by one golden
-case. Current Iteration 10 paired report validates 53/53 with corpus SHA-256
-`bb9275b7950b798ca001757f8c7f34aa87d424d7391d899b873986b3355adc83`.
-
-Iteration 11 adds self-authored parser/formatter coverage for `class()`,
-if-binding conditions and nested indented object/array construction. After the
-changes were committed, the paired harness validated all 56 golden cases using
-corpus SHA-256
-`f5e44fbb19e017bf7caf242ab2275fab991169e7fb22c325cef462ec48452c94`.
-
-Iteration 12 adds self-authored coverage for failable indexed `set` conditions
-and key/value `for` iterators. That paired run validated 58 golden cases;
-the corpus SHA-256 is `68918abdf3f7b574ccdc803c4af34bc1f5ebeaf1cc0637e8330fcfa6f1465f28`.
-
-P1 extends the corpus to 87 cases (64 goldens and 23 refusals), adding bounded
-`:=` range generators.
-
-On 2026-11-05 a paired run validated all 64/64 goldens with formatter revision
-`27d3dc76a61e569a394a9115d5c0c37a63345626` and linter revision
-`a9b43c6c137be9f03618869d0c2ec6635dd42e29`; corpus SHA-256 was
-`27e0497bbccaba2bed56dfc93efcda762887f3888c9cd0c5707f0ae670050b47` (87 corpus
-cases, 64 goldens, 23 refusals). Both binaries were built from clean checkouts
-with the pinned 1.97.0 MSVC toolchain, the formatter corpus was the tracked file
-at that formatter revision, and every case reported exit 0 for both tools with
-zero second-cycle changes. The full per-case report is committed at
-[`docs/evidence/parity-paired-2026-11-05-full.json`](evidence/parity-paired-2026-11-05-full.json).
-`parity.json` quotes exactly those two revisions and that corpus hash.
-
-That linter revision is the commit the harness actually ran in. The pin update
-that quotes it is a declaration-only descendant: `parity.json`, this document
-and the evidence file are not compiled into either binary, so the tested bytes
-are unchanged. A pin can never name the commit that contains it, which is why
-the recorded revision is the tested parent rather than the declaring commit.
-Historical runs above do not validate the six P1 goldens; only the 2026-11-05
-run does.
+The revisions declared in `parity.json` must be named by committed evidence;
+an unrecorded run in a discussion comment is not evidence. A pin can never name
+the commit that contains it, so record the linter revision the harness actually
+ran in, normally the declaring commit's parent.
 
 ## Pre-slice output parity
 
@@ -193,3 +176,11 @@ observed formatter/linter exit codes 0, 1, 2; `cmd.exe` observed formatter 0
 and 1. Error output is intentionally suppressed by the harness while the
 native process exit code is checked. This tests local file arguments, not
 PowerShell pipeline encoding; file input remains recommended for PS 5.1.
+
+## Historical record (not validation of the current corpus)
+
+Historical paired runs were recorded as the corpus grew: 52, 53, 56, and 58
+goldens, followed by the 64/64 run on 2026-11-05 (corpus SHA-256
+`27e0497bbccaba2bed56dfc93efcda762887f3888c9cd0c5707f0ae670050b47`). These
+records describe only the corpus and revisions tested at those dates; **they do
+not validate the current corpus**. Only a fresh complete paired run can do so.
