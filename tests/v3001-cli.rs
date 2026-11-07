@@ -580,6 +580,47 @@ fn an_assigned_but_unread_local_is_not_reported() {
 }
 
 #[test]
+fn a_local_read_only_through_string_interpolation_is_used() {
+    // `"{Value}"` is a read of `Value`. The string must not be treated as an
+    // inert literal, or the only use disappears and a live local is reported.
+    let source = "F():void =\n    Value:int = 1\n    Print(\"value: {Value}\")\n";
+    assert_eq!(only(source), Vec::new());
+    // Control: the same shape without the interpolation is still reported.
+    let plain = "F():void =\n    Value:int = 1\n    Print(\"value\")\n";
+    assert_eq!(only(plain), [(2, 5, 10)]);
+}
+
+#[test]
+fn a_bodyless_signature_never_reports_its_parameters() {
+    // Interface, abstract and native declarations have no body that could
+    // reference a parameter, so even with the switch on they stay silent.
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("verse.toml"),
+        "[lint]\nselect = [\"V3001\"]\nunused-parameters = true\n",
+    )
+    .unwrap();
+    for source in [
+        "i := interface:\n    F(Value:int):void\n",
+        "c := class<abstract>:\n    F(Value:int):void\n",
+        "F<native>(Value:int):void\n",
+    ] {
+        fs::write(dir.path().join("a.verse"), source).unwrap();
+        let out = run(dir.path(), &["a.verse", "--output-format=json"]);
+        assert_eq!(out.status.code(), Some(0), "{source:?}: {out:?}");
+        assert_eq!(findings(&out), Vec::new(), "{source:?}");
+    }
+    // Control: a defined function's unused parameter is still reported.
+    fs::write(
+        dir.path().join("a.verse"),
+        "F(Value:int):void =\n    Print(\"x\")\n",
+    )
+    .unwrap();
+    let out = run(dir.path(), &["a.verse", "--output-format=json"]);
+    assert_eq!(findings(&out), [(1, 3, 8)]);
+}
+
+#[test]
 fn the_documented_rule_document_and_cli_reference_describe_the_incomplete_graph_no_op() {
     // The prose claim the issue requires: the rule reports nothing on an
     // incomplete graph, stated in the rule document, the rule index, the CLI

@@ -174,7 +174,7 @@ than no rule:
 | candidate | why |
 |---|---|
 | `variable` / `constant` in a function-body scope | the only category that is provably local to the code this graph sees |
-| `parameter`, only with `parameters = true` | an unused parameter is usually a callback signature; the switch is opt-in |
+| `parameter` of a function with a body, only with `parameters = true` | an unused parameter is usually a callback signature; the switch is opt-in, and a bodyless signature (`signature_only` scope) has nowhere to reference it |
 
 Everything else is excluded by construction: an `exported` binding needs no
 intra-file reference, a `moduleImport` may be re-exported or untraceable, a

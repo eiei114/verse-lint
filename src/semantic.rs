@@ -50,6 +50,11 @@ pub enum ScopeKind {
 pub struct Scope {
     pub kind: ScopeKind,
     pub parent: Option<usize>,
+    /// A function scope whose definition has no body: an interface or
+    /// abstract method, or a `<native>` declaration. Its parameters belong to
+    /// a signature that nothing in this file implements, so no reference to
+    /// them can exist here and their absence proves nothing.
+    pub signature_only: bool,
 }
 
 /// What a declaration introduces.
@@ -129,6 +134,7 @@ impl ScopeGraph {
             scopes: vec![Scope {
                 kind: ScopeKind::File,
                 parent: None,
+                signature_only: false,
             }],
             by_scope: vec![Vec::new()],
             bindings: Vec::new(),
@@ -239,7 +245,8 @@ impl ScopeGraph {
             return false;
         }
         match binding.kind {
-            BindingKind::Parameter => parameters,
+            // A bodyless signature has nowhere to reference its parameters.
+            BindingKind::Parameter => parameters && !self.scopes[binding.scope].signature_only,
             BindingKind::Variable | BindingKind::Constant => {
                 // Only a body local: a file-scope binding, a class field and a
                 // module-level value are all reachable from elsewhere. A
@@ -464,6 +471,7 @@ impl Builder<'_> {
         self.scopes.push(Scope {
             kind,
             parent: Some(parent),
+            signature_only: false,
         });
         self.by_scope.push(Vec::new());
         Ok(self.scopes.len() - 1)
@@ -649,6 +657,7 @@ impl Builder<'_> {
             }
             "function_definition" | "extension_function_definition" => {
                 let inner = self.open(ScopeKind::Function, scope, node)?;
+                self.scopes[inner].signature_only = node.child_by_field_name("body").is_none();
                 if let Some(name) = node.child_by_field_name("name") {
                     self.declare(scope, name, BindingKind::Function, false)?;
                 }
@@ -827,6 +836,9 @@ impl Builder<'_> {
             | "yield_expression"
             | "specifier_list"
             | "specifier"
+            // A string is not inert: `"{Name}"` holds an expression whose
+            // names are references like any other.
+            | "string_literal"
             | "string_interpolation"
             | "generic_type"
             | "for_clause_list" => self.walk_children(node, scope)?,
@@ -834,7 +846,6 @@ impl Builder<'_> {
             "line_comment"
             | "block_comment"
             | "hash_gt_comment"
-            | "string_literal"
             | "string_content"
             | "escape_sequence"
             | "char_literal"
