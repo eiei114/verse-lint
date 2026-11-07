@@ -20,6 +20,8 @@ default severity; `[lint.severity]` overrides it per project.
 `--show-suppressed` also lists findings a suppression directive removed; see
 [suppressed findings](#suppressed-findings). `--no-ignore-file` skips
 `verse-lint.ignore` for one run; see [ignore file](#ignore-file).
+`--fix --diff` previews the safe edits a write run would make and writes
+nothing; see [fix preview](#fix-preview-with---fix---diff).
 
 ### Rule selection and family prefixes
 
@@ -210,6 +212,51 @@ boolean is always present, so a consumer that ignores unknown fields keeps
 working. `schemaVersion` therefore stays `1`, and
 [diagnostics.schema.json](diagnostics.schema.json) documents `suppressed` as
 required in the same release.
+
+## Fix preview with `--fix --diff`
+
+`--fix --diff` runs the complete safe-fix pipeline — candidate collection, span
+and hash validation, reparse, token/structure comparison and one-pass convergence
+— and then prints the planned change instead of writing it. No byte of any file
+changes, `summary.filesChanged` stays `0`, and the plan is the same one a write
+run would apply. See [safe fixes](fixes.md#preview-with---fix---diff) for the
+validation contract and the display-only normalisations.
+
+```text
+verse-lint Content --fix --diff
+```
+
+```diff
+--- a/Content/device.verse
++++ b/Content/device.verse
+@@ -1,3 +1,3 @@
+ A := 1
+-B := 2  
++B := 2
+ C := 3
+```
+
+stdout carries the unified diff and nothing else; the text diagnostics for
+findings that survive the plan move to stderr in this mode, so stdout is never
+two formats at once. The exit code is the ordinary one: remaining errors exit 1,
+incomplete inspection exits 2, and a failed plan prints no partial diff. Output
+is line-oriented with 3 lines of context, one `--- a/<path>` / `+++ b/<path>`
+pair per changed file, `/`-separated config-root-relative paths, and no
+timestamps or index hashes. A CRLF source prints without its CR and a leading BOM
+is not printed; both stay in the bytes a real `--fix` writes, and every other
+control character except TAB is escaped as `\u{XXXX}`.
+
+Six combinations are rejected with exit 2 before any source is analysed, and
+none of them changes a file:
+
+| Combination | Why |
+| --- | --- |
+| `--diff` without `--fix` | the preview renders the fix plan, so there is nothing to preview |
+| `--fix --diff` with stdin | `--fix` already refuses stdin, which is not a write target |
+| `--fix --diff --output-format json` | the diff has no JSON representation in this release |
+| `--fix --diff --output-format sarif` | same: one format on stdout |
+| `--fix --diff --output-format github` | same: one format on stdout |
+| `--fix --diff --show-config` | `--show-config` is not a source run |
 
 ## Output contract
 

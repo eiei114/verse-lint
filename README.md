@@ -58,6 +58,7 @@ verse-lint . --output-format json
 verse-lint . --output-format sarif
 verse-lint . --output-format github
 verse-lint . --fix
+verse-lint . --fix --diff
 verse-lint . --select V2001,V2002 --deny-warnings
 verse-lint . --select V3001
 verse-lint . --show-suppressed
@@ -115,7 +116,10 @@ unknown IDs or values exit 2. It changes severity only, so a promoted rule still
 has to be selected. Safe fixes
 only remove unprotected trailing trivia and add a final newline; they never
 guess tab widths, rename symbols or reflow comments. Use version control and
-avoid simultaneous editor/UEFN saves during `--fix`.
+avoid simultaneous editor/UEFN saves during `--fix`. `--fix --diff` prints the
+unified diff of exactly those edits and writes nothing, so the preview can run
+in CI or an unfamiliar checkout; stdout then carries only the diff and the
+remaining diagnostics go to stderr.
 
 See [CLI/config and JSON contract][cli], [rule index][rules], [safe fixes][fixes],
 [pinned independent syntax snapshot][snapshot],

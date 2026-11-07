@@ -30,6 +30,11 @@ pub struct Cli {
     /// Apply only validated, safe edits to files; not supported on stdin.
     #[arg(long)]
     pub fix: bool,
+    /// With `--fix`, print the unified diff of every planned edit to stdout and
+    /// write nothing. Diagnostics then go to stderr, because stdout carries one
+    /// format.
+    #[arg(long)]
+    pub diff: bool,
     /// Select comma-separated complete rule IDs or rule-family prefixes (`V1`),
     /// replacing configured selection.
     #[arg(long, value_delimiter = ',')]
@@ -54,7 +59,14 @@ pub struct Cli {
     /// Print the resolved configuration without processing source files.
     #[arg(
         long,
-        conflicts_with_all = ["paths", "fix", "deny_warnings", "output_format", "show_suppressed"]
+        conflicts_with_all = [
+            "paths",
+            "fix",
+            "diff",
+            "deny_warnings",
+            "output_format",
+            "show_suppressed"
+        ]
     )]
     pub show_config: bool,
     /// Print the per-file scope graph as JSON and run no rule. This is an
@@ -85,6 +97,15 @@ impl Cli {
         }
         if stdin && self.fix {
             return Err("--fix cannot be used with stdin".into());
+        }
+        if self.diff && !self.fix {
+            return Err("--diff previews the fixes --fix would apply, so it requires --fix".into());
+        }
+        if self.diff && !matches!(self.output_format, OutputFormat::Text) {
+            return Err(
+                "--diff writes a unified diff to stdout; drop --output-format (only the default text setting is accepted)"
+                    .into(),
+            );
         }
         if self.stdin_filepath.is_some() && !stdin && !self.show_config {
             return Err("--stdin-filepath requires stdin '-'".into());
