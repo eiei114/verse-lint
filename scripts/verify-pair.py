@@ -126,6 +126,20 @@ def build_pin_update(declared: dict, report: dict, corpus: dict) -> dict:
     }
     return validate_pin(updated, "computed pin update")
 
+def select_goldens(corpus) -> list:
+    """Return the corpus goldens, refusing a malformed corpus before any case runs."""
+    if not isinstance(corpus, dict) or not isinstance(corpus.get("cases"), list):
+        raise SystemExit("malformed formatter corpus: expected an object with a case list")
+    malformed = [
+        str(index) for index, case in enumerate(corpus["cases"]) if not isinstance(case, dict)
+    ]
+    if malformed:
+        raise SystemExit(
+            "malformed formatter corpus: every case must be an object; "
+            "non-object entries at index " + ", ".join(malformed)
+        )
+    return [case for case in corpus["cases"] if "expected" in case]
+
 def check_corpus_hash(observed: str, declared: str, update_pin: bool) -> None:
     """A normal paired run remains strict; update mode takes the observed hash."""
     if observed != declared and not update_pin:
@@ -235,9 +249,7 @@ def main():
     corpus_sha = sha256(corpus_bytes)
     check_corpus_hash(corpus_sha, expected_corpus_sha, args.update_pin)
     cases = json.loads(corpus_bytes)
-    if not isinstance(cases, dict) or not isinstance(cases.get("cases"), list):
-        raise SystemExit("malformed formatter corpus: expected an object with a case list")
-    positives = [item for item in cases["cases"] if "expected" in item]
+    positives = select_goldens(cases)
     check_golden_count(len(positives), expected_cases, args.update_pin)
     report = {
         "corpus_sha256": corpus_sha,

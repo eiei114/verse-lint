@@ -244,6 +244,27 @@ class PinUpdateTests(unittest.TestCase):
             _run_report(self.goldens), corpus=corpus, expected="neither goldens nor explicit refusals"
         )
 
+    def test_non_object_corpus_entries_are_refused_cleanly(self):
+        # Reproduced defect: a null, number, or string entry reached the golden
+        # filter and raised TypeError (or matched "expected" as a substring).
+        for entry in (None, 7, "expected", ["expected"]):
+            with self.subTest(entry=entry):
+                with self.assertRaises(SystemExit) as raised:
+                    verify_pair.select_goldens({"cases": self.goldens + [entry]})
+                message = str(raised.exception.code)
+                self.assertIn("malformed formatter corpus", message)
+                self.assertIn("index 2", message)
+
+    def test_corpus_without_case_list_is_refused(self):
+        for corpus in (None, [], {"cases": None}):
+            with self.subTest(corpus=corpus):
+                with self.assertRaises(SystemExit) as raised:
+                    verify_pair.select_goldens(corpus)
+                self.assertIn("expected an object with a case list", str(raised.exception.code))
+
+    def test_well_formed_corpus_selects_only_goldens(self):
+        self.assertEqual(verify_pair.select_goldens(self.corpus), self.goldens)
+
     def test_dirty_formatter_or_linter_checkout_refuses_update(self):
         for role in ("formatter checkout", "linter checkout"):
             with self.subTest(role=role):
