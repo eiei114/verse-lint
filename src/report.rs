@@ -60,6 +60,13 @@ pub struct Report {
     /// never changes what is analyzed, what the budget counts or the exit code.
     #[serde(skip)]
     pub show_suppressed: bool,
+    /// A rendered `--fix --diff` preview, printed on stdout ahead of nothing else.
+    /// `None` means the run did not ask for a preview; `Some("")` means it asked
+    /// and the plan changes nothing. While a preview owns stdout, the text
+    /// diagnostics a report would print there move to stderr, so stdout stays
+    /// one format.
+    #[serde(skip)]
+    pub diff: Option<String>,
 }
 
 impl Default for Report {
@@ -78,6 +85,7 @@ impl Default for Report {
             exit_code: 0,
             budget_used: 0,
             show_suppressed: false,
+            diff: None,
         }
     }
 }
@@ -149,6 +157,13 @@ impl Report {
 
     pub fn emit(&self, format: OutputFormat, color: Color) -> Result<(), String> {
         let mut out = std::io::stdout().lock();
+        // A preview is text-only by contract: every other format is rejected
+        // before a plan is collected, so this condition never mixes two formats
+        // on stdout.
+        let preview = matches!(format, OutputFormat::Text) && self.diff.is_some();
+        if preview && let Some(diff) = &self.diff {
+            out.write_all(diff.as_bytes()).map_err(|e| e.to_string())?;
+        }
         match format {
             OutputFormat::Json => {
                 serde_json::to_writer_pretty(&mut out, self).map_err(|e| e.to_string())?;
@@ -160,6 +175,16 @@ impl Report {
                     Color::Never => false,
                     Color::Auto => std::env::var_os("NO_COLOR").is_none() && out.is_terminal(),
                 };
+                // In preview mode stdout is the diff, so the findings go to
+                // stderr and the terminal still shows both. The summary line
+                // below already uses stderr in text mode.
+                let mut stderr;
+                let listing: &mut dyn Write = if preview {
+                    stderr = std::io::stderr().lock();
+                    &mut stderr
+                } else {
+                    &mut out
+                };
                 for diagnostic in &self.diagnostics {
                     let (begin, end) = if colored {
                         ("\x1b[31m", "\x1b[0m")
@@ -167,7 +192,7 @@ impl Report {
                         ("", "")
                     };
                     writeln!(
-                        out,
+                        listing,
                         "{begin}{}:{}:{}: {} {} {}{}{end}",
                         diagnostic.path,
                         diagnostic.range.start.line,

@@ -1,6 +1,7 @@
 mod cli;
 mod config;
 mod diagnostic;
+mod diff;
 mod dump;
 mod files;
 mod fix;
@@ -182,7 +183,10 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
                 &active,
                 &severities,
                 config.settings.lint.options(),
-                cli.show_suppressed,
+                fix_run::Mode {
+                    show_suppressed: cli.show_suppressed,
+                    preview: cli.diff,
+                },
                 report,
             );
             return Ok(None);
