@@ -2,7 +2,7 @@
 
 Linter for Epic Games' Verse language and UEFN projects.
 
-> Unreleased alpha with five style rules, line suppression, file/stdin/project
+> Unreleased alpha with six style rules, line suppression, file/stdin/project
 > input, configuration, text/JSON/SARIF/GitHub annotations and guarded Windows
 > safe fixes.
 > A paired 64-case formatter convergence harness and PowerShell/cmd smoke matrix
@@ -59,6 +59,7 @@ verse-lint . --output-format sarif
 verse-lint . --output-format github
 verse-lint . --fix
 verse-lint . --select V2001,V2002 --deny-warnings
+verse-lint . --select V3001
 verse-lint . --show-suppressed
 verse-lint . --no-ignore-file
 verse-lint --show-config
@@ -101,7 +102,14 @@ UEFN compiler rejects it. Prefer file input in Windows PowerShell 5.1 because
 text pipelines can recode bytes before the tool receives them.
 
 Defaults: V1001 trailing whitespace, V1002 final newline, V1003 tab indentation.
-V2001 line length and V2002 bare TODO comments are opt-in warnings. `[lint.severity]`
+V2001 line length and V2002 bare TODO comments are opt-in warnings. V3001
+unused-declaration is an opt-in warning that reads the
+[scope graph][semantic] rather than the token list, and reports nothing at all
+for a file whose model is incomplete — an `unused` claim the tool could not prove
+would tell you to delete live code. It never reports an exported, `public`,
+`protected` or `_`-prefixed name, a `using` import or a `for`/`if` binding, and
+it does not report parameters unless you set `unused-parameters = true` under
+`[lint]`. `[lint.severity]`
 can promote or demote a registered rule per project (`"error"`/`"warning"` only);
 unknown IDs or values exit 2. It changes severity only, so a promoted rule still
 has to be selected. Safe fixes

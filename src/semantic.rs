@@ -50,6 +50,11 @@ pub enum ScopeKind {
 pub struct Scope {
     pub kind: ScopeKind,
     pub parent: Option<usize>,
+    /// A function scope whose definition has no body: an interface or
+    /// abstract method, or a `<native>` declaration. Its parameters belong to
+    /// a signature that nothing in this file implements, so no reference to
+    /// them can exist here and their absence proves nothing.
+    pub signature_only: bool,
 }
 
 /// What a declaration introduces.
@@ -82,6 +87,11 @@ pub struct Binding {
     /// Source byte range of the declaration name, BOM included.
     pub range: Range<usize>,
     pub mutable: bool,
+    /// The declaration is reachable from outside this file, by an explicit
+    /// `public`/`protected` specifier or because it is a top-level type name.
+    /// Cross-file reachability is out of scope, so this flag exists to stop a
+    /// rule from calling an exported name unused; it is not a visibility model.
+    pub exported: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -124,6 +134,7 @@ impl ScopeGraph {
             scopes: vec![Scope {
                 kind: ScopeKind::File,
                 parent: None,
+                signature_only: false,
             }],
             by_scope: vec![Vec::new()],
             bindings: Vec::new(),
@@ -184,11 +195,81 @@ impl ScopeGraph {
 
     /// The only graph a semantic rule may report from. `None` is a documented
     /// no-op, not a warning: the model cannot prove the names it would blame.
-    ///
-    // Slice 09 adds no rule, so nothing calls this yet; slices 10–14 consume it.
-    #[allow(dead_code)]
     pub fn reportable(&self) -> Option<&Self> {
         self.is_complete().then_some(self)
+    }
+
+    /// Bindings with zero resolved references in this graph, in declaration
+    /// order. Call through [`Self::reportable`]: called on an incomplete graph
+    /// this returns nothing, because a name the model could not see used must
+    /// never be called unused.
+    ///
+    /// Candidates are the constructs whose absence of a reference is provable
+    /// from one file:
+    ///
+    /// - a `variable` or `constant` local declared in a function body;
+    /// - that function's `parameter`, only when `parameters` is set, because
+    ///   an unused parameter is often dictated by a callback signature.
+    ///
+    /// Everything else is excluded by construction rather than by a list of
+    /// exceptions: an exported binding needs no intra-file reference, a
+    /// `moduleImport` may be re-exported or untraceable, and a `for`/`if`
+    /// binding exists to test or iterate the value it binds, which is not
+    /// evidence that the declaration is dead. A `_`-prefixed name is the
+    /// conventional "deliberately unused" marker.
+    ///
+    /// A resolved reference *writes* as well as reads: this proves no reference
+    /// at all, never "no read", so an assigned-but-unread local stays silent.
+    pub fn unused(&self, parameters: bool) -> Vec<&Binding> {
+        if !self.is_complete() {
+            return Vec::new();
+        }
+        let mut used = vec![false; self.bindings.len()];
+        for reference in &self.references {
+            if let Some(index) = self.resolve_position(reference) {
+                used[index] = true;
+            }
+        }
+        self.bindings
+            .iter()
+            .enumerate()
+            .filter(|(index, binding)| {
+                !used[*index] && self.is_unused_candidate(binding, parameters)
+            })
+            .map(|(_, binding)| binding)
+            .collect()
+    }
+
+    fn is_unused_candidate(&self, binding: &Binding, parameters: bool) -> bool {
+        if binding.exported || binding.name.starts_with('_') {
+            return false;
+        }
+        match binding.kind {
+            // A bodyless signature has nowhere to reference its parameters.
+            BindingKind::Parameter => parameters && !self.scopes[binding.scope].signature_only,
+            BindingKind::Variable | BindingKind::Constant => {
+                // Only a body local: a file-scope binding, a class field and a
+                // module-level value are all reachable from elsewhere. A
+                // `for`/`if` condition binding owns a non-block scope and is
+                // never a candidate, for the reason in `Self::unused`.
+                matches!(
+                    self.scopes[binding.scope].kind,
+                    ScopeKind::Block | ScopeKind::Function
+                ) && self.has_ancestor(binding.scope, ScopeKind::Function)
+            }
+            _ => false,
+        }
+    }
+
+    fn has_ancestor(&self, scope: usize, kind: ScopeKind) -> bool {
+        let mut current = Some(scope);
+        while let Some(index) = current {
+            if self.scopes[index].kind == kind {
+                return true;
+            }
+            current = self.scopes[index].parent;
+        }
+        false
     }
 
     /// Resolve a reference by walking its scope chain outward.
@@ -198,7 +279,15 @@ impl ScopeGraph {
     /// an inner block shadows from its declaration onward while a name used
     /// before a redeclaration keeps the outer binding. An unknown name returns
     /// `None`; it is never matched to a guess.
+    #[allow(dead_code)]
     pub fn resolve(&self, reference: &Reference) -> Option<&Binding> {
+        self.resolve_position(reference)
+            .map(|index| &self.bindings[index])
+    }
+    /// Resolution as a binding index, which is what a caller comparing
+    /// bindings needs; scanning the owning scope's ordered list keeps this
+    /// independent of any hashed container.
+    fn resolve_position(&self, reference: &Reference) -> Option<usize> {
         let mut scope = Some(reference.receiver.unwrap_or(reference.scope));
         while let Some(index) = scope {
             for binding in self.by_scope[index].iter().rev() {
@@ -212,7 +301,7 @@ impl ScopeGraph {
                     candidate.range.start < reference.range.start
                 };
                 if candidate.name == reference.name && visible {
-                    return Some(candidate);
+                    return Some(*binding);
                 }
             }
             scope = self.scopes[index].parent;
@@ -221,15 +310,9 @@ impl ScopeGraph {
     }
 
     /// Index into [`ScopeGraph::bindings`] of what the reference resolves to, so
-    /// `--dump-scopes` points at a binding instead of duplicating it. Scanning
-    /// the owning scope's ordered list keeps this independent of any hashed
-    /// container.
+    /// `--dump-scopes` points at a binding instead of duplicating it.
     pub fn resolved_index(&self, reference: &Reference) -> Option<usize> {
-        let binding = self.resolve(reference)?;
-        self.by_scope[binding.scope]
-            .iter()
-            .copied()
-            .find(|index| std::ptr::eq(&self.bindings[*index], binding))
+        self.resolve_position(reference)
     }
 
     /// Unstable per-file view used by `--dump-scopes`.
@@ -253,6 +336,7 @@ impl ScopeGraph {
                     scope: binding.scope,
                     range: RangeDump::new(&binding.range),
                     mutable: binding.mutable,
+                    exported: binding.exported,
                 })
                 .collect(),
             references: self
@@ -306,6 +390,7 @@ pub struct BindingDump {
     scope: usize,
     range: RangeDump,
     mutable: bool,
+    exported: bool,
 }
 
 #[derive(Serialize)]
@@ -386,6 +471,7 @@ impl Builder<'_> {
         self.scopes.push(Scope {
             kind,
             parent: Some(parent),
+            signature_only: false,
         });
         self.by_scope.push(Vec::new());
         Ok(self.scopes.len() - 1)
@@ -408,15 +494,57 @@ impl Builder<'_> {
                 "scope graph binding limit exceeded",
             ));
         }
+        let exported = self.is_exported(node, kind, scope);
         self.bindings.push(Binding {
             name,
             kind,
             scope,
             range: self.range(node),
             mutable,
+            exported,
         });
         self.by_scope[scope].push(self.bindings.len() - 1);
         Ok(())
+    }
+
+    /// Whether a declaration is reachable from outside this file. Cross-file
+    /// reachability is out of scope for this wave, so an explicit
+    /// `public`/`protected` specifier and any top-level type name both count as
+    /// exported: intra-file usage proves nothing about them.
+    fn is_exported(&self, name: Node<'_>, kind: BindingKind, scope: usize) -> bool {
+        if matches!(
+            kind,
+            BindingKind::Class | BindingKind::Struct | BindingKind::Interface | BindingKind::Enum
+        ) && self.scopes[scope].kind == ScopeKind::File
+        {
+            return true;
+        }
+        let Some(declaration) = name.parent() else {
+            return false;
+        };
+        // `Name := class<public>:` puts the specifier on the value, not on the
+        // `type_definition` that names the type.
+        let value_of_type = (declaration.kind() == "type_definition")
+            .then(|| declaration.child_by_field_name("value"))
+            .flatten();
+        std::iter::once(declaration)
+            .chain(value_of_type)
+            .any(|owner| self.has_exported_specifier(owner))
+    }
+
+    fn has_exported_specifier(&self, node: Node<'_>) -> bool {
+        ["specifiers", "var_specifiers", "name_specifiers"]
+            .into_iter()
+            .filter_map(|field| node.child_by_field_name(field))
+            .any(|list| {
+                let mut cursor = list.walk();
+                list.named_children(&mut cursor).any(|specifier| {
+                    specifier
+                        .child_by_field_name("name")
+                        .and_then(|name| self.text_of(name))
+                        .is_some_and(|name| matches!(name, "public" | "protected"))
+                })
+            })
     }
 
     /// Declare a node only when it really is a plain identifier. Anything else
@@ -529,6 +657,7 @@ impl Builder<'_> {
             }
             "function_definition" | "extension_function_definition" => {
                 let inner = self.open(ScopeKind::Function, scope, node)?;
+                self.scopes[inner].signature_only = node.child_by_field_name("body").is_none();
                 if let Some(name) = node.child_by_field_name("name") {
                     self.declare(scope, name, BindingKind::Function, false)?;
                 }
@@ -707,6 +836,9 @@ impl Builder<'_> {
             | "yield_expression"
             | "specifier_list"
             | "specifier"
+            // A string is not inert: `"{Name}"` holds an expression whose
+            // names are references like any other.
+            | "string_literal"
             | "string_interpolation"
             | "generic_type"
             | "for_clause_list" => self.walk_children(node, scope)?,
@@ -714,7 +846,6 @@ impl Builder<'_> {
             "line_comment"
             | "block_comment"
             | "hash_gt_comment"
-            | "string_literal"
             | "string_content"
             | "escape_sequence"
             | "char_literal"

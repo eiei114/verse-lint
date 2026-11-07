@@ -12,21 +12,38 @@ use std::{
 
 /// Every rule family in the registry, so a test that selects `V` proves the
 /// whole registry is reachable instead of only the default three.
-const ALL_IDS: [&str; 5] = ["V1001", "V1002", "V1003", "V2001", "V2002"];
+const ALL_IDS: [&str; 6] = ["V1001", "V1002", "V1003", "V2001", "V2002", "V3001"];
 const V1_IDS: [&str; 3] = ["V1001", "V1002", "V1003"];
 const V2_IDS: [&str; 2] = ["V2001", "V2002"];
+/// V3001 is its own family: selecting or ignoring `V2` never touches it, which
+/// is what keeps the semantic rule a separate opt-in from the policy warnings.
+const V3_IDS: [&str; 1] = ["V3001"];
 
 /// A single comment line whose width exceeds the default 120 columns, so V2001
 /// fires once and nothing else does. It deliberately carries no trailing blank
 /// and no `TODO`, keeping the other four rules out of it.
 const LONG_LINE: &str = "# aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 
-/// One finding per rule, so a wrong active set changes the reported ID set:
-/// a bare TODO (V2002), tab indentation (V1003), trailing whitespace (V1001), an
-/// over-long line (V2001) and a missing final newline (V1002).
+/// One finding per *style* rule, so a wrong active set changes the reported ID
+/// set: a bare TODO (V2002), tab indentation (V1003), trailing whitespace
+/// (V1001), an over-long line (V2001) and a missing final newline (V1002).
+///
+/// V3001 has no finding here on purpose: this fixture declares no function-body
+/// local, so it keeps one detector per family and the prefix assertions stay
+/// about selection. The semantic family has its own fixture, `SEMANTIC_SOURCE`.
 fn every_rule() -> String {
     format!("# TODO bare\nf():void =\n\tPrint(\"x\")  \n{LONG_LINE}")
 }
+
+/// One V3001-only finding: a function-body local with no reference. It carries
+/// no style finding at all, so the reported ID set here is exactly the semantic
+/// rules an active set reaches.
+const SEMANTIC_SOURCE: &str = "f():void =\n    Unused := 1\n    Print(\"x\")\n";
+
+/// The style rules `every_rule()` can report, which is every registered rule
+/// except V3001. `--select V` reaches all six; only these five have something to
+/// say about that fixture.
+const STYLE_IDS: [&str; 5] = ["V1001", "V1002", "V1003", "V2001", "V2002"];
 
 fn run(root: &Path, args: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_verse-lint"))
@@ -79,9 +96,11 @@ fn a_family_prefix_selects_exactly_the_registered_rules_it_names() {
     assert_eq!(code, 1, "{report}");
     assert_eq!(reported(&report), sorted(&V1_IDS));
     // `--select V` reaches every registered rule, including the opt-in ones.
+    // The fixture only has style findings, so V3001 is selected and silent here;
+    // the semantic family is covered by its own test below.
     let (code, report) = json(dir.path(), &["--select", "V"]);
     assert_eq!(code, 1, "{report}");
-    assert_eq!(reported(&report), sorted(&ALL_IDS));
+    assert_eq!(reported(&report), sorted(&STYLE_IDS));
     // `--select V2` is exactly the two policy warnings.
     let (code, report) = json(dir.path(), &["--select", "V2"]);
     assert_eq!(code, 0, "warnings alone exit 0: {report}");
@@ -95,6 +114,47 @@ fn a_family_prefix_selects_exactly_the_registered_rules_it_names() {
     let (code, report) = json(dir.path(), &["--select", "V2002"]);
     assert_eq!(code, 0, "{report}");
     assert_eq!(reported(&report), sorted(&["V2002"]));
+}
+
+/// The semantic family is reached by its own prefix and by no other: `V3` is
+/// V3001 alone, and `V2` never brings it in. This is the whole contract a reader
+/// of `docs/rules.md` relies on when they opt in to a semantic rule separately
+/// from the two policy warnings.
+#[test]
+fn the_semantic_family_is_its_own_prefix_and_reports_through_it() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("semantic.verse"), SEMANTIC_SOURCE).unwrap();
+    let (code, report) = json(dir.path(), &["--select", "V3"]);
+    assert_eq!(code, 0, "a warning alone exits 0: {report}");
+    assert_eq!(reported(&report), sorted(&V3_IDS));
+    assert_eq!(report["summary"]["warnings"], 1);
+    // `V2` is the policy warnings only; the semantic rule stays unselected.
+    let (code, report) = json(dir.path(), &["--select", "V2"]);
+    assert_eq!(code, 0, "{report}");
+    assert!(
+        report["diagnostics"].as_array().unwrap().is_empty(),
+        "{report}"
+    );
+    // The whole registry reaches it, and the surviving finding keeps its rule.
+    // A V3001-only file has one warning and no error, so a full selection still
+    // exits 0: selecting a rule never changes the severity contract.
+    let (code, report) = json(dir.path(), &["--select", "V"]);
+    assert_eq!(code, 0, "{report}");
+    assert_eq!(reported(&report), sorted(&V3_IDS));
+    // `--ignore V3` subtracts it from a full selection by ID, not by text.
+    let (code, report) = json(dir.path(), &["--select", "V", "--ignore", "V3"]);
+    assert_eq!(code, 0, "{report}");
+    assert!(
+        report["diagnostics"].as_array().unwrap().is_empty(),
+        "{report}"
+    );
+    // It is off by default, like every other opt-in rule.
+    let (code, report) = json(dir.path(), &[]);
+    assert_eq!(code, 0, "{report}");
+    assert!(
+        report["diagnostics"].as_array().unwrap().is_empty(),
+        "{report}"
+    );
 }
 
 #[test]
@@ -114,7 +174,9 @@ fn an_ignore_prefix_removes_exactly_its_family_from_the_selection() {
             .unwrap()
             .contains("no active lint rules")
     );
-    // Select everything, then drop one family: the other family survives.
+    // Select everything, then drop one family: the other families survive.
+    // V3001 is selected but reports nothing in this fixture, so `reported` is
+    // exactly the two policy warnings.
     let (code, report) = json(dir.path(), &["--select", "V", "--ignore", "V1"]);
     assert_eq!(code, 0, "{report}");
     assert_eq!(reported(&report), sorted(&V2_IDS));
@@ -127,7 +189,8 @@ fn an_ignore_prefix_removes_exactly_its_family_from_the_selection() {
 #[test]
 fn select_and_ignore_expand_before_subtraction_so_prefixes_never_cancel_by_text() {
     let dir = project("");
-    // `--select V --ignore V2` is documented as the V1 family.
+    // `--select V --ignore V2` is documented as the V1 family. V3001 is
+    // selected by the `V` prefix but has nothing to report here.
     let (code, report) = json(dir.path(), &["--select", "V", "--ignore", "V2"]);
     assert_eq!(code, 1, "{report}");
     assert_eq!(reported(&report), sorted(&V1_IDS));
@@ -261,6 +324,12 @@ fn show_config_prints_expanded_complete_ids_in_a_deterministic_order() {
     };
     assert_eq!(block("select = ["), sorted(&ALL_IDS));
     assert_eq!(block("ignore = ["), sorted(&V2_IDS));
+    // `ignore = ['V2']` leaves V3001 selected: the semantic family is separate.
+    assert!(
+        !block("ignore = [")
+            .iter()
+            .any(|id| V3_IDS.contains(&id.as_str()))
+    );
     assert!(
         !block("select = [")
             .iter()
@@ -361,7 +430,7 @@ fn prefix_expansion_changes_neither_exit_codes_nor_diagnostic_order() {
     let prefixed = run(dir.path(), &["--select", "V"]);
     assert_eq!(literal.status.code(), prefixed.status.code());
     assert!(literal.status.success() || literal.status.code() == Some(1));
-    let (_, literal) = json(dir.path(), &["--select", "V1,V2"]);
+    let (_, literal) = json(dir.path(), &["--select", "V1,V2,V3"]);
     let (_, prefixed) = json(dir.path(), &["--select", "V"]);
     assert_eq!(literal["diagnostics"], prefixed["diagnostics"]);
     assert_eq!(literal["summary"], prefixed["summary"]);

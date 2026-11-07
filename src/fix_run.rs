@@ -14,7 +14,7 @@ pub fn run(
     root: &std::path::Path,
     active: &BTreeSet<String>,
     severities: &rules::SeverityOverrides,
-    max_line_length: usize,
+    options: rules::Options,
     show_suppressed: bool,
     report: &mut Report,
 ) {
@@ -24,7 +24,7 @@ pub fn run(
         root,
         active,
         severities,
-        max_line_length,
+        options,
         report,
         |_, pending| pending.commit(),
     );
@@ -35,7 +35,7 @@ fn run_using(
     root: &std::path::Path,
     active: &BTreeSet<String>,
     severities: &rules::SeverityOverrides,
-    max_line_length: usize,
+    options: rules::Options,
     report: &mut Report,
     mut commit: impl FnMut(&str, write::Pending) -> Result<Option<String>, String>,
 ) {
@@ -57,7 +57,7 @@ fn run_using(
             }
             let source = Source::from_bytes(&snapshot.bytes).map_err(|e| e.to_string())?;
             let budget = rules::MAX_DIAGNOSTICS - report.budget_used;
-            let plan = fix::plan(&source, &label, active, severities, max_line_length, budget)
+            let plan = fix::plan(&source, &label, active, severities, options, budget)
                 .map_err(|e| e.to_string())?;
             Ok(Candidate {
                 label: label.clone(),
@@ -149,7 +149,7 @@ mod tests {
             dir.path(),
             &active,
             &rules::SeverityOverrides::new(),
-            120,
+            rules::Options::default(),
             &mut report,
             |label, pending| {
                 if label == "b.verse" {

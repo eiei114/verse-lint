@@ -1,6 +1,7 @@
 use crate::{
     diagnostic::Diagnostic,
     lex::Kind,
+    semantic::ScopeGraph,
     source::{Failure, Source},
     suppressions::Suppressions,
     syntax::Document,
@@ -47,6 +48,29 @@ impl std::fmt::Display for Severity {
     }
 }
 
+/// Per-run detector configuration that is not rule identity.
+///
+/// Both fields come from `[lint]` and neither selects nor suppresses a rule, so
+/// they travel together instead of as separate arguments to every lint call.
+#[derive(Clone, Copy, Debug)]
+pub struct Options {
+    /// Used only when V2001 is selected.
+    pub max_line_length: usize,
+    /// Used only when V3001 is selected: whether an unused parameter is
+    /// reported as well as an unused local.
+    pub unused_parameters: bool,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        let settings = Settings::default();
+        Self {
+            max_line_length: settings.max_line_length,
+            unused_parameters: settings.unused_parameters,
+        }
+    }
+}
+
 /// Effective severity overrides keyed by complete rule ID. Empty means every
 /// rule keeps its registry default.
 pub type SeverityOverrides = BTreeMap<String, Severity>;
@@ -67,7 +91,7 @@ pub struct Rule {
     /// Selected when configuration omits `[lint] select`.
     pub selected_by_default: bool,
 }
-pub const REGISTRY: [Rule; 5] = [
+pub const REGISTRY: [Rule; 6] = [
     Rule {
         id: "V1001",
         name: "TrailingWhitespace",
@@ -108,6 +132,14 @@ pub const REGISTRY: [Rule; 5] = [
         fixable: false,
         selected_by_default: false,
     },
+    Rule {
+        id: "V3001",
+        name: "UnusedDeclaration",
+        severity: Severity::Warning,
+        message: "Declaration is never referenced",
+        fixable: false,
+        selected_by_default: false,
+    },
 ];
 
 /// Stable rule IDs. Detectors dispatch on these, never on a registry position,
@@ -117,11 +149,12 @@ pub const V1002: &str = "V1002";
 pub const V1003: &str = "V1003";
 pub const V2001: &str = "V2001";
 pub const V2002: &str = "V2002";
+pub const V3001: &str = "V3001";
 
 /// Every ID a detector can emit. Test-side contract table: the registry tests
 /// check [`REGISTRY`] against it in both directions.
 #[cfg(test)]
-pub const DETECTOR_IDS: [&str; 5] = [V1001, V1002, V1003, V2001, V2002];
+pub const DETECTOR_IDS: [&str; 6] = [V1001, V1002, V1003, V2001, V2002, V3001];
 
 /// `select`/`ignore` entries accept a complete ID (`V1001`) or a numeric prefix
 /// (`V`, `V1`, `V2`). A complete ID is itself a valid prefix, so one shape check
@@ -205,6 +238,10 @@ pub struct Settings {
     pub select: Vec<String>,
     pub ignore: Vec<String>,
     pub max_line_length: usize,
+    /// `[lint] unused-parameters`: whether V3001 also reports a parameter with
+    /// no resolved reference. `false` by default, because an unused parameter is
+    /// usually dictated by a callback signature rather than left behind.
+    pub unused_parameters: bool,
     /// `[lint.severity]`: rule ID to replacement severity text. Kept as text so
     /// [`Settings::validate`] can name the offending key itself instead of
     /// deferring to a generic deserializer message.
@@ -221,6 +258,7 @@ impl Default for Settings {
                 .collect(),
             ignore: vec![],
             max_line_length: 120,
+            unused_parameters: false,
             severity: BTreeMap::new(),
         }
     }
@@ -291,6 +329,16 @@ impl Settings {
         Ok(expand_entries(&self.ignore)?.into_iter().collect())
     }
 
+    /// The detector configuration these settings imply. A pure projection, so a
+    /// caller cannot pass a line length or a parameter mode that disagrees with
+    /// the resolved configuration.
+    pub fn options(&self) -> Options {
+        Options {
+            max_line_length: self.max_line_length,
+            unused_parameters: self.unused_parameters,
+        }
+    }
+
     pub fn active(&self) -> Result<BTreeSet<String>, String> {
         self.validate()?;
         // Both lists are expanded before subtraction, so `--select V --ignore V2`
@@ -328,18 +376,10 @@ pub fn lint(
     path: &str,
     active: &BTreeSet<String>,
     severities: &SeverityOverrides,
-    max_line_length: usize,
+    options: Options,
     budget: usize,
 ) -> Result<LintResult, Failure> {
-    lint_with(
-        source,
-        path,
-        active,
-        severities,
-        max_line_length,
-        budget,
-        &REGISTRY,
-    )
+    lint_with(source, path, active, severities, options, budget, &REGISTRY)
 }
 
 /// Lint against an explicit registry order. Detector dispatch is by rule ID, so
@@ -349,7 +389,7 @@ fn lint_with(
     path: &str,
     active: &BTreeSet<String>,
     severities: &SeverityOverrides,
-    max_line_length: usize,
+    options: Options,
     budget: usize,
     registry: &[Rule],
 ) -> Result<LintResult, Failure> {
@@ -457,7 +497,7 @@ fn lint_with(
             let (mut width, mut excess) = (0, None);
             for (i, c) in body.char_indices() {
                 width += if c == '\t' { 4 - width % 4 } else { 1 };
-                if width > max_line_length && excess.is_none() {
+                if width > options.max_line_length && excess.is_none() {
                     excess = Some(i);
                 }
             }
@@ -465,6 +505,17 @@ fn lint_with(
                 emit(V2001, offset + excess..offset + body.len())?;
             }
             offset += line.len();
+        }
+    }
+    if active.contains(V3001) {
+        // The one rule that needs the scope graph. `reportable()` makes an
+        // incomplete model a documented no-op: an "unused" claim from a graph
+        // that could not see a use would instruct a user to delete live code.
+        let graph = ScopeGraph::build(source, &document)?;
+        if let Some(graph) = graph.reportable() {
+            for binding in graph.unused(options.unused_parameters) {
+                emit(V3001, binding.range.clone())?;
+            }
         }
     }
     // Both lists use the same key, so showing suppressed findings never changes
@@ -481,12 +532,13 @@ mod tests {
 
     /// Documented contract per rule, addressed by stable ID. Order is not part
     /// of the contract, so this is looked up by ID rather than by position.
-    const DOCUMENTED: [(&str, &str, &str, bool, bool); 5] = [
+    const DOCUMENTED: [(&str, &str, &str, bool, bool); 6] = [
         (V1001, "TrailingWhitespace", "error", true, true),
         (V1002, "MissingFinalNewline", "error", true, true),
         (V1003, "TabIndentation", "error", false, true),
         (V2001, "LineTooLong", "warning", false, false),
         (V2002, "BareTodoComment", "warning", false, false),
+        (V3001, "UnusedDeclaration", "warning", false, false),
     ];
 
     fn sample() -> Source {
@@ -504,7 +556,10 @@ mod tests {
             "sample.verse",
             active,
             &SeverityOverrides::new(),
-            12,
+            Options {
+                max_line_length: 12,
+                unused_parameters: false,
+            },
             MAX_DIAGNOSTICS,
             registry,
         )
@@ -620,7 +675,7 @@ mod tests {
             "sample.verse",
             &active(&[V1001]),
             &SeverityOverrides::new(),
-            120,
+            Options::default(),
             MAX_DIAGNOSTICS,
             &REGISTRY,
         )
@@ -656,7 +711,7 @@ mod tests {
             "sample.verse",
             &active(&[V1001]),
             &SeverityOverrides::new(),
-            120,
+            Options::default(),
             MAX_DIAGNOSTICS,
             &REGISTRY,
         )
@@ -687,6 +742,9 @@ mod tests {
         assert_eq!(family, [V1001, V1002, V1003]);
         let policy = expand_entry("V2").expect("V2 is registered");
         assert_eq!(policy, [V2001, V2002]);
+        // The semantic family is its own prefix: a V2 policy warning and a V3
+        // semantic claim are different opt-ins and never select each other.
+        assert_eq!(expand_entry("V3").expect("V3 is registered"), [V3001]);
         // `V` is a prefix of every ID, so it is the whole registry.
         let all: Vec<_> = REGISTRY.iter().map(|rule| rule.id).collect();
         assert_eq!(expand_entry("V").unwrap(), all);
@@ -721,9 +779,14 @@ mod tests {
 
     #[test]
     fn select_and_ignore_are_expanded_before_subtraction_and_duplicates_collapse() {
-        // Documented example: the whole registry minus the V2 family is V1.
+        // Documented example: the whole registry minus the V2 family is V1 plus
+        // the semantic family, which is a separate prefix on purpose — a V2
+        // policy warning and a V3 semantic claim are different opt-ins.
         let settings = settings_with(&["V"], &["V2"]);
-        assert_eq!(settings.active().unwrap(), active(&[V1001, V1002, V1003]));
+        assert_eq!(
+            settings.active().unwrap(),
+            active(&[V1001, V1002, V1003, V3001])
+        );
         // A prefix subtracts the rule it actually names, not the literal text.
         assert_eq!(
             settings_with(&["V1", "V2"], &["V2002"]).active().unwrap(),
@@ -734,7 +797,7 @@ mod tests {
             settings_with(&["V", "V1", V1001, "V1001"], &["V1", V1002])
                 .active()
                 .unwrap(),
-            active(&[V2001, V2002])
+            active(&[V2001, V2002, V3001])
         );
         // Subtracting everything is still the existing empty-selection failure.
         let error = settings_with(&["V1"], &["V1"]).active().unwrap_err();
@@ -860,6 +923,7 @@ mod tests {
                 (V1003, "warning"),
                 (V2001, "error"),
                 (V2002, "warning"),
+                (V3001, "warning"),
             ]
         );
         // Every registered rule is present, and the key order is the stable
@@ -885,7 +949,10 @@ mod tests {
             "sample.verse",
             &ids,
             &overrides,
-            12,
+            Options {
+                max_line_length: 12,
+                unused_parameters: false,
+            },
             MAX_DIAGNOSTICS,
             &REGISTRY,
         )

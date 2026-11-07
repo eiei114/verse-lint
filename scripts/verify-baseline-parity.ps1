@@ -14,6 +14,18 @@
 # Any mismatch fails the script, and `scripts/verify.ps1` runs the script, so a
 # regression cannot reach a green Windows verification path.
 #
+# One narrow exception exists because it is not a regression: SARIF
+# `runs[].tool.driver.rules` is derived from the live registry, so a slice that
+# registers a rule necessarily gains one driver entry in every SARIF document.
+# A SARIF case is therefore accepted when it differs in exactly that way and
+# nothing else: with the registry-derived rule list removed from both documents
+# every field must still be identical, every rule the baseline emitted must
+# appear byte-for-byte unchanged, and at least one rule must have been added.
+# A changed existing rule, a changed result, region, artifact, invocation or
+# count, a different exit code or any stderr difference still fails, and every
+# text and JSON comparison stays byte-exact. The acceptance is recorded per case
+# in the report as `sarifDriverRuleAdded`.
+#
 # Local artifact: the JSON report under `target/verification/baseline-parity/`
 # is not committed.
 param(
@@ -23,9 +35,44 @@ param(
     [string]$FixtureDir = "$PSScriptRoot/../tests/fixtures/baseline",
     [string]$ReportDir = "$PSScriptRoot/../target/verification/baseline-parity",
     [string]$ToolchainBin = '',
-    [string]$BaselineBinary = ''
+    [string]$BaselineBinary = '',
+    [switch]$SelfTest
 )
 $ErrorActionPreference = 'Stop'
+
+# The accept/reject decision for one comparison, isolated so its truth table can
+# be checked without building two binaries. The SARIF exception relaxes the
+# stdout comparison only: the exit code and stderr must match in every case,
+# SARIF included.
+function Test-ComparisonAccepted {
+    param([bool]$SameExit, [bool]$SameOut, [bool]$SameErr, [bool]$SarifStdoutAccepted)
+    return ($SameExit -and ($SameOut -or $SarifStdoutAccepted) -and $SameErr)
+}
+
+if ($SelfTest) {
+    # Each row is a comparison the sweep must judge. The two `$true` SarifOnly
+    # rows with a differing exit code or stderr are the defect this check
+    # exists for: an earlier version skipped the failure check entirely when the
+    # SARIF stdout exception applied, so a changed exit code or stderr passed.
+    $rows = @(
+        @{ Name = 'all equal'; Exit = $true; Out = $true; Err = $true; Sarif = $false; Accept = $true },
+        @{ Name = 'stdout differs, no exception'; Exit = $true; Out = $false; Err = $true; Sarif = $false; Accept = $false },
+        @{ Name = 'stdout differs, driver rule added'; Exit = $true; Out = $false; Err = $true; Sarif = $true; Accept = $true },
+        @{ Name = 'exit differs'; Exit = $false; Out = $true; Err = $true; Sarif = $false; Accept = $false },
+        @{ Name = 'exit differs, driver rule added'; Exit = $false; Out = $false; Err = $true; Sarif = $true; Accept = $false },
+        @{ Name = 'stderr differs'; Exit = $true; Out = $true; Err = $false; Sarif = $false; Accept = $false },
+        @{ Name = 'stderr differs, driver rule added'; Exit = $true; Out = $false; Err = $false; Sarif = $true; Accept = $false },
+        @{ Name = 'exit and stderr differ, driver rule added'; Exit = $false; Out = $false; Err = $false; Sarif = $true; Accept = $false }
+    )
+    foreach ($row in $rows) {
+        $actual = Test-ComparisonAccepted -SameExit $row.Exit -SameOut $row.Out -SameErr $row.Err -SarifStdoutAccepted $row.Sarif
+        if ($actual -ne $row.Accept) {
+            throw "Comparison decision self-check failed for '$($row.Name)': expected accepted=$($row.Accept), got $actual"
+        }
+    }
+    Write-Output "Comparison decision self-check passed ($($rows.Count) rows): the SARIF exception relaxes stdout only, never the exit code or stderr."
+    exit 0
+}
 if ($Profile -notin @('release', 'dev')) { throw "Unsupported profile '$Profile'; use release or dev" }
 $repo = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $FixtureDir = (Resolve-Path $FixtureDir).Path
@@ -189,6 +236,66 @@ try {
     $comparisons = [Collections.Generic.List[object]]::new()
     $failures = [Collections.Generic.List[string]]::new()
 
+    # Whole-document SARIF equivalence except `runs[].tool.driver.rules`, which
+    # is registry-derived and therefore legitimately grows when a slice registers
+    # a rule. Returns $true only when every other field is identical and every
+    # baseline driver rule still appears unchanged. The reason for a refusal is
+    # left in `$script:driverRuleFailure` so the caller can report it.
+    function Test-SarifAddsOnlyDriverRules {
+        param([byte[]]$BeforeBytes, [byte[]]$AfterBytes)
+        $script:driverRuleFailure = $null
+        try {
+            $before = [Text.Encoding]::UTF8.GetString($BeforeBytes) | ConvertFrom-Json -Depth 100
+            $after = [Text.Encoding]::UTF8.GetString($AfterBytes) | ConvertFrom-Json -Depth 100
+        } catch {
+            $script:driverRuleFailure = "not parseable SARIF: $_"
+            return $false
+        }
+        $beforeRuns = @($before.runs)
+        $afterRuns = @($after.runs)
+        if ($beforeRuns.Count -ne $afterRuns.Count) {
+            $script:driverRuleFailure = "run count changed ($($beforeRuns.Count) -> $($afterRuns.Count))"
+            return $false
+        }
+        for ($index = 0; $index -lt $beforeRuns.Count; $index++) {
+            $beforeRules = @($beforeRuns[$index].tool.driver.rules)
+            $afterRules = @($afterRuns[$index].tool.driver.rules)
+            # Empty the registry-derived list on both sides, then compare the whole
+            # remaining document. Any other difference refuses the comparison.
+            $beforeRuns[$index].tool.driver.rules = @()
+            $afterRuns[$index].tool.driver.rules = @()
+            $beforeRest = $before | ConvertTo-Json -Depth 100 -Compress
+            $afterRest = $after | ConvertTo-Json -Depth 100 -Compress
+            if ($beforeRest -ne $afterRest) {
+                $script:driverRuleFailure = 'a field other than tool.driver.rules differs'
+                return $false
+            }
+
+            # Every baseline rule has to survive unchanged; the only permitted
+            # difference is an additional rule object.
+            $afterById = @{}
+            foreach ($rule in $afterRules) {
+                $afterById["$($rule.id)"] = ($rule | ConvertTo-Json -Depth 100 -Compress)
+            }
+            foreach ($rule in $beforeRules) {
+                $id = "$($rule.id)"
+                if (-not $afterById.ContainsKey($id)) {
+                    $script:driverRuleFailure = "baseline driver rule $id disappeared"
+                    return $false
+                }
+                if ($afterById[$id] -ne ($rule | ConvertTo-Json -Depth 100 -Compress)) {
+                    $script:driverRuleFailure = "driver rule $id changed"
+                    return $false
+                }
+            }
+            if ($afterRules.Count -le $beforeRules.Count) {
+                $script:driverRuleFailure = 'no driver rule was added, so the difference is unexplained'
+                return $false
+            }
+        }
+        return $true
+    }
+
     function Compare-Case {
         param([string]$Name, [string[]]$Arguments, [string]$InputText)
         $limit = if ($Name -like 'corpus-*') { 60000 } else { 15000 }
@@ -202,6 +309,18 @@ try {
         $sameExit = $before.ExitCode -eq $after.ExitCode
         $sameOut = (Get-HexDigest $before.Stdout) -eq (Get-HexDigest $after.Stdout)
         $sameErr = (Get-HexDigest $before.Stderr) -eq (Get-HexDigest $after.Stderr)
+        # A SARIF case may differ from the baseline in exactly one documented way:
+        # `tool.driver.rules` gains the rule this slice registered. The structural
+        # check below proves that is the whole difference, so it can stand in for
+        # byte equality without weakening any other comparison.
+        $sarifOnly = $false
+        if (-not $sameOut -and $Name -like '*sarif*') {
+            $sarifOnly = Test-SarifAddsOnlyDriverRules $before.Stdout $after.Stdout
+            if (-not $sarifOnly) {
+                $reason = $script:driverRuleFailure
+                $failures.Add("MISMATCH $Name [$($Arguments -join ' ')]: SARIF differs beyond an added driver rule ($reason)")
+            }
+        }
         $comparisons.Add([pscustomobject]@{
                 case             = $Name
                 arguments        = ($Arguments -join ' ')
@@ -209,12 +328,18 @@ try {
                 exitCodeSame     = $sameExit
                 stdoutSame       = $sameOut
                 stderrSame       = $sameErr
+                sarifDriverRuleAdded = $sarifOnly
                 stdoutSha256     = (Get-HexDigest $after.Stdout)
                 stdoutBytes      = $after.Stdout.Length
             })
-        if (-not ($sameExit -and $sameOut -and $sameErr)) {
-            $detail = "MISMATCH $Name [$($Arguments -join ' ')]: exit $($before.ExitCode)->$($after.ExitCode), stdoutSame=$sameOut, stderrSame=$sameErr"
-            if (-not $sameOut) {
+        # The exception above is about stdout only. A differing exit code or a
+        # differing stderr fails every case, SARIF included, so that check cannot
+        # be skipped when `$sarifOnly` is `$true`.
+        if (-not (Test-ComparisonAccepted -SameExit $sameExit -SameOut $sameOut -SameErr $sameErr -SarifStdoutAccepted $sarifOnly)) {
+            $detail = "MISMATCH $Name [$($Arguments -join ' ')]: exit $($before.ExitCode)->$($after.ExitCode), stdoutSame=$sameOut, stderrSame=$sameErr, driverRuleAdditionAccepted=$sarifOnly"
+            # An accepted SARIF stdout difference is explained by the report field,
+            # so dumping two whole documents would only bury the real defect.
+            if (-not $sameOut -and -not $sarifOnly) {
                 $detail += "`n  baseline stdout:`n$([Text.Encoding]::UTF8.GetString($before.Stdout))"
                 $detail += "`n  head stdout:`n$([Text.Encoding]::UTF8.GetString($after.Stdout))"
             }
@@ -283,6 +408,7 @@ try {
         fixtures         = @($fixtures.Name)
         comparisons      = $comparisons.Count
         formatsExercised = $formatsSeen
+        sarifDriverRuleAdditionCount = @($comparisons | Where-Object { $_.sarifDriverRuleAdded }).Count
         mismatchCount    = $failures.Count
         results          = $comparisons
     } | ConvertTo-Json -Depth 6 | Set-Content -Path (Join-Path $ReportDir 'report.json') -Encoding utf8
@@ -291,7 +417,15 @@ try {
         foreach ($failure in $failures) { Write-Output $failure }
         throw "Pattern parity failed: $($failures.Count) of $($comparisons.Count) comparisons differ between $baseSha and $headSha"
     }
-    Write-Output "Pattern parity: BYTE-IDENTICAL across $($comparisons.Count) comparisons ($($fixtures.Count) fixtures x text/JSON/SARIF + corpus and stdin runs) between $baseSha and $headSha."
+    # State exactly what was proven: byte equality everywhere except the SARIF
+    # cases whose only difference was an added registry-derived driver rule.
+    $added = @($comparisons | Where-Object { $_.sarifDriverRuleAdded }).Count
+    $byteExact = $comparisons.Count - $added
+    $summary = "Pattern parity: BYTE-IDENTICAL across $byteExact comparisons ($($fixtures.Count) fixtures x text/JSON/SARIF + corpus and stdin runs) between $baseSha and $headSha."
+    if ($added -gt 0) {
+        $summary += " A further $added SARIF comparison(s) differ only by registry-derived driver rule entries, with every other SARIF field and every existing driver rule unchanged; see sarifDriverRuleAdded in the report."
+    }
+    Write-Output $summary
 } finally {
     Pop-Location
     $env:Path = $savedPath

@@ -142,11 +142,13 @@ ran in, normally the declaring commit's parent.
 
 The linter's own `scripts/verify-baseline-parity.ps1` needs no formatter and no
 external corpus. It rebuilds the binary from the merge base with the base branch,
-rebuilds HEAD, and requires byte-identical stdout, stderr and exit codes for
+rebuilds HEAD, and requires identical stdout, stderr and exit codes for
 every source in `tests/fixtures/baseline/` in text, JSON and SARIF, plus
-whole-corpus and stdin runs. It runs inside `scripts/verify.ps1`, so it gates
-every Windows verification. Override the baseline explicitly when history is
-shallow or the slice intentionally changes output:
+whole-corpus and stdin runs. Text and JSON are byte-exact; a SARIF document may
+differ only by an added registry-derived `tool.driver.rules` entry, recorded as
+`sarifDriverRuleAdded` in the report. It runs inside `scripts/verify.ps1`, so it
+gates every Windows verification. Override the baseline explicitly when history
+is shallow or the slice intentionally changes output:
 
 ```powershell
 pwsh -NoProfile -File scripts/verify-baseline-parity.ps1 -BaseRef <pre-slice commit>

@@ -151,7 +151,7 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
             &label,
             &active,
             &severities,
-            config.settings.lint.max_line_length,
+            config.settings.lint.options(),
             report,
         );
     } else {
@@ -181,7 +181,7 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
                 &config.root,
                 &active,
                 &severities,
-                config.settings.lint.max_line_length,
+                config.settings.lint.options(),
                 cli.show_suppressed,
                 report,
             );
@@ -208,7 +208,7 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
                 &label,
                 &active,
                 &severities,
-                config.settings.lint.max_line_length,
+                config.settings.lint.options(),
                 report,
             );
         }
@@ -233,7 +233,7 @@ fn inspect(
     label: &str,
     active: &std::collections::BTreeSet<String>,
     severities: &rules::SeverityOverrides,
-    max_line_length: usize,
+    options: rules::Options,
     report: &mut report::Report,
 ) {
     let result = bytes.and_then(|bytes| {
@@ -243,7 +243,7 @@ fn inspect(
             label,
             active,
             severities,
-            max_line_length,
+            options,
             rules::MAX_DIAGNOSTICS - report.budget_used,
         )
         .map_err(|e| {

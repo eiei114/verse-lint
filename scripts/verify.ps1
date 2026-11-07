@@ -42,9 +42,16 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'cargo test failed' }
     cargo build --release --locked --target x86_64-pc-windows-msvc
     if ($LASTEXITCODE -ne 0) { throw 'Windows release build failed' }
+    # The sweep's accept/reject decision is checked on its own truth table first:
+    # the comparison it gates is a PowerShell condition, and a wrong one there
+    # would silently pass the cases it exists to fail. The check builds nothing.
+    & "$PSScriptRoot/verify-baseline-parity.ps1" -SelfTest
+    if ($LASTEXITCODE -ne 0) { throw 'Baseline parity comparison self-check failed' }
     # Primary regression gate for the retained-CST slice: the pre-slice binary
-    # and this HEAD must produce byte-identical text, JSON and SARIF for every
-    # self-authored fixture. A mismatch fails verification.
+    # and this HEAD must produce byte-identical text and JSON for every
+    # self-authored fixture, and SARIF identical except for registry-derived
+    # driver-rule additions (see verify-baseline-parity.ps1). A mismatch fails
+    # verification.
     $parity = @{ Profile = 'release'; ToolchainBin = $bin }
     if ($BaseRef) { $parity.BaseRef = $BaseRef }
     if ($BaselineBinary) { $parity.BaselineBinary = $BaselineBinary }

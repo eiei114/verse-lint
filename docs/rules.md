@@ -10,6 +10,7 @@ protection and syntax coverage validation apply before any rule runs.
 | [V1003 tab-indentation](rules/v1003.md) | On | error | None |
 | [V2001 line-too-long](rules/v2001.md) | Off | warning | None |
 | [V2002 bare-todo-comment](rules/v2002.md) | Off | warning | None |
+| [V3001 unused-declaration](rules/v3001.md) | Off | warning | None |
 
 `src/rules.rs` `REGISTRY` is the single source of truth for rule ID, SARIF
 `name`, severity, message, fixable flag and default selection: this table, the
@@ -55,3 +56,22 @@ does not select a rule, suppress a finding, disable a safe fix or bypass
 `--deny-warnings`, and SARIF
 driver `defaultConfiguration.level` still reports the tool default. `--show-config`
 prints the resolved map for every rule in stable ID order.
+
+## Semantic rules
+
+V3001 is the first rule that reads the [scope graph](semantic-model.md) instead of
+the token list, so it obeys one rule no style rule needs:
+
+> A semantic rule may report only from a graph it can prove complete.
+
+When a file's model records any construct it could not classify, the graph is
+incomplete and **V3001 reports nothing for that file — no diagnostic and no
+execution error — under every configuration**. That is a documented no-op, not an
+error, because a graph that could not see a use cannot prove a declaration is
+unused, and an `unused` claim on live code is worse than silence. The rule still
+applies every other policy: severity override, selection and prefixes,
+suppression, `--ignore` and `--show-suppressed` work exactly as for a style rule.
+Its false-positive surface is the primary design constraint, so it excludes
+exported and `_`-prefixed names, `using` imports and `for`/`if` bindings, and does
+not report parameters unless `[lint] unused-parameters` turns them on. See
+[V3001](rules/v3001.md).
