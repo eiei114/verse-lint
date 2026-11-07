@@ -245,7 +245,7 @@ fn self_reference_resolves_but_a_use_before_its_declaration_does_not() {
     assert!(
         model.resolve(before).is_none(),
         "a future same-scope declaration does not resolve: {:?}",
-        source.text()[before.range.clone()]
+        &source.text()[before.range.clone()]
     );
     assert!(model.is_complete(), "{:?}", model.skipped());
 }
