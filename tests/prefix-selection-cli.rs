@@ -12,11 +12,12 @@ use std::{
 
 /// Every rule family in the registry, so a test that selects `V` proves the
 /// whole registry is reachable instead of only the default three.
-const ALL_IDS: [&str; 6] = ["V1001", "V1002", "V1003", "V2001", "V2002", "V3001"];
+const ALL_IDS: [&str; 7] = [
+    "V1001", "V1002", "V1003", "V2001", "V2002", "V3001", "V3002",
+];
 const V1_IDS: [&str; 3] = ["V1001", "V1002", "V1003"];
 const V2_IDS: [&str; 2] = ["V2001", "V2002"];
-/// V3001 is its own family: selecting or ignoring `V2` never touches it, which
-/// is what keeps the semantic rule a separate opt-in from the policy warnings.
+/// The V3001/V3002 semantic family is separate from the V2 policy warnings.
 const V3_IDS: [&str; 1] = ["V3001"];
 
 /// A single comment line whose width exceeds the default 120 columns, so V2001
@@ -96,7 +97,7 @@ fn a_family_prefix_selects_exactly_the_registered_rules_it_names() {
     assert_eq!(code, 1, "{report}");
     assert_eq!(reported(&report), sorted(&V1_IDS));
     // `--select V` reaches every registered rule, including the opt-in ones.
-    // The fixture only has style findings, so V3001 is selected and silent here;
+    // The fixture only has style findings, so both semantic rules are silent;
     // the semantic family is covered by its own test below.
     let (code, report) = json(dir.path(), &["--select", "V"]);
     assert_eq!(code, 1, "{report}");
@@ -116,10 +117,10 @@ fn a_family_prefix_selects_exactly_the_registered_rules_it_names() {
     assert_eq!(reported(&report), sorted(&["V2002"]));
 }
 
-/// The semantic family is reached by its own prefix and by no other: `V3` is
-/// V3001 alone, and `V2` never brings it in. This is the whole contract a reader
-/// of `docs/rules.md` relies on when they opt in to a semantic rule separately
-/// from the two policy warnings.
+/// The semantic family is reached by its own prefix and by no other: `V3`
+/// selects V3001 and V3002, and `V2` never brings them in. This is the whole
+/// contract a reader of `docs/rules.md` relies on when opting in to semantic
+/// rules separately from policy warnings.
 #[test]
 fn the_semantic_family_is_its_own_prefix_and_reports_through_it() {
     let dir = tempfile::tempdir().unwrap();

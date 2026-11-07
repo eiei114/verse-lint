@@ -2,7 +2,7 @@
 
 Linter for Epic Games' Verse language and UEFN projects.
 
-> Unreleased alpha with six style rules, line suppression, file/stdin/project
+> Unreleased alpha with seven lint rules, line suppression, file/stdin/project
 > input, configuration, text/JSON/SARIF/GitHub annotations and guarded Windows
 > safe fixes.
 > A paired 64-case formatter convergence harness and PowerShell/cmd smoke matrix
@@ -61,6 +61,7 @@ verse-lint . --fix
 verse-lint . --fix --diff
 verse-lint . --select V2001,V2002 --deny-warnings
 verse-lint . --select V3001
+verse-lint . --select V3002
 verse-lint . --show-suppressed
 verse-lint . --no-ignore-file
 verse-lint --show-config
@@ -110,7 +111,13 @@ for a file whose model is incomplete — an `unused` claim the tool could not pr
 would tell you to delete live code. It never reports an exported, `public`,
 `protected` or `_`-prefixed name, a `using` import or a `for`/`if` binding, and
 it does not report parameters unless you set `unused-parameters = true` under
-`[lint]`. `[lint.severity]`
+`[lint]`. V3002 unresolved-reference is also opt-in; without a Verse/UEFN API
+database, a missing local name may still come from an API or another file, so a
+false positive is a bug. Start with a **report-only job using `--select V3002`**
+and add confirmed project externals to `[lint] external-names`. The built-in
+allowlist is intentionally short; see [V3002][v3002].
+Both rules report nothing at all for files whose scope graph is incomplete.
+`[lint.severity]`
 can promote or demote a registered rule per project (`"error"`/`"warning"` only);
 unknown IDs or values exit 2. It changes severity only, so a promoted rule still
 has to be selected. Safe fixes
@@ -219,6 +226,7 @@ repository's `docs/` directory: a relative link is dead there. They point at
 [fixes]: https://github.com/eiei114/verse-lint/blob/main/docs/fixes.md
 [snapshot]: https://github.com/eiei114/verse-lint/blob/main/docs/syntax-snapshot.md
 [semantic]: https://github.com/eiei114/verse-lint/blob/main/docs/semantic-model.md
+[v3002]: https://github.com/eiei114/verse-lint/blob/main/docs/rules/v3002.md
 [integration]: https://github.com/eiei114/verse-lint/blob/main/docs/integration-testing.md
 [packaging]: https://github.com/eiei114/verse-lint/blob/main/docs/packaging-and-mise.md
 [sarif]: https://github.com/eiei114/verse-lint/blob/main/docs/sarif.md

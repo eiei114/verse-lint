@@ -11,6 +11,7 @@ protection and syntax coverage validation apply before any rule runs.
 | [V2001 line-too-long](rules/v2001.md) | Off | warning | None |
 | [V2002 bare-todo-comment](rules/v2002.md) | Off | warning | None |
 | [V3001 unused-declaration](rules/v3001.md) | Off | warning | None |
+| [V3002 unresolved-reference](rules/v3002.md) | Off | warning | None |
 
 `src/rules.rs` `REGISTRY` is the single source of truth for rule ID, SARIF
 `name`, severity, message, fixable flag and default selection: this table, the
@@ -59,19 +60,23 @@ prints the resolved map for every rule in stable ID order.
 
 ## Semantic rules
 
-V3001 is the first rule that reads the [scope graph](semantic-model.md) instead of
-the token list, so it obeys one rule no style rule needs:
+V3001 and V3002 read the [scope graph](semantic-model.md) instead of the token
+list, so they obey one rule no style rule needs:
 
 > A semantic rule may report only from a graph it can prove complete.
 
 When a file's model records any construct it could not classify, the graph is
-incomplete and **V3001 reports nothing for that file — no diagnostic and no
-execution error — under every configuration**. That is a documented no-op, not an
-error, because a graph that could not see a use cannot prove a declaration is
-unused, and an `unused` claim on live code is worse than silence. The rule still
-applies every other policy: severity override, selection and prefixes,
-suppression, `--ignore` and `--show-suppressed` work exactly as for a style rule.
-Its false-positive surface is the primary design constraint, so it excludes
-exported and `_`-prefixed names, `using` imports and `for`/`if` bindings, and does
-not report parameters unless `[lint] unused-parameters` turns them on. See
-[V3001](rules/v3001.md).
+incomplete and **both rules report nothing for that file — no diagnostic and no
+execution error — under every configuration**. That is a documented no-op, not
+an error: an incomplete graph cannot prove an unused declaration or a missing
+local reference. V3001 excludes exported and `_`-prefixed names, `using`
+imports and `for`/`if` bindings, and does not report parameters unless
+`[lint] unused-parameters` turns them on. V3002 is especially conservative
+because a name can come from an API or another file; its built-in external names
+and `[lint] external-names` option are listed in
+[its rule page](rules/v3002.md). Adopt V3002 first in a report-only job with
+`--select V3002`, then add project-specific external names as false positives
+are identified. Both rules inherit severity overrides, prefix selection,
+suppression, `--ignore` and `--show-suppressed` from the shared machinery. See
+[V3001](rules/v3001.md), [V3002](rules/v3002.md), and the
+[semantic model](semantic-model.md).

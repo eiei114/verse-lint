@@ -3,8 +3,9 @@
 This is the canonical description of the semantic layer verse-lint builds on top
 of its retained CST. It covers what a scope is, what a binding is, which CST
 nodes are modelled, what `isComplete: false` means, and the invariant every
-semantic rule must obey. V3001 (unused declaration) is its only consumer; the
-rule itself is documented in [its own page](rules/v3001.md).
+semantic rule must obey. V3001 (unused declaration) and V3002
+(unresolved reference) consume this graph; each rule is documented in its
+[own page](rules/v3001.md) and [V3002](rules/v3002.md).
 
 ## Why the tree is retained
 
@@ -120,9 +121,11 @@ in the type even when it is declared after the method that reads it — member
 lookup is not a forward-only source scan. The reference still records the
 lexically enclosing scope, plus the class it was resolved through, so a rule can
 tell both where the reference sits and what it names. `self` outside a class is
-recorded as unsupported rather than resolved against an unrelated local. Any
-other `object.Member` is *not* guessed — the member belongs to a type this model
-cannot see, so the construct is recorded as unsupported instead.
+recorded as unsupported rather than resolved against an unrelated local. For
+any other `object.Member`, the member belongs to a type this model cannot see,
+so that member position is intentionally omitted from lexical references; the
+object expression is still walked normally. V3002 may therefore report an
+unresolved object name, but never the member name itself.
 
 ## Incompleteness and the invariant
 
@@ -137,10 +140,10 @@ Constructs recorded as unsupported today:
 
 | node kind | why it is not modelled |
 |---|---|
-| `member_access` on a non-`self` object | the member belongs to an unknown type |
 | `field_initializer` | object-construction field names target an unknown type |
 | `named_argument` | argument names are not binding positions |
 | `case_arm` | patterns match names this model does not bind |
+| `member_access` on `self` outside a class | there is no enclosing class scope to resolve the receiver against |
 | `where_clause`, `constrained_type` | generic/constraint names are outside the working set |
 | `module_scoped_identifier`, `qualified_type` | cross-file scope is out of scope |
 | `module_path` | a package path binds names this model cannot see |
@@ -182,7 +185,10 @@ intra-file reference, a `moduleImport` may be re-exported or untraceable, a
 is the conventional "deliberately unused" marker. A file-scope or class-member
 binding is reachable from elsewhere, so only a function-body local is reported.
 
-V3001 is the only consumer: see [the rule](rules/v3001.md).
+The graph consumers are [V3001](rules/v3001.md) and
+[V3002](rules/v3002.md). V3002 applies the same whole-graph completeness guard,
+then excludes receiver members, extension receiver positions, and a small
+documented external-name allowlist; it does not infer a Verse or UEFN API.
 
 ## The `--dump-scopes` diagnostic surface
 
@@ -205,8 +211,8 @@ complete.
 ## Non-goals
 
 - No type inference, effect inference, or cross-file resolution.
-- No second semantic rule in this layer; V3001 is its only consumer, and a
-  sibling must also consume the graph through `reportable()`.
+- No third semantic rule in this layer; semantic consumers must use
+  `reportable()` and preserve the no-finding behavior for incomplete graphs.
 - No replacement of the lossless lexer or of strict coverage validation with
   tree-sitter error recovery.
 - Coverage counts describe the *tool's* coverage. They are not a code-quality

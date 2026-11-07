@@ -50,15 +50,18 @@ impl std::fmt::Display for Severity {
 
 /// Per-run detector configuration that is not rule identity.
 ///
-/// Both fields come from `[lint]` and neither selects nor suppresses a rule, so
+/// These settings come from `[lint]` and none selects or suppresses a rule, so
 /// they travel together instead of as separate arguments to every lint call.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Options {
     /// Used only when V2001 is selected.
     pub max_line_length: usize,
     /// Used only when V3001 is selected: whether an unused parameter is
     /// reported as well as an unused local.
     pub unused_parameters: bool,
+    /// Names a project explicitly treats as provided by another file or API.
+    /// Used only when V3002 is selected.
+    pub external_names: Vec<String>,
 }
 
 impl Default for Options {
@@ -67,6 +70,7 @@ impl Default for Options {
         Self {
             max_line_length: settings.max_line_length,
             unused_parameters: settings.unused_parameters,
+            external_names: settings.external_names,
         }
     }
 }
@@ -91,7 +95,7 @@ pub struct Rule {
     /// Selected when configuration omits `[lint] select`.
     pub selected_by_default: bool,
 }
-pub const REGISTRY: [Rule; 6] = [
+pub const REGISTRY: [Rule; 7] = [
     Rule {
         id: "V1001",
         name: "TrailingWhitespace",
@@ -140,6 +144,14 @@ pub const REGISTRY: [Rule; 6] = [
         fixable: false,
         selected_by_default: false,
     },
+    Rule {
+        id: "V3002",
+        name: "UnresolvedReference",
+        severity: Severity::Warning,
+        message: "Reference is not declared in a modeled local scope",
+        fixable: false,
+        selected_by_default: false,
+    },
 ];
 
 /// Stable rule IDs. Detectors dispatch on these, never on a registry position,
@@ -150,11 +162,12 @@ pub const V1003: &str = "V1003";
 pub const V2001: &str = "V2001";
 pub const V2002: &str = "V2002";
 pub const V3001: &str = "V3001";
+pub const V3002: &str = "V3002";
 
 /// Every ID a detector can emit. Test-side contract table: the registry tests
 /// check [`REGISTRY`] against it in both directions.
 #[cfg(test)]
-pub const DETECTOR_IDS: [&str; 6] = [V1001, V1002, V1003, V2001, V2002, V3001];
+pub const DETECTOR_IDS: [&str; 7] = [V1001, V1002, V1003, V2001, V2002, V3001, V3002];
 
 /// `select`/`ignore` entries accept a complete ID (`V1001`) or a numeric prefix
 /// (`V`, `V1`, `V2`). A complete ID is itself a valid prefix, so one shape check
@@ -242,6 +255,9 @@ pub struct Settings {
     /// no resolved reference. `false` by default, because an unused parameter is
     /// usually dictated by a callback signature rather than left behind.
     pub unused_parameters: bool,
+    /// `[lint] external-names`: unresolved names a project knows are supplied
+    /// by another file or an API not modeled by this local scope graph.
+    pub external_names: Vec<String>,
     /// `[lint.severity]`: rule ID to replacement severity text. Kept as text so
     /// [`Settings::validate`] can name the offending key itself instead of
     /// deferring to a generic deserializer message.
@@ -259,6 +275,7 @@ impl Default for Settings {
             ignore: vec![],
             max_line_length: 120,
             unused_parameters: false,
+            external_names: vec![],
             severity: BTreeMap::new(),
         }
     }
@@ -273,6 +290,9 @@ impl Settings {
         self.expanded_ignore()?;
         if self.max_line_length == 0 || self.max_line_length > 1_000_000 {
             return Err("max-line-length must be between 1 and 1000000".into());
+        }
+        if self.external_names.iter().any(|name| name.is_empty()) {
+            return Err("external-names entries must not be empty".into());
         }
         for (id, value) in &self.severity {
             if !REGISTRY.iter().any(|r| r.id == id) {
@@ -336,6 +356,7 @@ impl Settings {
         Options {
             max_line_length: self.max_line_length,
             unused_parameters: self.unused_parameters,
+            external_names: self.external_names.clone(),
         }
     }
 
@@ -507,14 +528,22 @@ fn lint_with(
             offset += line.len();
         }
     }
-    if active.contains(V3001) {
-        // The one rule that needs the scope graph. `reportable()` makes an
-        // incomplete model a documented no-op: an "unused" claim from a graph
-        // that could not see a use would instruct a user to delete live code.
+    if active.contains(V3001) || active.contains(V3002) {
+        // Semantic rules share one scope graph. `reportable()` makes an
+        // incomplete model a documented no-op: neither an "unused" claim nor
+        // an unresolved-name claim is safe when the graph could not see every
+        // relevant name.
         let graph = ScopeGraph::build(source, &document)?;
         if let Some(graph) = graph.reportable() {
-            for binding in graph.unused(options.unused_parameters) {
-                emit(V3001, binding.range.clone())?;
+            if active.contains(V3001) {
+                for binding in graph.unused(options.unused_parameters) {
+                    emit(V3001, binding.range.clone())?;
+                }
+            }
+            if active.contains(V3002) {
+                for reference in graph.unresolved(&options.external_names) {
+                    emit(V3002, reference.range.clone())?;
+                }
             }
         }
     }
@@ -532,13 +561,14 @@ mod tests {
 
     /// Documented contract per rule, addressed by stable ID. Order is not part
     /// of the contract, so this is looked up by ID rather than by position.
-    const DOCUMENTED: [(&str, &str, &str, bool, bool); 6] = [
+    const DOCUMENTED: [(&str, &str, &str, bool, bool); 7] = [
         (V1001, "TrailingWhitespace", "error", true, true),
         (V1002, "MissingFinalNewline", "error", true, true),
         (V1003, "TabIndentation", "error", false, true),
         (V2001, "LineTooLong", "warning", false, false),
         (V2002, "BareTodoComment", "warning", false, false),
         (V3001, "UnusedDeclaration", "warning", false, false),
+        (V3002, "UnresolvedReference", "warning", false, false),
     ];
 
     fn sample() -> Source {
@@ -559,6 +589,7 @@ mod tests {
             Options {
                 max_line_length: 12,
                 unused_parameters: false,
+                external_names: vec![],
             },
             MAX_DIAGNOSTICS,
             registry,
@@ -744,7 +775,10 @@ mod tests {
         assert_eq!(policy, [V2001, V2002]);
         // The semantic family is its own prefix: a V2 policy warning and a V3
         // semantic claim are different opt-ins and never select each other.
-        assert_eq!(expand_entry("V3").expect("V3 is registered"), [V3001]);
+        assert_eq!(
+            expand_entry("V3").expect("V3 is registered"),
+            [V3001, V3002]
+        );
         // `V` is a prefix of every ID, so it is the whole registry.
         let all: Vec<_> = REGISTRY.iter().map(|rule| rule.id).collect();
         assert_eq!(expand_entry("V").unwrap(), all);
@@ -785,7 +819,7 @@ mod tests {
         let settings = settings_with(&["V"], &["V2"]);
         assert_eq!(
             settings.active().unwrap(),
-            active(&[V1001, V1002, V1003, V3001])
+            active(&[V1001, V1002, V1003, V3001, V3002])
         );
         // A prefix subtracts the rule it actually names, not the literal text.
         assert_eq!(
@@ -797,7 +831,7 @@ mod tests {
             settings_with(&["V", "V1", V1001, "V1001"], &["V1", V1002])
                 .active()
                 .unwrap(),
-            active(&[V2001, V2002, V3001])
+            active(&[V2001, V2002, V3001, V3002])
         );
         // Subtracting everything is still the existing empty-selection failure.
         let error = settings_with(&["V1"], &["V1"]).active().unwrap_err();
@@ -924,6 +958,7 @@ mod tests {
                 (V2001, "error"),
                 (V2002, "warning"),
                 (V3001, "warning"),
+                (V3002, "warning"),
             ]
         );
         // Every registered rule is present, and the key order is the stable
@@ -952,6 +987,7 @@ mod tests {
             Options {
                 max_line_length: 12,
                 unused_parameters: false,
+                external_names: vec![],
             },
             MAX_DIAGNOSTICS,
             &REGISTRY,
