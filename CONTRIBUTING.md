@@ -42,19 +42,24 @@ build time.
 
 1. Update the linter's own snapshot and its regressions; update
    `vendor/tree-sitter-verse/upstream.md` and `hashes.json`.
-2. Update `parity.json`: `corpusSha256`, `goldenCaseCount`,
-   `formatterGrammarBaseRevision`, and — only after a successful run — both
-   verified revisions. Declaring a revision you have not actually verified is a
-   false claim, not a pin.
-3. Build both release binaries.
-4. Run `scripts/verify-pair.py` against **clean checkouts of both repositories**.
-   It refuses a dirty tree on either side, and it must not be run against one.
-5. Commit the harness report as evidence under `docs/evidence/`, record both
-   full 40-character revisions in `parity.json`, and state the run in the pull
-   request with the corpus hash, both revisions, and the case counts. A
-   revision in `parity.json` that no committed report names is an unverified
-   claim.
-6. Run `scripts/verify.ps1` again and commit everything together.
+2. Commit the source and corpus changes in both repositories, then make sure
+   **both checkouts are clean**. The paired harness refuses dirty checkouts.
+3. Build both release binaries and run the full harness with `--update-pin`.
+   Point `--output` at the report path under `docs/evidence/` so no manual copy
+   is needed. The command updates `parity.json` only after every golden passes.
+   Add `--dry-run` to preview the candidate; it runs the full harness but writes
+   neither the pin nor the report.
+4. Commit the updated `parity.json` and the generated report with the linter
+   change. Record both full 40-character revisions, the corpus hash, and case
+   counts in the pull request. A revision in `parity.json` that no committed
+   report names is an unverified claim.
+5. Run `scripts/verify.ps1` and include its result in the pull request.
+
+The updater changes `corpusSha256`, `goldenCaseCount`,
+`lastVerifiedFormatterRevision`, and `lastVerifiedLinterRevision` from the
+successful run. It preserves `formatterGrammarBaseRevision`; do not hand-edit
+the other pin values. Without `--update-pin`, a corpus hash or golden-count
+mismatch still fails the harness exactly as before.
 
 A pin can never name the commit that contains it. Record the revision the
 harness actually ran in, which is normally the parent of the declaring commit;
@@ -66,8 +71,12 @@ instead of implying the declaring commit was verified by a run inside itself.
 python scripts/verify-pair.py `
   --formatter ..\verse-fmt\target\x86_64-pc-windows-msvc\release\verse-fmt.exe `
   --corpus ..\verse-fmt\tests\fixtures\corpus.json `
-  --output target\verification\paired\convergence.json
+  --output docs\evidence\parity-paired-YYYY-MM-DD-full.json `
+  --update-pin
 ```
+
+Replace `YYYY-MM-DD` with the run date. The second-cycle byte-invariance check
+remains part of every paired run; updating a pin never skips that assertion.
 
 ### What to do when only the linter changes
 
@@ -86,9 +95,10 @@ malformed, incomplete, or names a revision that is not reachable from `HEAD`.
 ### What to do when the formatter's grammar changes
 
 - Mirror the change into the linter snapshot in the same work item.
-- Rebuild the formatter from a clean checkout and re-run the paired harness.
-- Update the corpus hash, golden count, and both verified revisions in
-  `parity.json` only after that run passes.
+- Commit the formatter corpus update, rebuild both binaries from clean
+  checkouts, then run the paired harness with `--update-pin`.
+- The successful run updates the corpus hash, golden count, and both verified
+  revisions in `parity.json`.
 - If you cannot do the paired run, say so explicitly in the pull request and
   leave the pin untouched. Do not widen the pin to make a failing harness pass,
   and do not claim convergence you did not observe.
@@ -101,7 +111,8 @@ malformed, incomplete, or names a revision that is not reachable from `HEAD`.
   `verify.ps1` as a whole still resolves its pinned toolchain through `rustup`.
 - `scripts/verify-pair.py` checks the **real** convergence against a real
   formatter binary and corpus. It is the only thing that can claim convergence,
-  and it stays a deliberate developer operation.
+  and it stays a deliberate developer operation. Use `--update-pin` to move the
+  declaration; a dirty, failed or incomplete run cannot update it.
 
 See [paired and shell integration checks](docs/integration-testing.md) for the
 harness details and [the independent syntax snapshot](docs/syntax-snapshot.md)

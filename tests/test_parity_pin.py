@@ -5,6 +5,7 @@ import json
 import pathlib
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -149,6 +150,166 @@ class ParityPinReaderTests(unittest.TestCase):
         self.write({**PIN, "lastVerifiedLinterRevision": "HEAD"})
 
         self.assert_refused("lastVerifiedLinterRevision")
+
+
+def _golden(case_id):
+    return {"id": case_id, "input": "source", "expected": "formatted"}
+
+
+def _refusal(case_id):
+    return {"id": case_id, "input": "rejected", "reject": True}
+
+
+def _run_report(goldens, *, passed=None):
+    return {
+        "corpus_sha256": "b" * 64,
+        "formatter_revision": "c" * 40,
+        "linter_revision": "d" * 40,
+        "cases_total": len(goldens),
+        "cases_passed": len(goldens) if passed is None else passed,
+        "case_results": [{"id": case["id"]} for case in goldens],
+    }
+
+
+class PinUpdateTests(unittest.TestCase):
+    """Exercise the pin updater without invoking either formatter binary."""
+
+    def setUp(self):
+        self.directory = pathlib.Path(tempfile.mkdtemp(prefix="verse-pin-update-"))
+        self.path = self.directory / "parity.json"
+        self.original = json.dumps(PIN, indent=2) + "\n"
+        self.path.write_text(self.original, encoding="utf-8")
+        self.goldens = [_golden("first"), _golden("second")]
+        self.corpus = {"cases": self.goldens + [_refusal("reject") ]}
+
+    def tearDown(self):
+        shutil.rmtree(self.directory, ignore_errors=True)
+
+    def assert_refused_without_write(self, report, corpus=None, expected=None):
+        before = self.path.read_bytes()
+        with self.assertRaises(SystemExit) as raised:
+            verify_pair.build_pin_update(
+                PIN, report, self.corpus if corpus is None else corpus
+            )
+        message = str(raised.exception.code)
+        if expected:
+            self.assertIn(expected, message)
+        self.assertEqual(self.path.read_bytes(), before)
+        return message
+
+    def test_successful_run_rewrites_observed_values(self):
+        updated = verify_pair.build_pin_update(PIN, _run_report(self.goldens), self.corpus)
+        verify_pair.apply_pin_update(self.path, updated)
+
+        self.assertEqual(verify_pair.read_pin(self.path), updated)
+        self.assertEqual(updated["corpusSha256"], "b" * 64)
+        self.assertEqual(updated["goldenCaseCount"], 2)
+        self.assertEqual(updated["formatterGrammarBaseRevision"], PIN["formatterGrammarBaseRevision"])
+        self.assertEqual(updated["lastVerifiedFormatterRevision"], "c" * 40)
+        self.assertEqual(updated["lastVerifiedLinterRevision"], "d" * 40)
+
+    def test_dry_run_reports_candidate_without_writing(self):
+        updated = verify_pair.build_pin_update(PIN, _run_report(self.goldens), self.corpus)
+        summary = verify_pair.describe_pin_update(PIN, updated)
+
+        verify_pair.apply_pin_update(self.path, updated, dry_run=True)
+
+        self.assertIn("corpusSha256", summary)
+        self.assertIn("goldenCaseCount", summary)
+        self.assertEqual(self.path.read_text(encoding="utf-8"), self.original)
+
+    def test_failed_case_refuses_update(self):
+        report = _run_report(self.goldens)
+        report["cases_failed"] = 1
+
+        self.assert_refused_without_write(report, expected="a paired case failed")
+
+    def test_incomplete_run_refuses_update(self):
+        report = _run_report(self.goldens)
+        report["case_results"] = report["case_results"][:1]
+
+        self.assert_refused_without_write(report, expected="incomplete")
+
+    def test_observed_golden_count_must_match_corpus(self):
+        report = _run_report(self.goldens)
+        report["cases_total"] = 3
+        report["cases_passed"] = 3
+
+        self.assert_refused_without_write(report, expected="corpus count 2")
+
+    def test_unclassified_corpus_case_refuses_update(self):
+        corpus = {"cases": self.goldens + [{"id": "unknown", "input": "x"}]}
+
+        self.assert_refused_without_write(
+            _run_report(self.goldens), corpus=corpus, expected="neither goldens nor explicit refusals"
+        )
+
+    def test_non_object_corpus_entries_are_refused_cleanly(self):
+        # Reproduced defect: a null, number, or string entry reached the golden
+        # filter and raised TypeError (or matched "expected" as a substring).
+        for entry in (None, 7, "expected", ["expected"]):
+            with self.subTest(entry=entry):
+                with self.assertRaises(SystemExit) as raised:
+                    verify_pair.select_goldens({"cases": self.goldens + [entry]})
+                message = str(raised.exception.code)
+                self.assertIn("malformed formatter corpus", message)
+                self.assertIn("index 2", message)
+
+    def test_corpus_without_case_list_is_refused(self):
+        for corpus in (None, [], {"cases": None}):
+            with self.subTest(corpus=corpus):
+                with self.assertRaises(SystemExit) as raised:
+                    verify_pair.select_goldens(corpus)
+                self.assertIn("expected an object with a case list", str(raised.exception.code))
+
+    def test_well_formed_corpus_selects_only_goldens(self):
+        self.assertEqual(verify_pair.select_goldens(self.corpus), self.goldens)
+
+    def test_dirty_formatter_or_linter_checkout_refuses_update(self):
+        for role in ("formatter checkout", "linter checkout"):
+            with self.subTest(role=role):
+                checkout = self.directory / role.split()[0]
+                checkout.mkdir()
+                subprocess.run(["git", "init", "--quiet", str(checkout)], check=True)
+                subprocess.run(["git", "-C", str(checkout), "config", "user.name", "Pin test"], check=True)
+                subprocess.run(["git", "-C", str(checkout), "config", "user.email", "pin-test@example.invalid"], check=True)
+                tracked = checkout / "tracked.txt"
+                tracked.write_text("clean\n", encoding="utf-8")
+                subprocess.run(["git", "-C", str(checkout), "add", "tracked.txt"], check=True)
+                subprocess.run(["git", "-C", str(checkout), "commit", "--quiet", "-m", "initial"], check=True)
+                tracked.write_text("dirty\n", encoding="utf-8")
+
+                with self.assertRaises(SystemExit) as raised:
+                    verify_pair.require_clean_checkout(checkout, role)
+                self.assertIn(role, str(raised.exception.code))
+
+    def test_hash_mismatch_still_fails_without_update_mode(self):
+        with self.assertRaises(SystemExit) as raised:
+            verify_pair.check_corpus_hash("a" * 64, "b" * 64, update_pin=False)
+        self.assertIn("formatter corpus revision/hash mismatch", str(raised.exception.code))
+
+    def test_hash_and_count_mismatch_are_allowed_only_for_update_mode(self):
+        verify_pair.check_corpus_hash("a" * 64, "b" * 64, update_pin=True)
+        verify_pair.check_golden_count(3, 2, update_pin=True)
+
+    def test_dry_run_requires_update_pin(self):
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(ROOT / "scripts" / "verify-pair.py"),
+                "--formatter", "formatter.exe",
+                "--corpus", "corpus.json",
+                "--output", "report.json",
+                "--dry-run",
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=15,
+        )
+
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("--dry-run requires --update-pin", result.stderr)
 
 
 @unittest.skipIf(shutil.which("pwsh") is None, "PowerShell 7 is required")
