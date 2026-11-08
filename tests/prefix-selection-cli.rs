@@ -12,11 +12,15 @@ use std::{
 
 /// Every rule family in the registry, so a test that selects `V` proves the
 /// whole registry is reachable instead of only the default three.
-const ALL_IDS: [&str; 7] = [
-    "V1001", "V1002", "V1003", "V2001", "V2002", "V3001", "V3002",
+const ALL_IDS: [&str; 8] = [
+    "V1001", "V1002", "V1003", "V2001", "V2002", "V2003", "V3001", "V3002",
 ];
 const V1_IDS: [&str; 3] = ["V1001", "V1002", "V1003"];
 const V2_IDS: [&str; 2] = ["V2001", "V2002"];
+/// The complete V2 family as the registry expands it. V2003 is part of the
+/// selection but is silent on this fixture, whose lines are all LF, so it is not
+/// in [`V2_IDS`], which lists the rules that actually report here.
+const V2_REGISTERED: [&str; 3] = ["V2001", "V2002", "V2003"];
 /// The V3001/V3002 semantic family is separate from the V2 policy warnings.
 const V3_IDS: [&str; 1] = ["V3001"];
 
@@ -42,8 +46,8 @@ fn every_rule() -> String {
 const SEMANTIC_SOURCE: &str = "f():void =\n    Unused := 1\n    Print(\"x\")\n";
 
 /// The style rules `every_rule()` can report, which is every registered rule
-/// except V3001. `--select V` reaches all six; only these five have something to
-/// say about that fixture.
+/// except V3001 and V2003. `--select V` reaches all eight; only these five have
+/// something to say about that fixture.
 const STYLE_IDS: [&str; 5] = ["V1001", "V1002", "V1003", "V2001", "V2002"];
 
 fn run(root: &Path, args: &[&str]) -> Output {
@@ -324,7 +328,7 @@ fn show_config_prints_expanded_complete_ids_in_a_deterministic_order() {
             .collect()
     };
     assert_eq!(block("select = ["), sorted(&ALL_IDS));
-    assert_eq!(block("ignore = ["), sorted(&V2_IDS));
+    assert_eq!(block("ignore = ["), sorted(&V2_REGISTERED));
     // `ignore = ['V2']` leaves V3001 selected: the semantic family is separate.
     assert!(
         !block("ignore = [")

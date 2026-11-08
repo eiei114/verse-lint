@@ -1,9 +1,9 @@
 # CLI, configuration and JSON
 
-Shared toolchain contract version **1**. Seven rules and
+Shared toolchain contract version **1**. Eight rules and
 [suppression](suppressions.md) are implemented. Defaults are V1001/V1002/V1003;
-V2001/V2002 are opt-in warnings, and V3001/V3002 are opt-in semantic rules that
-read the [scope graph](semantic-model.md). `--fix` applies only validated V1001/V1002
+V2001/V2002/V2003 are opt-in warnings, and V3001/V3002 are opt-in semantic rules
+that read the [scope graph](semantic-model.md). `--fix` applies only validated V1001/V1002
 edits using guarded Windows replacement; see [fixes](fixes.md). [SARIF
 2.1.0](sarif.md) is supported and schema-validated, and `--output-format github`
 emits GitHub Actions annotations for a pull-request job. Compiler/UEFN acceptance
@@ -113,6 +113,30 @@ reference unresolved when the graph could not see all names — risks deleting o
 renaming live code, so silence is the documented behavior rather than a gap.
 See [semantic model](semantic-model.md), [V3001](rules/v3001.md), and
 [V3002](rules/v3002.md).
+
+### V2003 mixed line endings
+
+Mixed LF and CRLF inside one file is preserved byte for byte, which is the right
+behaviour for a read-only linter and also why the tool accepted it silently.
+[V2003](rules/v2003.md) is that opt-in policy warning: warn a file that contains
+both terminator styles, and recompute no byte of it. It is off by default, so
+`--select V2003`, `--select V2`, `[lint] select` or `[lint.severity]` promotion
+is how a project turns it on.
+
+The check reads source bytes, not tokens, because a terminator is a byte-level
+property: one inside a string or a comment counts exactly like one between two
+statements. It still runs only for a file the ordinary parse and coverage
+validation accepted, so an unanalysable file stays an execution error with no
+V2003 finding.
+
+Exactly one finding per file, anchored at the first terminator whose kind
+differs from the file's first terminator, with the range covering that
+terminator only (`\r\n` → two bytes, `\n` → one byte). LF-only, CRLF-only,
+empty, terminator-free and BOM-prefixed files are clean. A trailing CRLF after
+LF lines is reported like any other mix. Suppression is the ordinary line
+directive on the diagnosed line, plus `--ignore V2003` / `[lint] ignore`.
+`--fix` never touches it: normalising endings rewrites every line, which is the
+wholesale change the rule warns about.
 
 `[lint.severity]` promotes or demotes an already-registered rule for this
 project; it never adds a rule. Keys must be complete rule IDs that appear in the

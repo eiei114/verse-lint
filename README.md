@@ -2,7 +2,7 @@
 
 Linter for Epic Games' Verse language and UEFN projects.
 
-> Unreleased alpha with seven lint rules, line suppression, file/stdin/project
+> Unreleased alpha with eight lint rules, line suppression, file/stdin/project
 > input, configuration, text/JSON/SARIF/GitHub annotations and guarded Windows
 > safe fixes.
 > A paired 64-case formatter convergence harness and PowerShell/cmd smoke matrix
@@ -60,6 +60,7 @@ verse-lint . --output-format github
 verse-lint . --fix
 verse-lint . --fix --diff
 verse-lint . --select V2001,V2002 --deny-warnings
+verse-lint . --select V2003
 verse-lint . --select V3001
 verse-lint . --select V3002
 verse-lint . --show-suppressed
@@ -104,8 +105,11 @@ UEFN compiler rejects it. Prefer file input in Windows PowerShell 5.1 because
 text pipelines can recode bytes before the tool receives them.
 
 Defaults: V1001 trailing whitespace, V1002 final newline, V1003 tab indentation.
-V2001 line length and V2002 bare TODO comments are opt-in warnings. V3001
-unused-declaration is an opt-in warning that reads the
+V2001 line length, V2002 bare TODO comments and V2003 mixed LF/CRLF line endings
+are opt-in warnings: V2003 reports one finding for a file that contains both
+terminator styles, anchored at the first terminator that differs from the file's
+first one, so a merge artifact costs one warning instead of a wall of them.
+V3001 unused-declaration is an opt-in warning that reads the
 [scope graph][semantic] rather than the token list, and reports nothing at all
 for a file whose model is incomplete — an `unused` claim the tool could not prove
 would tell you to delete live code. It never reports an exported, `public`,

@@ -10,6 +10,7 @@ protection and syntax coverage validation apply before any rule runs.
 | [V1003 tab-indentation](rules/v1003.md) | On | error | None |
 | [V2001 line-too-long](rules/v2001.md) | Off | warning | None |
 | [V2002 bare-todo-comment](rules/v2002.md) | Off | warning | None |
+| [V2003 mixed-line-endings](rules/v2003.md) | Off | warning | None |
 | [V3001 unused-declaration](rules/v3001.md) | Off | warning | None |
 | [V3002 unresolved-reference](rules/v3002.md) | Off | warning | None |
 
