@@ -145,15 +145,22 @@ both shapes (`A := map{"x" => 1}` exits 2), so the two snapshots now disagree on
 exactly these two constructs.
 
 The paired harness therefore needs a deliberate update on the formatter side: the
-formatter grammar must gain the same two deltas, its `reject-map-literal` and
-`reject-leading-hash-string` corpus cases (current corpus SHA-256
-`27e0497bbccaba2bed56dfc93efcda762887f3888c9cd0c5707f0ae670050b47`, 64 goldens)
-must move from `reject: true` to real expected bytes, and `parity.json` must then
-be regenerated with `scripts/verify-pair.py --update-pin` from a successful paired
-run. Until that lands, `verify-pair.py` cannot pass against the current formatter;
-`scripts/verify.ps1`'s declared-side `verify-parity.ps1` still passes because it
-checks structure and reachability only. The follow-up is tracked by GitHub issue
-#2 (`[parity] verse-fmt と grammar snapshot / corpus hash の同期運用`).
+formatter grammar must gain the same two deltas, and its `reject-map-literal`
+and `reject-leading-hash-string` corpus cases must move from `reject: true` to
+real expected bytes. Until that lands the two snapshots disagree, and the
+corpus hash must change when those cases move.
+
+What this slice did verify: `scripts/verify-pair.py --update-pin --dry-run`
+against the current formatter passed all 64 goldens (the `reject:` cases carry no
+`expected` bytes and are not part of that count), so the *goldens* still
+converge and only the two refusal cases diverge. A real pin update was not
+committed here, because a pin that names a linter revision must also be quoted
+by a committed paired report that used the formatter's mirrored grammar; writing
+one now would record a run taken against the old formatter corpus. That is the
+follow-up, tracked by GitHub issue #2 (`[parity] verse-fmt と grammar snapshot /
+corpus hash の同期運用`). `scripts/verify-parity.ps1` still passes: it checks the
+declaration's structure and the reachability of the recorded linter revision,
+and claims no convergence.
 
 ## Independently retained block-comment boundary guard
 
