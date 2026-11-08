@@ -547,3 +547,211 @@ fn for_and_if_bindings_are_never_unused_candidates() {
     // is not evidence the declaration is dead.
     assert_eq!(unused_names(&model, true), Vec::<&str>::new());
 }
+
+/// Names of the bindings [`ScopeGraph::shadowing`] returns, in declaration order.
+fn shadowing_names<'a>(model: &'a ScopeGraph, allow: &[&str]) -> Vec<&'a str> {
+    let allow: Vec<String> = allow.iter().map(|name| (*name).to_owned()).collect();
+    model
+        .shadowing(&allow)
+        .into_iter()
+        .map(|binding| binding.name.as_str())
+        .collect()
+}
+
+/// Byte offsets of every binding named `name`, in declaration order.
+fn declarations(model: &ScopeGraph, name: &str) -> Vec<usize> {
+    model
+        .bindings()
+        .iter()
+        .filter(|binding| binding.name == name)
+        .map(|binding| binding.range.start)
+        .collect()
+}
+
+#[test]
+fn an_inner_local_that_shadows_an_outer_local_is_one_finding() {
+    let (_, model) = graph(concat!(
+        "F():void =\n",
+        "    Value := 1\n",
+        "    if (true):\n",
+        "        Value := 2\n",
+        "        Print(Value)\n",
+        "    Print(Value)\n",
+    ));
+    let reported = model.shadowing(&[]);
+    assert_eq!(reported.len(), 1);
+    assert_eq!(reported[0].name, "Value");
+    // The finding points at the inner declaration: the text inside the reported
+    // range is the name itself, and nothing about the outer binding.
+    let offsets = declarations(&model, "Value");
+    assert_eq!(offsets.len(), 2, "both declarations are bound");
+    assert_eq!(reported[0].range.start, offsets[1]);
+    assert!(offsets[1] > offsets[0]);
+}
+
+#[test]
+fn a_local_shadowing_a_parameter_is_reported_but_the_idiomatic_construct_binding_is_not() {
+    // `Param := 1` inside the body reuses the parameter's name: a real capture.
+    let (_, capture) = graph("F(Param:int):void =\n    Param := 1\n    Print(Param)\n");
+    assert_eq!(shadowing_names(&capture, &[]), ["Param"]);
+    // `for (Param : ...)` rebinding the same function's own parameter is the
+    // shape Verse iteration uses; reporting it would only add noise.
+    let (_, iteration) = graph(concat!(
+        "F(Param:int):void =\n",
+        "    Values := array{1}\n",
+        "    for (Param : Values):\n",
+        "        Print(Param)\n",
+    ));
+    assert_eq!(shadowing_names(&iteration, &[]), Vec::<&str>::new());
+    let (_, condition) = graph(concat!(
+        "F(Param:int):void =\n",
+        "    if (Param := Get()):\n",
+        "        Print(Param)\n",
+    ));
+    assert_eq!(shadowing_names(&condition, &[]), Vec::<&str>::new());
+    // The exemption is about the immediate function's own parameter, so a
+    // construct binding that captures a *local* is still reported.
+    let (_, local) = graph(concat!(
+        "F():void =\n",
+        "    Value := 1\n",
+        "    for (Value : Values):\n",
+        "        Print(Value)\n",
+    ));
+    assert_eq!(shadowing_names(&local, &[]), ["Value"]);
+}
+
+#[test]
+fn shadowing_a_type_function_or_module_import_name_is_left_to_a_later_slice() {
+    // The model has no namespaces, so a local spelled like a type, a function or
+    // a single-segment module import is not claimed as shadowing.
+    for text in [
+        "probe := class:\n    Field:int = 1\nF():void =\n    probe := 1\n    Print(probe)\n",
+        "F():void =\n    Print(\"x\")\nG():void =\n    F := 1\n    Print(F)\n",
+        "using { Helpers }\nF():void =\n    Helpers := 1\n    Print(Helpers)\n",
+        "shade := enum{Light}\nF():void =\n    shade := 1\n    Print(shade)\n",
+        "point := struct:\n    X:int = 0\nF():void =\n    point := 1\n    Print(point)\n",
+        "face := interface:\n    F():void\nG():void =\n    face := 1\n    Print(face)\n",
+    ] {
+        let (_, model) = graph(text);
+        assert_eq!(shadowing_names(&model, &[]), Vec::<&str>::new(), "{text}");
+    }
+    // Control: the same shape between two value names is reported, so the
+    // silence above is the namespace exclusion and nothing else.
+    let (_, control) = graph("Value := 1\nF():void =\n    Value := 2\n    Print(Value)\n");
+    assert_eq!(shadowing_names(&control, &[]), ["Value"]);
+}
+
+#[test]
+fn a_same_scope_redeclaration_is_not_shadowing() {
+    let (_, model) = graph("F():void =\n    Value := 1\n    Value := 2\n    Print(Value)\n");
+    assert_eq!(shadowing_names(&model, &[]), Vec::<&str>::new());
+    // Two parameters of one function are also a same-scope pair.
+    let (_, parameters) = graph("F(Value:int, Value:int):void =\n    Print(Value)\n");
+    assert_eq!(shadowing_names(&parameters, &[]), Vec::<&str>::new());
+}
+
+#[test]
+fn an_underscore_name_and_the_allowlist_are_never_reported() {
+    let (_, marker) = graph(concat!(
+        "F():void =\n",
+        "    Value := 1\n",
+        "    if (true):\n",
+        "        _Value := 2\n",
+        "        Print(_Value)\n",
+    ));
+    assert_eq!(shadowing_names(&marker, &[]), Vec::<&str>::new());
+    let (_, allowed) = graph("Value := 1\nF():void =\n    Value := 2\n    Print(Value)\n");
+    assert_eq!(shadowing_names(&allowed, &[]), ["Value"]);
+    // An allow entry is exact and case-sensitive, and it silences the pair.
+    assert_eq!(shadowing_names(&allowed, &["Value"]), Vec::<&str>::new());
+    assert_eq!(shadowing_names(&allowed, &["value"]), ["Value"]);
+}
+
+#[test]
+fn an_inner_binding_shadowing_two_ancestors_yields_one_finding_for_the_nearest() {
+    let (_, model) = graph(concat!(
+        "Value := 1\n",
+        "F():void =\n",
+        "    Value := 2\n",
+        "    if (true):\n",
+        "        Value := 3\n",
+        "        Print(Value)\n",
+    ));
+    let offsets = declarations(&model, "Value");
+    assert_eq!(offsets.len(), 3, "all three declarations are bound");
+    // Two inner declarations, one finding each: the function-body one shadows the
+    // file-scope one, and the block one shadows the function-body one. The
+    // nearest ancestor is what the search returns, so a second diagnostic for a
+    // farther ancestor cannot exist.
+    let reported = model.shadowing(&[]);
+    assert_eq!(
+        reported
+            .iter()
+            .map(|binding| binding.range.start)
+            .collect::<Vec<_>>(),
+        offsets[1..]
+    );
+}
+
+#[test]
+fn shadowing_reports_nothing_from_an_incomplete_graph_and_nothing_out_of_order() {
+    let (_, incomplete) = graph(concat!(
+        "F():void =\n",
+        "    Value := 1\n",
+        "    if (true):\n",
+        "        Value := 2\n",
+        "    P := point{X := 1}\n",
+    ));
+    assert!(incomplete.shadowing(&[]).is_empty());
+    assert!(!incomplete.is_complete());
+    assert!(incomplete.reportable().is_none());
+    // An ancestor declared after the inner binding captured nothing, so the pair
+    // is not reported: resolution only counts a declaration that already started.
+    let (_, later) = graph(concat!(
+        "F():void =\n",
+        "    if (true):\n",
+        "        Value := 2\n",
+        "    Value := 1\n",
+    ));
+    assert!(later.shadowing(&[]).is_empty());
+    // A name declared only in a sibling scope is not an ancestor.
+    let (_, sibling) = graph(concat!(
+        "F():void =\n",
+        "    if (true):\n",
+        "        Value := 1\n",
+        "    if (false):\n",
+        "        Value := 2\n",
+    ));
+    assert!(sibling.shadowing(&[]).is_empty());
+}
+
+/// A parameter -> local -> inner-block chain: the depth of the chain does not
+/// change the claim, each inner declaration is reported once, and the parameter
+/// is only ever the ancestor.
+#[test]
+fn a_parameter_local_inner_block_chain_reports_each_inner_declaration_once() {
+    let (_, model) = graph(concat!(
+        "F(Value:int):void =\n",
+        "    Value := 1\n",
+        "    if (true):\n",
+        "        Value := 2\n",
+        "        Print(Value)\n",
+        "    Print(Value)\n",
+        "    Print(Value)\n",
+    ));
+    let offsets = declarations(&model, "Value");
+    assert_eq!(offsets.len(), 3, "parameter, local, inner local");
+    let reported = model.shadowing(&[]);
+    assert_eq!(
+        reported
+            .iter()
+            .map(|binding| binding.range.start)
+            .collect::<Vec<_>>(),
+        offsets[1..]
+    );
+    assert!(
+        reported
+            .iter()
+            .all(|binding| binding.kind != BindingKind::Parameter)
+    );
+}

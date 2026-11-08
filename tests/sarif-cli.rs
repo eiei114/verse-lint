@@ -40,7 +40,7 @@ fn unicode_stdin_has_regions_but_no_fabricated_file_uri_or_edits() {
     assert_eq!(v["version"], "2.1.0");
     let run = &v["runs"][0];
     assert_eq!(run["columnKind"], "unicodeCodePoints");
-    assert_eq!(run["tool"]["driver"]["rules"].as_array().unwrap().len(), 7);
+    assert_eq!(run["tool"]["driver"]["rules"].as_array().unwrap().len(), 8);
     let result = &run["results"][0];
     assert_eq!(result["ruleId"], "V1001");
     assert!(result.get("fixes").is_none());
@@ -132,6 +132,7 @@ fn driver_rule_metadata_matches_docs_defaults_and_selection_order() {
         // its `defaultConfiguration.enabled` is `false` for the same reason.
         ("V3001", "UnusedDeclaration", "warning", false, false),
         ("V3002", "UnresolvedReference", "warning", false, false),
+        ("V3003", "VariableShadowing", "warning", false, false),
     ];
     assert_eq!(rules.len(), expected.len());
     for (id, name, level, fixable, enabled) in expected {

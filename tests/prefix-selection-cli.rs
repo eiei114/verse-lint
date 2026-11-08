@@ -12,12 +12,14 @@ use std::{
 
 /// Every rule family in the registry, so a test that selects `V` proves the
 /// whole registry is reachable instead of only the default three.
-const ALL_IDS: [&str; 7] = [
-    "V1001", "V1002", "V1003", "V2001", "V2002", "V3001", "V3002",
+const ALL_IDS: [&str; 8] = [
+    "V1001", "V1002", "V1003", "V2001", "V2002", "V3001", "V3002", "V3003",
 ];
 const V1_IDS: [&str; 3] = ["V1001", "V1002", "V1003"];
 const V2_IDS: [&str; 2] = ["V2001", "V2002"];
-/// The V3001/V3002 semantic family is separate from the V2 policy warnings.
+/// The V3001/V3002/V3003 semantic family is separate from the V2 policy warnings.
+/// `SEMANTIC_SOURCE` below only carries a V3001 finding, so this is the set of
+/// IDs the family prefix reports for that fixture, not the family's membership.
 const V3_IDS: [&str; 1] = ["V3001"];
 
 /// A single comment line whose width exceeds the default 120 columns, so V2001
@@ -42,8 +44,8 @@ fn every_rule() -> String {
 const SEMANTIC_SOURCE: &str = "f():void =\n    Unused := 1\n    Print(\"x\")\n";
 
 /// The style rules `every_rule()` can report, which is every registered rule
-/// except V3001. `--select V` reaches all six; only these five have something to
-/// say about that fixture.
+/// except the three semantic ones. `--select V` reaches all eight; only these
+/// five have something to say about that fixture.
 const STYLE_IDS: [&str; 5] = ["V1001", "V1002", "V1003", "V2001", "V2002"];
 
 fn run(root: &Path, args: &[&str]) -> Output {
@@ -118,9 +120,9 @@ fn a_family_prefix_selects_exactly_the_registered_rules_it_names() {
 }
 
 /// The semantic family is reached by its own prefix and by no other: `V3`
-/// selects V3001 and V3002, and `V2` never brings them in. This is the whole
-/// contract a reader of `docs/rules.md` relies on when opting in to semantic
-/// rules separately from policy warnings.
+/// selects V3001, V3002 and V3003, and `V2` never brings them in. This is the
+/// whole contract a reader of `docs/rules.md` relies on when opting in to
+/// semantic rules separately from policy warnings.
 #[test]
 fn the_semantic_family_is_its_own_prefix_and_reports_through_it() {
     let dir = tempfile::tempdir().unwrap();

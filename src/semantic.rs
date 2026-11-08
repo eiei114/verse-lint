@@ -281,6 +281,109 @@ impl ScopeGraph {
             .collect()
     }
 
+    /// Bindings that shadow a same-named binding of an enclosing scope, in
+    /// declaration order. Call through [`Self::reportable`]: an incomplete graph
+    /// returns nothing, because a name the model could not see is not evidence
+    /// that nothing was shadowed.
+    ///
+    /// Shadowing is the one semantic smell this model can prove without types —
+    /// it is purely a scope-chain question — but the claim is deliberately
+    /// narrow:
+    ///
+    /// - both bindings must be lexical declarations this model tracks
+    ///   (`variable`, `constant`, `parameter`, `forBinding`), so a type, class,
+    ///   enum, struct, interface, function name or module import is never the
+    ///   outer side. The model has no namespaces yet, so a local of the same
+    ///   spelling as a type is not claimed as shadowing;
+    /// - the pair must sit in different scopes: two declarations in one scope are
+    ///   a redeclaration, which Verse's own rules govern. This model does not
+    ///   invent a second diagnostic for one line;
+    /// - the outer declaration must start before the inner one, the same
+    ///   declaration-order rule [`Self::resolve`] applies. A name declared later
+    ///   in an enclosing scope never captured anything at the inner declaration;
+    /// - the inner name must not start with `_`, the conventional "deliberately
+    ///   unused" marker, and must not be listed in `[lint] shadow-allow`;
+    /// - a `for` iterator or `if` condition binding that rebinds the *immediate*
+    ///   enclosing function's own parameter of the same name is exempt: that shape
+    ///   is idiomatic in Verse iteration and would only add noise.
+    ///
+    /// Exactly one binding is returned per inner declaration, so a name that
+    /// shadows two ancestors is reported as the nearest pair only — the outer side
+    /// appears in no part of the finding, so the nearest one is the only ancestor
+    /// the model would name.
+    pub fn shadowing(&self, allow: &[String]) -> Vec<&Binding> {
+        if !self.is_complete() {
+            return Vec::new();
+        }
+        let allow: BTreeSet<&str> = allow.iter().map(String::as_str).collect();
+        self.bindings
+            .iter()
+            .filter(|binding| self.shadows(binding, &allow))
+            .collect()
+    }
+
+    fn shadows(&self, inner: &Binding, allow: &BTreeSet<&str>) -> bool {
+        if !is_lexical_declaration(inner.kind)
+            || inner.name.starts_with('_')
+            || allow.contains(inner.name.as_str())
+        {
+            return false;
+        }
+        // Only ancestor scopes are searched, so a same-scope pair can never match.
+        let Some(outer) = self.nearest_ancestor_binding(inner) else {
+            return false;
+        };
+        if !is_lexical_declaration(outer.kind) {
+            // Type-vs-value shadowing stays out of this slice: a type, class,
+            // enum, struct, interface, function or module import lives in a
+            // namespace this model cannot separate from values yet.
+            return false;
+        }
+        let construct_binding = inner.kind == BindingKind::ForBinding
+            || (inner.kind == BindingKind::Constant
+                && self.scopes[inner.scope].kind == ScopeKind::If);
+        if construct_binding
+            && outer.kind == BindingKind::Parameter
+            && self.nearest_function_scope(inner.scope) == Some(outer.scope)
+        {
+            // `for (Name : ...)` and `if (Name := ...)` rebinding the function's
+            // own parameter is the idiomatic shape this rule must not flag.
+            return false;
+        }
+        true
+    }
+
+    /// The last declaration of `inner`'s name in the nearest ancestor scope that
+    /// declares it before `inner` does, mirroring [`Self::resolve`]'s search. The
+    /// search stops at the first scope that has a match at all: the nearest
+    /// ancestor is the only one a finding could name.
+    fn nearest_ancestor_binding(&self, inner: &Binding) -> Option<&Binding> {
+        let mut scope = self.scopes[inner.scope].parent;
+        while let Some(index) = scope {
+            for candidate in self.by_scope[index].iter().rev() {
+                let candidate = &self.bindings[*candidate];
+                if candidate.name == inner.name && candidate.range.start < inner.range.start {
+                    return Some(candidate);
+                }
+            }
+            scope = self.scopes[index].parent;
+        }
+        None
+    }
+
+    /// The innermost function scope enclosing `scope`, which is the function whose
+    /// own parameters the iteration-binding exemption is about.
+    fn nearest_function_scope(&self, scope: usize) -> Option<usize> {
+        let mut current = Some(scope);
+        while let Some(index) = current {
+            if self.scopes[index].kind == ScopeKind::Function {
+                return Some(index);
+            }
+            current = self.scopes[index].parent;
+        }
+        None
+    }
+
     fn is_unused_candidate(&self, binding: &Binding, parameters: bool) -> bool {
         if binding.exported || binding.name.starts_with('_') {
             return false;
@@ -476,6 +579,20 @@ impl GraphDump {
         text.push('\n');
         Ok(text)
     }
+}
+
+/// A declaration that introduces a value name this model resolves through the
+/// scope chain. Types, functions and module imports introduce names in
+/// namespaces this model cannot separate from values, so a rule never compares
+/// against them.
+fn is_lexical_declaration(kind: BindingKind) -> bool {
+    matches!(
+        kind,
+        BindingKind::Variable
+            | BindingKind::Constant
+            | BindingKind::Parameter
+            | BindingKind::ForBinding
+    )
 }
 
 struct Builder<'a> {

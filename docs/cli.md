@@ -1,10 +1,11 @@
 # CLI, configuration and JSON
 
-Shared toolchain contract version **1**. Seven rules and
+Shared toolchain contract version **1**. Eight rules and
 [suppression](suppressions.md) are implemented. Defaults are V1001/V1002/V1003;
-V2001/V2002 are opt-in warnings, and V3001/V3002 are opt-in semantic rules that
-read the [scope graph](semantic-model.md). `--fix` applies only validated V1001/V1002
-edits using guarded Windows replacement; see [fixes](fixes.md). [SARIF
+V2001/V2002 are opt-in warnings, and V3001/V3002/V3003 are opt-in semantic rules
+that read the [scope graph](semantic-model.md). `--fix` applies only validated
+V1001/V1002 edits using guarded Windows replacement; see [fixes](fixes.md).
+[SARIF
 2.1.0](sarif.md) is supported and schema-validated, and `--output-format github`
 emits GitHub Actions annotations for a pull-request job. Compiler/UEFN acceptance
 is not established.
@@ -59,6 +60,7 @@ select = ["V1001", "V1002", "V1003", "V2001"] # V2001 also has to be selected
 ignore = []
 max-line-length = 120 # used only when V2001 is selected
 external-names = [] # known external names V3002 should leave alone
+shadow-allow = [] # identifiers V3003 must never report as shadowing
 [lint.severity]
 V2001 = "error"
 V1001 = "warning"
@@ -72,7 +74,8 @@ sibling `[format]` is required to be a table but its own keys/values are
 deliberately not validated. `max-line-length` must be 1..1,000,000.
 `--show-config` shows effective CLI rule overrides, the expanded complete rule
 IDs behind `select`/`ignore`, the effective severity of every registered rule,
-configured `external-names`, config source and root without inspecting inputs.
+configured `external-names`, configured `shadow-allow`, config source and root
+without inspecting inputs.
 
 ### `[lint] unused-parameters`
 
@@ -101,18 +104,34 @@ V3002 has no Verse/UEFN API database. **Start with a report-only job using
 do not assume that a V3002 result proves the compiler will reject the name. The
 short built-in allowlist is documented in [the V3002 rule page](rules/v3002.md).
 
-### V3001 and V3002 on an incomplete graph
+### `[lint] shadow-allow`
 
-Both semantic rules report nothing at all for a file whose graph is incomplete
-— no diagnostic, no execution error, exit 0 for that file — under every
-configuration, including `--select V3001`, `--select V3002`, `--select V`, and
-`unused-parameters = true`. Incompleteness is the model's, not the file's
+`shadow-allow` is a list of exact, case-sensitive strings, empty by default. It
+only affects [V3003](rules/v3003.md): an identifier named here is never reported
+as shadowing, so a project can keep a deliberate naming convention without
+turning the rule off. The entries create no bindings and change no other rule;
+empty entries are rejected. `--show-config` prints the resolved list.
+
+```toml
+[lint]
+select = ["V3003"]
+shadow-allow = ["Index", "Slot"]
+```
+
+### V3001, V3002 and V3003 on an incomplete graph
+
+All three semantic rules report nothing at all for a file whose graph is
+incomplete — no diagnostic, no execution error, exit 0 for that file — under
+every configuration, including `--select V3001`, `--select V3002`, `--select
+V3003`, `--select V`, `unused-parameters = true` and any `shadow-allow`
+list. Incompleteness is the model's, not the file's
 cleanliness: `--dump-scopes` shows it as `isComplete: false` together with the
-unsupported CST kinds. The alternative — claiming a declaration is unused or a
-reference unresolved when the graph could not see all names — risks deleting or
-renaming live code, so silence is the documented behavior rather than a gap.
-See [semantic model](semantic-model.md), [V3001](rules/v3001.md), and
-[V3002](rules/v3002.md).
+unsupported CST kinds. The alternative — claiming a declaration is unused, a
+reference unresolved, or a name shadowed when the graph could not see all names —
+risks deleting or renaming live code, so silence is the documented behavior
+rather than a gap.
+See [semantic model](semantic-model.md), [V3001](rules/v3001.md),
+[V3002](rules/v3002.md), and [V3003](rules/v3003.md).
 
 `[lint.severity]` promotes or demotes an already-registered rule for this
 project; it never adds a rule. Keys must be complete rule IDs that appear in the
