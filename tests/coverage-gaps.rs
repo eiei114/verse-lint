@@ -197,8 +197,8 @@ fn inline_binary_function_bodies_stay_a_named_refusal() {
     }
 }
 
-/// `<#>` is refused by name in the lexer, so a reader is told which construct
-/// the snapshot does not target instead of getting a generic recovery error.
+/// `<#>` is refused by name in the lexer, so a reader is told which construct the
+/// strict lexer will not inspect instead of getting a generic recovery error.
 #[test]
 fn indented_hash_gt_comments_are_refused_by_name() {
     let source = "<#> digest\n    detail\nA := 1\n";

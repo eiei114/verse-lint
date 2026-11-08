@@ -74,26 +74,30 @@ walker classifies it as unsupported rather than as an empty map.
 
 ### Not implemented: `<#>` indented comments
 
-The pinned grammar carries a `hash_gt_comment` extra whose comment says it models
-the "UEFN digest file format": `<#>` followed by the rest of the line and any
-indented continuation lines. That is not the nested `<# … #>` block comment
-form the same grammar supports, and the independently retained lexical guard
-refuses `<#>` on purpose: the guard cannot prove where a `<#>` text ends without
-the digest-file context, and losing that boundary would silently swallow code.
+The pinned grammar **does** carry a `hash_gt_comment` extra for this form; its
+comment says it models the "UEFN digest file format": `<#>` followed by the rest
+of the line and any indented continuation lines. So the construct is named in the
+grammar, and the refusal is not "this is not Verse".
+
+The problem is the boundary. `hash_gt_comment` is a token that starts at `<#>` and
+runs to the end of the last indented line, while the nested `<# … #>` block form
+is an external scanner token. Deciding which one a given `<#>` begins needs the
+digest-file context, and the independently retained lexical guard cannot prove
+where a `<#>` text ends. Losing that boundary would silently swallow code, and a
+lexer that guesses is worse than one that refuses. The scanner also sees `<#>`
+first, so it currently wins: the flagged case exits 2 before the CST is accepted.
 
 So this slice does **not** implement it. Instead the refusal names the construct
 in both places:
 
-- the lexer reports `` `<#>` indented comments are not part of the pinned Verse
-  grammar this snapshot targets `` at the exact offset;
+- the lexer reports `` `<#>` indented comments (the UEFN digest-file form) are not
+  safely inspectable by this strict lexer `` at the exact offset;
 - the CST still refuses it as a coverage error, so nothing is silently accepted.
 
-The decision is recorded rather than deferred: `<#>` is not part of the language
-this snapshot targets, and a linter that guesses its extent would be worse than
-one that names what it will not inspect. If a real project needs the digest form,
-the grammar's documented intent has to be settled first, and the guard's
-boundary rule changed deliberately in both tools — not loosened to reduce a
-refusal.
+The decision is recorded rather than deferred: the linter will not inspect the
+construct until its boundary rule is settled deliberately in both tools,
+including the interaction between `hash_gt_comment` and the external block
+comment scanner. Loosening the guard to reduce a refusal is not that settlement.
 
 ### Decided, not fixed: inline binary function bodies
 
