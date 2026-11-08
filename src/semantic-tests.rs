@@ -217,6 +217,40 @@ fn name_used_before_redeclaration_keeps_the_outer_binding() {
 }
 
 #[test]
+fn self_reference_resolves_but_a_use_before_its_declaration_does_not() {
+    let (source, model) =
+        graph("F():void =\n    SelfRef := SelfRef\n    Print(Later)\n    Later := 1\n");
+    let self_reference = model
+        .references()
+        .iter()
+        .find(|reference| reference.name == "SelfRef")
+        .expect("self-reference");
+    let self_binding = model
+        .bindings()
+        .iter()
+        .find(|binding| binding.name == "SelfRef")
+        .expect("declaration");
+    assert_eq!(
+        model
+            .resolve(self_reference)
+            .map(|binding| binding.range.clone()),
+        Some(self_binding.range.clone())
+    );
+
+    let before = model
+        .references()
+        .iter()
+        .find(|reference| reference.name == "Later")
+        .expect("use before declaration");
+    assert!(
+        model.resolve(before).is_none(),
+        "a future same-scope declaration does not resolve: {:?}",
+        &source.text()[before.range.clone()]
+    );
+    assert!(model.is_complete(), "{:?}", model.skipped());
+}
+
+#[test]
 fn for_iterator_binding_resolves_in_the_body_only() {
     let (source, model) = graph(
         "F():void =\n    for (Key -> Value : Values):\n        Print(Value)\n    Print(Value)\n",
@@ -348,9 +382,25 @@ fn unsupported_constructs_make_the_graph_incomplete_and_unreportable() {
     assert!(model.reportable().is_none());
     assert_eq!(model.skipped().get("field_initializer"), Some(&1));
 
-    let (_, scoped) = graph("F():void =\n    Print(other.Value)\n");
-    assert!(!scoped.is_complete());
-    assert_eq!(scoped.skipped().get("member_access"), Some(&1));
+    let (_, member) = graph("F():void =\n    Print(other.Value)\n");
+    assert!(member.is_complete(), "{:?}", member.skipped());
+    // A non-self member is deliberately not a lexical reference; its object is.
+    assert_eq!(
+        member
+            .references()
+            .iter()
+            .map(|r| r.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Print", "other"]
+    );
+    assert_eq!(
+        member
+            .unresolved(&[])
+            .iter()
+            .map(|r| r.name.as_str())
+            .collect::<Vec<_>>(),
+        ["other"]
+    );
 
     // A file with only covered constructs stays complete and reportable, which
     // keeps the assertions above meaningful instead of vacuous.
@@ -365,7 +415,6 @@ fn skipped_kinds_are_counted_per_kind_within_the_bound() {
         "F(object:int):void =\n    G(?Name := 1)\n    Print(object.Field)\n    H := point{X := 1}\n",
     );
     assert_eq!(model.skipped().get("named_argument"), Some(&1));
-    assert_eq!(model.skipped().get("member_access"), Some(&1));
     assert_eq!(model.skipped().get("field_initializer"), Some(&1));
     assert!(!model.is_complete());
     assert!(model.skipped().len() <= MAX_SKIPPED_KINDS);
@@ -459,7 +508,8 @@ fn exported_is_recorded_per_binding_from_the_declaration_specifiers() {
 
 #[test]
 fn unused_is_a_documented_no_op_on_an_incomplete_graph() {
-    let (_, model) = graph("F():void =\n    Local:int = 1\n    Print(other.Value)\n");
+    let (_, model) =
+        graph("F():void =\n    Local:int = 1\n    P := point{X := 1}\n    Print(Local)\n");
     assert!(!model.is_complete());
     // Even with parameters enabled the incomplete graph reports nothing, which
     // is the invariant the rule layer relies on.

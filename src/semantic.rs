@@ -2,12 +2,15 @@
 //!
 //! The graph exists so a rule can ask what an identifier refers to instead of
 //! matching text. It models exactly the constructs listed in
-//! `docs/semantic-model.md`; every other name-bearing construct is recorded as
-//! *unsupported* by kind, which clears [`ScopeGraph::is_complete`]. A semantic
+//! `docs/semantic-model.md`; every unclassified name-bearing construct is
+//! recorded as *unsupported* by kind, which clears [`ScopeGraph::is_complete`]. A semantic
 //! rule must obtain its graph through [`ScopeGraph::reportable`], so an
 //! incomplete model can never produce a finding.
 
-use std::{collections::BTreeMap, ops::Range};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    ops::Range,
+};
 
 use serde::Serialize;
 use tree_sitter::Node;
@@ -27,6 +30,19 @@ pub const MAX_SCOPES: usize = 10_000;
 pub const MAX_BINDINGS: usize = 100_000;
 pub const MAX_REFERENCES: usize = 250_000;
 pub const MAX_SKIPPED_KINDS: usize = 64;
+
+/// Names provided by the Verse language or UEFN base API without a local
+/// declaration. This list is intentionally small; projects can extend it with
+/// `[lint] external-names` rather than relying on an API database we do not
+/// have.
+pub const BUILTIN_EXTERNAL_NAMES: &[&str] = &[
+    // The Verse language supplies its output function; project code does not.
+    "Print",
+    // The Verse language supplies this suspending timer function.
+    "Sleep",
+    // UEFN's creative_device base API supplies this inherited method.
+    "GetSimulationEntity",
+];
 
 /// Key that absorbs skipped kinds beyond [`MAX_SKIPPED_KINDS`], so the map stays
 /// bounded without ever hiding that unsupported constructs exist.
@@ -107,6 +123,10 @@ pub struct Reference {
     /// same-named local, so this is tracked per reference rather than folded
     /// into `scope`, which stays the lexically enclosing scope.
     pub receiver: Option<usize>,
+    /// The occurrence is inside the receiver type of an extension-function
+    /// definition. Those names can come from another module and are outside
+    /// V3002's deliberately local claim.
+    pub extension_receiver: bool,
 }
 
 /// Scopes in creation order, bindings and references in walk order. Nothing is
@@ -140,6 +160,7 @@ impl ScopeGraph {
             bindings: Vec::new(),
             references: Vec::new(),
             skipped: BTreeMap::new(),
+            in_extension_receiver: false,
         };
         builder.walk(document.root(), 0)?;
         Ok(Self {
@@ -197,6 +218,26 @@ impl ScopeGraph {
     /// no-op, not a warning: the model cannot prove the names it would blame.
     pub fn reportable(&self) -> Option<&Self> {
         self.is_complete().then_some(self)
+    }
+
+    /// References that V3002 can safely claim are unresolved local names.
+    /// Member names with a receiver and extension receiver types are excluded;
+    /// the global completeness guard keeps any other unsupported syntax silent.
+    pub fn unresolved(&self, external_names: &[String]) -> Vec<&Reference> {
+        if !self.is_complete() {
+            return Vec::new();
+        }
+        let external_names: BTreeSet<&str> = external_names.iter().map(String::as_str).collect();
+        self.references
+            .iter()
+            .filter(|reference| {
+                reference.receiver.is_none()
+                    && !reference.extension_receiver
+                    && self.resolve(reference).is_none()
+                    && !BUILTIN_EXTERNAL_NAMES.contains(&reference.name.as_str())
+                    && !external_names.contains(reference.name.as_str())
+            })
+            .collect()
     }
 
     /// Bindings with zero resolved references in this graph, in declaration
@@ -446,6 +487,7 @@ struct Builder<'a> {
     by_scope: Vec<Vec<usize>>,
     references: Vec<Reference>,
     skipped: BTreeMap<&'static str, usize>,
+    in_extension_receiver: bool,
 }
 
 impl Builder<'_> {
@@ -591,8 +633,17 @@ impl Builder<'_> {
             range: self.range(node),
             scope,
             receiver,
+            extension_receiver: self.in_extension_receiver,
         });
         Ok(())
+    }
+
+    fn walk_extension_receiver(&mut self, node: Node<'_>, scope: usize) -> Result<(), Failure> {
+        let was_in_extension_receiver = self.in_extension_receiver;
+        self.in_extension_receiver = true;
+        let result = self.walk(node, scope);
+        self.in_extension_receiver = was_in_extension_receiver;
+        result
     }
 
     /// Nearest enclosing class scope, for `self.Member`. `None` when `self` is
@@ -670,7 +721,11 @@ impl Builder<'_> {
                 // Parameters and body live in the function scope.
                 for field in ["receiver", "parameters", "body"] {
                     if let Some(child) = node.child_by_field_name(field) {
-                        self.walk(child, inner)?;
+                        if field == "receiver" && node.kind() == "extension_function_definition" {
+                            self.walk_extension_receiver(child, inner)?;
+                        } else {
+                            self.walk(child, inner)?;
+                        }
                     }
                 }
             }
@@ -766,9 +821,10 @@ impl Builder<'_> {
                         }
                     }
                 } else {
-                    // The member belongs to an unknown type; guessing it would
-                    // be worse than admitting the gap.
-                    self.skip("member_access");
+                    // The member belongs to an unknown type, so it is
+                    // intentionally not a lexical reference. The object side
+                    // is still an ordinary expression and can safely resolve
+                    // through local scopes (or be reported by V3002).
                     if let Some(object) = object {
                         self.walk(object, scope)?;
                     }

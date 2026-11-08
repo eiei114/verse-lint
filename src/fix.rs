@@ -91,7 +91,7 @@ pub fn plan(
     options: rules::Options,
     budget: usize,
 ) -> Result<Plan, Failure> {
-    let original = rules::lint(source, path, active, severities, options, budget)?;
+    let original = rules::lint(source, path, active, severities, options.clone(), budget)?;
     let output = apply(source, edits(source, &original)?)?;
     if output == source.text() {
         return Ok(Plan {

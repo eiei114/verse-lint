@@ -232,10 +232,9 @@ fn parameters_are_silent_by_default_and_reported_only_when_asked() {
 
 #[test]
 fn an_incomplete_graph_reports_nothing_regardless_of_configuration() {
-    // `Print(other.Value)` is a `member_access` on a non-`self` object, which the
-    // model records as unsupported, so the whole file is unreportable — even
-    // though `Leftover` really is unused inside it.
-    let source = "F():void =\n    Leftover:int = 1\n    Print(other.Value)\n";
+    // Object-construction field names are unsupported, so the whole file is
+    // unreportable — even though `Leftover` really is unused inside it.
+    let source = "F():void =\n    Leftover:int = 1\n    P := point{X := 1}\n";
     let dir = tempfile::tempdir().unwrap();
     fs::write(dir.path().join("a.verse"), source).unwrap();
     // Every route to enabling the rule must stay silent, including the widest
@@ -277,7 +276,10 @@ fn an_incomplete_graph_reports_nothing_regardless_of_configuration() {
     assert_eq!(dump.status.code(), Some(0), "{dump:?}");
     let dump: Value = serde_json::from_slice(&dump.stdout).unwrap();
     assert_eq!(dump["files"][0]["isComplete"], false, "{dump}");
-    assert_eq!(dump["files"][0]["skipped"]["member_access"], 1, "{dump}");
+    assert_eq!(
+        dump["files"][0]["skipped"]["field_initializer"], 1,
+        "{dump}"
+    );
 
     // The same file without the unsupported construct reports the leftover, so
     // the silence above is caused by incompleteness and nothing else.
@@ -622,24 +624,29 @@ fn a_bodyless_signature_never_reports_its_parameters() {
 
 #[test]
 fn the_documented_rule_document_and_cli_reference_describe_the_incomplete_graph_no_op() {
-    // The prose claim the issue requires: the rule reports nothing on an
-    // incomplete graph, stated in the rule document, the rule index, the CLI
-    // reference and the README, not only implemented in code.
+    // Both semantic rules report nothing on an incomplete graph; the user-facing
+    // rule, index, CLI and README documents must all state that contract.
     let rule = include_str!("../docs/rules/v3001.md");
     assert!(rule.contains("when the graph is incomplete"), "{rule}");
     assert!(rule.contains("emits nothing"), "{rule}");
     assert!(rule.contains("unused-parameters"), "{rule}");
     let index = include_str!("../docs/rules.md");
     assert!(
-        index.contains("V3001 reports nothing for that file"),
+        index.contains("both rules report nothing for that file"),
         "{index}"
     );
     let cli = include_str!("../docs/cli.md");
-    assert!(cli.contains("V3001 on an incomplete graph"), "{cli}");
     assert!(
-        cli.contains("it reports nothing at"),
+        cli.contains("V3001 and V3002 on an incomplete graph"),
+        "{cli}"
+    );
+    assert!(
+        cli.contains("Both semantic rules report nothing at all"),
         "the CLI reference must state the incomplete-graph no-op: {cli}"
     );
     let readme = include_str!("../README.md");
-    assert!(readme.contains("reports nothing at all"), "{readme}");
+    assert!(
+        readme.contains("Both rules report nothing at all"),
+        "{readme}"
+    );
 }

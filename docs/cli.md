@@ -1,9 +1,9 @@
 # CLI, configuration and JSON
 
-Shared toolchain contract version **1**. Six [style rules](rules.md) and
+Shared toolchain contract version **1**. Seven rules and
 [suppression](suppressions.md) are implemented. Defaults are V1001/V1002/V1003;
-V2001/V2002 are opt-in warnings and V3001 is an opt-in semantic rule that reads
-the [scope graph](semantic-model.md). `--fix` applies only validated V1001/V1002
+V2001/V2002 are opt-in warnings, and V3001/V3002 are opt-in semantic rules that
+read the [scope graph](semantic-model.md). `--fix` applies only validated V1001/V1002
 edits using guarded Windows replacement; see [fixes](fixes.md). [SARIF
 2.1.0](sarif.md) is supported and schema-validated, and `--output-format github`
 emits GitHub Actions annotations for a pull-request job. Compiler/UEFN acceptance
@@ -58,6 +58,7 @@ exclude = ["Vendor/**"]
 select = ["V1001", "V1002", "V1003", "V2001"] # V2001 also has to be selected
 ignore = []
 max-line-length = 120 # used only when V2001 is selected
+external-names = [] # known external names V3002 should leave alone
 [lint.severity]
 V2001 = "error"
 V1001 = "warning"
@@ -71,7 +72,7 @@ sibling `[format]` is required to be a table but its own keys/values are
 deliberately not validated. `max-line-length` must be 1..1,000,000.
 `--show-config` shows effective CLI rule overrides, the expanded complete rule
 IDs behind `select`/`ignore`, the effective severity of every registered rule,
-config source and root without inspecting inputs.
+configured `external-names`, config source and root without inspecting inputs.
 
 ### `[lint] unused-parameters`
 
@@ -82,17 +83,36 @@ local. `_`-prefixed parameters are never reported in either mode. The switch doe
 nothing unless V3001 is selected. `--show-config` prints the resolved value
 (`unused-parameters = false`).
 
-### V3001 on an incomplete graph
+### `[lint] external-names`
 
-V3001 is the only rule that needs the scope graph, and **it reports nothing at
-all for a file whose graph is incomplete** — no diagnostic, no execution error,
-exit 0 for that file — under every configuration, including `--select V3001`,
-`--select V` and `unused-parameters = true`. Incompleteness is the model's, not
-the file's cleanliness: `--dump-scopes` shows it as `isComplete: false` together
-with the unsupported CST kinds. The alternative — reporting a declaration the
-tool could not see used — would tell a user to delete live code, so silence is
-the documented behaviour rather than a gap. See
-[semantic model](semantic-model.md) and [V3001](rules/v3001.md).
+`external-names` is a list of exact, case-sensitive strings, empty by default.
+It only affects [V3002](rules/v3002.md), and only when the name is otherwise
+unresolved in a complete local scope graph. Add identifiers supplied by
+another file or an API that this linter cannot model:
+
+```toml
+[lint]
+select = ["V3002"]
+external-names = ["ProjectApi", "ImportedHelper"]
+```
+
+V3002 has no Verse/UEFN API database. **Start with a report-only job using
+`--select V3002`**, review its results, and add confirmed external names here;
+do not assume that a V3002 result proves the compiler will reject the name. The
+short built-in allowlist is documented in [the V3002 rule page](rules/v3002.md).
+
+### V3001 and V3002 on an incomplete graph
+
+Both semantic rules report nothing at all for a file whose graph is incomplete
+— no diagnostic, no execution error, exit 0 for that file — under every
+configuration, including `--select V3001`, `--select V3002`, `--select V`, and
+`unused-parameters = true`. Incompleteness is the model's, not the file's
+cleanliness: `--dump-scopes` shows it as `isComplete: false` together with the
+unsupported CST kinds. The alternative — claiming a declaration is unused or a
+reference unresolved when the graph could not see all names — risks deleting or
+renaming live code, so silence is the documented behavior rather than a gap.
+See [semantic model](semantic-model.md), [V3001](rules/v3001.md), and
+[V3002](rules/v3002.md).
 
 `[lint.severity]` promotes or demotes an already-registered rule for this
 project; it never adds a rule. Keys must be complete rule IDs that appear in the

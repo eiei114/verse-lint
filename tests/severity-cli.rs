@@ -191,6 +191,7 @@ fn show_config_renders_an_ordered_effective_severity_map() {
             "V2001 = \"error\"",
             "V2002 = \"warning\"",
             "V3001 = \"warning\"",
+            "V3002 = \"warning\"",
         ]
     );
     // Same configuration, same bytes: no timestamps or filesystem ordering.

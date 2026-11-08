@@ -88,7 +88,7 @@ fn analyse(
             }
             let source = Source::from_bytes(&snapshot.bytes).map_err(|e| e.to_string())?;
             let budget = rules::MAX_DIAGNOSTICS - report.budget_used;
-            let plan = fix::plan(&source, &label, active, severities, options, budget)
+            let plan = fix::plan(&source, &label, active, severities, options.clone(), budget)
                 .map_err(|e| e.to_string())?;
             Ok(Candidate {
                 label: label.clone(),
