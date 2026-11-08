@@ -65,7 +65,7 @@ impl Scanner<'_> {
             if self.starts(i, "<#>") {
                 return Err(Failure::new(
                     i,
-                    "indented <#> comments are not supported yet",
+                    "`<#>` indented comments are not part of the pinned Verse grammar this snapshot targets; the construct is refused by name",
                 ));
             }
             if self.starts(i, "<#") {
@@ -325,6 +325,23 @@ mod tests {
         ] {
             let source = Source::from_bytes(text.as_bytes()).unwrap();
             assert!(scan(&source).is_err(), "{text}");
+        }
+    }
+
+    /// `<#>` is not Verse syntax in the pinned grammar: it is the UEFN digest
+    /// comment form, and this snapshot deliberately does not implement it. The
+    /// refusal names the construct so a reader can tell an unsupported form
+    /// from an invalid one.
+    #[test]
+    fn indented_hash_gt_comment_is_refused_by_name() {
+        for text in ["<#> digest\n    detail\nA := 1\n", "<#>\nA := 1\n"] {
+            let source = Source::from_bytes(text.as_bytes()).unwrap();
+            let failure = scan(&source).expect_err("{text}");
+            assert!(
+                failure.message.contains("`<#>` indented comments"),
+                "{text}: {}",
+                failure.message
+            );
         }
     }
 

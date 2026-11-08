@@ -32,12 +32,12 @@ this record complete and stable when the table is edited.
 
 | Path | SHA-256 |
 |---|---|
-| grammar.js | be54ee4d73e48039e19682178f356d714af804a0992e9248ec637ad013b2e58c |
+| grammar.js | f23dd0a03becef8f19afd07bfcad0da509a5d201b09e29b5a130a1d4f70aa694 |
 | tree-sitter.json | f57ee6d1a5ee6958875e13074e8cbb8d53d87bb71793291bebd9854dd87e9ad6 |
-| src/parser.c | 76b1089741ebc27a7c4e6745857253c728f142d15776df5bcde38ef936720197 |
+| src/parser.c | 868a4a2d576fa01194854334da259913d3555f668ba5d4174dab2a9230528bf9 |
 | src/scanner.c | 470901f9b9408fa552d7cbd14538d45362ef2fb492908643cbb1fdc465288006 |
-| src/grammar.json | f983ec8d3b0b52501c5587dd04c533801c35ebae0d9e202f41a3b5c40c06208b |
-| src/node-types.json | d5399c4befebc170a08a30ef3268e4fa80b857333c2dbaf46733e25528b3f605 |
+| src/grammar.json | 5624fb481c51bd3dd650ea4a6ffec8c77dad00c8fd1cb2384d87d0923d0fa2f9 |
+| src/node-types.json | 8a6872fe437c03e24131a39d74c5e6831cf876270e73e8df4d70d6f8c567b8ee |
 | src/tree_sitter/alloc.h | b29c1c9fb7cc82f58c84b376df1297d6e2737a1d655fd356db0859e3c29c2fea |
 | src/tree_sitter/array.h | 5bdf6ed1a78e3409fd443e085ca967a64c188a5d082aaf7f819bccd53a471c94 |
 | src/tree_sitter/parser.h | 180b893c8734778fd32f372dfbc27bd6ad1cd2221f26150b31256ff6716320d2 |
@@ -91,26 +91,69 @@ When the formatter's grammar or corpus changes, the linter snapshot and
 [CONTRIBUTING](../CONTRIBUTING.md) names the exact order of operations.
 The local grammar delta adds dotted local imports, initialized typed constants,
 comma-separated braced enum variants, empty class base lists, if-binding
-conditions, failable indexed `set` conditions, key/value iterators, and tested
-indented object/array construction with anonymous field initializers, as
-independently documented in
+conditions, failable indexed `set` conditions, key/value iterators, tested
+indented object/array construction with anonymous field initializers, string
+literals whose first content character is an unescaped `#`, and `map{...}`
+literals, as independently documented in
 `vendor/tree-sitter-verse/upstream.md`. Scanner bytes remain pinned unchanged.
 Generated ABI-15 output, metadata, runtime headers and their separate MIT
 notices are pinned in `vendor/tree-sitter-verse/hashes.json`. Run
 `scripts/verify-grammar.ps1` to audit; maintainers regenerate with
 `-Regenerate` using Tree-sitter CLI 0.25.10. Normal Cargo builds require no
 Node/npm or live grammar checkout.
-During corpus expansion, both tools gained an independent guard for unseparated
-same-line top-level nodes: the pinned grammar can split an inline binary
-function body into unrelated nodes without ERROR. The grammar delta does not
-address this ambiguity. Map literals and this ambiguity have explicit negative
-regressions.
+
+### This regeneration (grammar, not scanner)
+
+- Upstream base revision: `6b5433e37b52c03c4c07f9468bf7cc11e45f2f82`, unchanged.
+  These are local deltas on the pinned base, not a rebase onto newer upstream.
+- Tool: pinned Tree-sitter CLI 0.25.10, `generate --abi 15`.
+- Local `grammar.js` changes: `string_content` gains `prec(1)` so the content
+  token outranks the `line_comment` extra inside a literal; a `map_literal` /
+  `map_entry` rule pair is added and one parse conflict is declared for it.
+  `src/scanner.c` is byte-identical to the previous pinned hash
+  `470901f9b9408fa552d7cbd14538d45362ef2fb492908643cbb1fdc465288006`.
+- Regenerated artifacts and their local SHA-256 are the four rows that changed
+  in the manifest table above: `grammar.js`, `src/parser.c`, `src/grammar.json`,
+  `src/node-types.json`. `hashes.json` is the single source for those values;
+  `src/doc-drift-tests.rs` asserts this table against it and
+  `scripts/verify-grammar.ps1` rehashes the files themselves.
+- A default re-run of `tree-sitter generate --abi 15` on the unmodified snapshot
+  reproduced the previous `parser.c` byte for byte, so the toolchain is
+  reproducible here and the identical scanner/grammar.json pair is not a
+  coincidence.
+
+Both tools guard unseparated same-line top-level nodes, because the pinned
+grammar can split an inline binary function body into unrelated nodes without
+ERROR. **This slice does not remove that guard.** See
+[parser design](parser-design.md#decided-not-fixed-inline-binary-function-bodies)
+for the attempt, why it was withdrawn, and the tested behaviour that replaces
+an open question. `map{...}` has positive regressions instead of a negative one
+now that it parses.
 
 Read-only practical inspection additionally exposed those grammar gaps. The
-newly authored minimal regressions in `tests/coverage-gaps.rs` now cover those
+newly authored minimal regressions in `tests/coverage-gaps.rs` cover those
 shapes without project source. An adjacent-top-level error may still reflect
 lost enclosing structure in recovery; it is not a reliable classification of
 the original Verse construct. Broad project readiness remains unproven.
+
+### Divergence from the `verse-fmt` sibling, and issue #2
+
+`verse-fmt` keeps its own independent snapshot at its own pointer. This slice
+changes only the linter's copy: its grammar gains `string_content` precedence and
+`map_literal`, and its `scanner.c` is untouched. The formatter still refuses
+both shapes (`A := map{"x" => 1}` exits 2), so the two snapshots now disagree on
+exactly these two constructs.
+
+The paired harness therefore needs a deliberate update on the formatter side: the
+formatter grammar must gain the same two deltas, its `reject-map-literal` and
+`reject-leading-hash-string` corpus cases (current corpus SHA-256
+`27e0497bbccaba2bed56dfc93efcda762887f3888c9cd0c5707f0ae670050b47`, 64 goldens)
+must move from `reject: true` to real expected bytes, and `parity.json` must then
+be regenerated with `scripts/verify-pair.py --update-pin` from a successful paired
+run. Until that lands, `verify-pair.py` cannot pass against the current formatter;
+`scripts/verify.ps1`'s declared-side `verify-parity.ps1` still passes because it
+checks structure and reachability only. The follow-up is tracked by GitHub issue
+#2 (`[parity] verse-fmt と grammar snapshot / corpus hash の同期運用`).
 
 ## Independently retained block-comment boundary guard
 

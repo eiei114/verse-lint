@@ -50,7 +50,7 @@ fn defaults_are_three_errors_and_policy_warnings_are_opt_in() {
 }
 
 #[test]
-fn todo_pathological_comment_is_bounded_and_hash_start_string_fails_as_coverage_not_directive() {
+fn todo_pathological_comment_is_bounded_and_hash_start_string_is_not_a_directive() {
     let source = format!("# {}\n", "TODO( ".repeat(10001));
     let (code, v) = lint(&source, "V2002", &[]);
     assert_eq!(code, 2);
@@ -60,14 +60,16 @@ fn todo_pathological_comment_is_bounded_and_hash_start_string_fails_as_coverage_
             .unwrap()
             .contains("diagnostic limit")
     );
-    let (code, v) = lint("A := \"# verse-lint: invalid\"\n", "V1001", &[]);
-    assert_eq!(code, 2);
-    assert!(
-        v["executionErrors"][0]["message"]
-            .as_str()
-            .unwrap()
-            .contains("unsupported or incomplete Verse syntax")
-    );
+    // A string whose content begins with `#` is inspected now, and its
+    // `verse-lint:`-looking text stays literal: only a lexer-confirmed line
+    // comment can suppress, so the trailing-whitespace finding survives.
+    let source = "A := \"# verse-lint: disable-next-line V1001 -- literal\"\nB := 1  \n";
+    let (code, v) = lint(source, "V1001", &[]);
+    assert_eq!(code, 1, "{v}");
+    assert_eq!(v["summary"]["complete"], true, "{v}");
+    assert_eq!(v["summary"]["suppressed"], 0, "{v}");
+    assert_eq!(v["diagnostics"].as_array().unwrap().len(), 1, "{v}");
+    assert_eq!(v["diagnostics"][0]["ruleId"], "V1001", "{v}");
 }
 
 #[test]

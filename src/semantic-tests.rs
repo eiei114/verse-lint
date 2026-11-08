@@ -54,7 +54,6 @@ fn retains_the_tree_without_changing_parse_outcomes() {
         "A := <p>text</p>\n",
         "得点 := 1\n",
         "A:int=\n",
-        "A := map{\"x\" => 1}\n",
         "Add(X:int,Y:int):int = X+Y\n",
         "<# missing",
     ] {
@@ -753,5 +752,52 @@ fn a_parameter_local_inner_block_chain_reports_each_inner_declaration_once() {
         reported
             .iter()
             .all(|binding| binding.kind != BindingKind::Parameter)
+    );
+}
+
+/// A construct that becomes parseable but is not modelled must make the graph
+/// incomplete, so no semantic rule can report from it. A map literal is exactly
+/// that shape today: the CST is complete, the walker classifies `map_literal`
+/// as unsupported, and the file therefore becomes unreportable instead of
+/// silently resolving to "no references".
+#[test]
+fn a_parseable_map_literal_makes_the_graph_incomplete() {
+    let (_, model) = graph("F():void =\n    M := map{\"a\" => 1}\n    Print(M)\n");
+    assert_eq!(model.skipped().get("map_literal"), Some(&1));
+    assert!(!model.is_complete());
+    assert!(model.reportable().is_none());
+    // The binding and the surrounding references still exist, which keeps the
+    // assertion above about `is_complete` rather than about a failed parse.
+    assert_eq!(
+        binding(&model, "M").kind,
+        BindingKind::Constant,
+        "the local is still bound"
+    );
+    assert_eq!(
+        model
+            .references()
+            .iter()
+            .map(|r| r.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Print", "M"]
+    );
+
+    // Control: the same function without the map literal stays complete, so the
+    // incompleteness above is the map literal and nothing else.
+    let (_, complete) = graph("F():void =\n    M := 1\n    Print(M)\n");
+    assert!(complete.is_complete());
+    assert!(complete.reportable().is_some());
+}
+
+/// A string literal that starts with `#` is inert as far as the scope graph is
+/// concerned: it is a literal, not a name-bearing construct, so it must not
+/// clear `is_complete()` merely because it now parses.
+#[test]
+fn a_hash_prefixed_string_stays_a_complete_graph() {
+    let (source, model) = graph("F():void =\n    L := \"# text\"\n    Print(L)\n");
+    assert!(model.is_complete(), "{:?}", model.skipped());
+    assert_eq!(
+        resolved(&source, &model, "L", 0),
+        Some((BindingKind::Constant, "L".into()))
     );
 }
