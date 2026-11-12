@@ -237,14 +237,32 @@ fn line_directive_and_ignore_suppress_the_rule_without_changing_detection() {
     assert_eq!(code, 0, "{report}");
     assert!(ranges(&report).is_empty(), "{report}");
 
+    // The config-level path stays falsifiable only when V2003 is inside the
+    // active set: `ignore` subtracts from a selection, so selecting just the
+    // default V1 family and ignoring V2003 would pass even if `[lint] ignore`
+    // did nothing. Select V1001 (which has nothing to report here) alongside
+    // V2003 and run the same fixture with and without the ignore entry.
     fs::write(
         dir.path().join("verse.toml"),
-        "[lint]\nignore = ['V2003']\n",
+        "[lint]\nselect = ['V1001', 'V2003']\n",
+    )
+    .unwrap();
+    let (code, report) = json(dir.path(), &["main.verse"]);
+    assert_eq!(code, 0, "{report}");
+    assert_eq!(ranges(&report), [(2, 7, 1, 14, 1)], "{report}");
+    assert_eq!(report["summary"]["warnings"], 1, "{report}");
+
+    fs::write(
+        dir.path().join("verse.toml"),
+        "[lint]\nselect = ['V1001', 'V2003']\nignore = ['V2003']\n",
     )
     .unwrap();
     let (code, report) = json(dir.path(), &["main.verse"]);
     assert_eq!(code, 0, "{report}");
     assert!(ranges(&report).is_empty(), "{report}");
+    // Configuration exclusion is selection, not a suppression directive.
+    assert_eq!(report["summary"]["suppressed"], 0, "{report}");
+    assert_eq!(report["summary"]["filesChecked"], 1, "{report}");
 }
 
 #[test]
