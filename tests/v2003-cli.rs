@@ -269,8 +269,13 @@ fn line_directive_and_ignore_suppress_the_rule_without_changing_detection() {
 fn an_unanalysable_file_gets_an_execution_error_and_no_v2003() {
     // Mixed endings plus source this run cannot analyze: the ordinary coverage
     // failure is reported and the line-ending rule stays silent about the file.
+    // Both bodies stay unanalysable after the hash-start-string widening in
+    // DOT-3178, which is why the earlier `"# verse-lint: invalid"` fixture (now
+    // a valid string literal) is replaced here.
     for body in [
-        &b"A := \"# verse-lint: invalid\"\r\nB := 1\n"[..],
+        // Unclosed delimiter: the lexer refuses the whole source.
+        &b"A := (1\r\nB := 2\n"[..],
+        // Unterminated block comment: the parse refuses the whole source.
         b"A := 1\r\n<# unterminated #>B := 2\n",
     ] {
         let dir = project("main.verse", body);
