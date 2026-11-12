@@ -105,6 +105,14 @@ protected. Unknown/incomplete syntax is an execution error, not a claim that the
 UEFN compiler rejects it. Prefer file input in Windows PowerShell 5.1 because
 text pipelines can recode bytes before the tool receives them.
 
+What the pinned grammar does and does not inspect is recorded in
+[parser design][parser]. In short: string literals whose content starts with an
+unescaped `#` (`A := "# text"`) and `map{...}` literals (`A := map{"x" => 1}`)
+are inspected; `<#>` digest-style comments and top-level inline binary function
+bodies (`Add(X:int,Y:int):int = X+Y`) are refused with a message that names the
+construct, and the refusal is tested rather than incidental. Rejection is a
+coverage statement, never a claim that UEFN would reject the source.
+
 Defaults: V1001 trailing whitespace, V1002 final newline, V1003 tab indentation.
 V2001 line length, V2002 bare TODO comments and V2003 mixed LF/CRLF line endings
 are opt-in warnings: V2003 reports one finding for a file that contains both
@@ -235,6 +243,7 @@ repository's `docs/` directory: a relative link is dead there. They point at
 [rules]: https://github.com/eiei114/verse-lint/blob/main/docs/rules.md
 [fixes]: https://github.com/eiei114/verse-lint/blob/main/docs/fixes.md
 [snapshot]: https://github.com/eiei114/verse-lint/blob/main/docs/syntax-snapshot.md
+[parser]: https://github.com/eiei114/verse-lint/blob/main/docs/parser-design.md
 [semantic]: https://github.com/eiei114/verse-lint/blob/main/docs/semantic-model.md
 [v3002]: https://github.com/eiei114/verse-lint/blob/main/docs/rules/v3002.md
 [v3003]: https://github.com/eiei114/verse-lint/blob/main/docs/rules/v3003.md

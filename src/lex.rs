@@ -65,7 +65,7 @@ impl Scanner<'_> {
             if self.starts(i, "<#>") {
                 return Err(Failure::new(
                     i,
-                    "indented <#> comments are not supported yet",
+                    "`<#>` indented comments (the UEFN digest-file form) are not safely inspectable by this strict lexer; the construct is refused by name",
                 ));
             }
             if self.starts(i, "<#") {
@@ -325,6 +325,24 @@ mod tests {
         ] {
             let source = Source::from_bytes(text.as_bytes()).unwrap();
             assert!(scan(&source).is_err(), "{text}");
+        }
+    }
+
+    /// `<#>` is named by the pinned grammar as the UEFN digest-file comment form,
+    /// and this strict lexer deliberately does not inspect it: the token's extent
+    /// cannot be proven here without the digest-file context, so a wrong guess
+    /// would swallow code. The refusal names the construct so a reader can tell a
+    /// deliberate coverage gap from an invalid source.
+    #[test]
+    fn indented_hash_gt_comment_is_refused_by_name() {
+        for text in ["<#> digest\n    detail\nA := 1\n", "<#>\nA := 1\n"] {
+            let source = Source::from_bytes(text.as_bytes()).unwrap();
+            let failure = scan(&source).expect_err("{text}");
+            assert!(
+                failure.message.contains("`<#>` indented comments"),
+                "{text}: {}",
+                failure.message
+            );
         }
     }
 

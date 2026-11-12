@@ -21,7 +21,9 @@ The local reproducible grammar delta allows local dotted names in `using
 comma-separated braced enum variants, empty class base lists, if-binding
 conditions, failable indexed `set` conditions, key/value iterators, indented
 object/array construction and anonymous field initializers in the tested shapes,
-with an ABI-15 generated parser. The local scanner hardening caps its
+string literals whose first content character is an unescaped `#`, and
+`map{Key => Value, ...}` literals, with an ABI-15 generated parser. The local
+scanner hardening caps its
 indentation stack to keep worst-case serialized state (one byte plus two
 `uint32_t` fields plus stack entries) within Tree-sitter 0.25.10's 1024-byte
 buffer. Extreme indentation depth is refused; comment/string tokenization is
@@ -29,6 +31,15 @@ unchanged. `hashes.json` records
 the grammar/generated/header/license bytes. Regenerate with
 `scripts/verify-grammar.ps1 -Regenerate`; ordinary Cargo builds need neither
 Node/npm nor an upstream grammar checkout.
+
+Two of those deltas are the linter's own, and the formatter snapshot has not
+taken them yet: `string_content` carries `prec(1)` so the literal content wins
+over the `line_comment` extra at the same position, and `map_literal` /
+`map_entry` model the map constructor. Both keep the scanner untouched. The
+grammar string head of `map_literal` is intentionally not the keyword `'map'`,
+so a project's own `map` identifier still parses as a value name; the entry list
+is required, so brace bodies with only `name := value` initializers keep their
+`object_construction` reading.
 
 This parser is not a Verse compiler. Recovery still requires the independent
 lexical/syntax/structure guard; see `../../docs/parser-design.md`.

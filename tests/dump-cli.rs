@@ -167,7 +167,7 @@ fn dump_fails_closed_on_inputs_that_today_fail_coverage_validation() {
         ("unicode.verse", "得点 := 1\n"),
         ("incomplete.verse", "A:int=\n"),
         ("inline-binary.verse", "Add(X:int,Y:int):int = X+Y\n"),
-        ("map.verse", "A := map{\"x\" => 1}\n"),
+        ("digest.verse", "<#> digest\n    detail\nA := 1\n"),
     ] {
         std::fs::write(directory.path().join(name), source).unwrap();
         let out = run(directory.path(), &[name, "--dump-scopes"], None);

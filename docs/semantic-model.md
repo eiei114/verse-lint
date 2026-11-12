@@ -142,6 +142,7 @@ Constructs recorded as unsupported today:
 | node kind | why it is not modelled |
 |---|---|
 | `field_initializer` | object-construction field names target an unknown type |
+| `map_literal` | a map literal's entries are modelled as unsupported rather than guessed: the file is parseable, but the graph refuses to claim its keys/values are resolved |
 | `named_argument` | argument names are not binding positions |
 | `case_arm` | patterns match names this model does not bind |
 | `member_access` on `self` outside a class | there is no enclosing class scope to resolve the receiver against |
