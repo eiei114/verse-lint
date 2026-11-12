@@ -54,7 +54,6 @@ fn retains_the_tree_without_changing_parse_outcomes() {
         "A := <p>text</p>\n",
         "得点 := 1\n",
         "A:int=\n",
-        "A := map{\"x\" => 1}\n",
         "Add(X:int,Y:int):int = X+Y\n",
         "<# missing",
     ] {
@@ -754,4 +753,114 @@ fn a_parameter_local_inner_block_chain_reports_each_inner_declaration_once() {
             .iter()
             .all(|binding| binding.kind != BindingKind::Parameter)
     );
+}
+
+/// A construct that becomes parseable but is not modelled must make the graph
+/// incomplete, so no semantic rule can report from it. A map literal is exactly
+/// that shape today: the CST is complete, the walker classifies `map_literal`
+/// as unsupported, and the file therefore becomes unreportable instead of
+/// silently resolving to "no references".
+#[test]
+fn a_parseable_map_literal_makes_the_graph_incomplete() {
+    let (_, model) = graph("F():void =\n    M := map{\"a\" => 1}\n    Print(M)\n");
+    assert_eq!(model.skipped().get("map_literal"), Some(&1));
+    assert!(!model.is_complete());
+    assert!(model.reportable().is_none());
+    // The binding and the surrounding references still exist, which keeps the
+    // assertion above about `is_complete` rather than about a failed parse.
+    assert_eq!(
+        binding(&model, "M").kind,
+        BindingKind::Constant,
+        "the local is still bound"
+    );
+    assert_eq!(
+        model
+            .references()
+            .iter()
+            .map(|r| r.name.as_str())
+            .collect::<Vec<_>>(),
+        ["Print", "M"]
+    );
+
+    // Control: the same function without the map literal stays complete, so the
+    // incompleteness above is the map literal and nothing else.
+    let (_, complete) = graph("F():void =\n    M := 1\n    Print(M)\n");
+    assert!(complete.is_complete());
+    assert!(complete.reportable().is_some());
+}
+
+/// A string literal that starts with `#` is inert as far as the scope graph is
+/// concerned: it is a literal, not a name-bearing construct, so it must not
+/// clear `is_complete()` merely because it now parses.
+#[test]
+fn a_hash_prefixed_string_stays_a_complete_graph() {
+    let (source, model) = graph("F():void =\n    L := \"# text\"\n    Print(L)\n");
+    assert!(model.is_complete(), "{:?}", model.skipped());
+    assert_eq!(
+        resolved(&source, &model, "L", 0),
+        Some((BindingKind::Constant, "L".into()))
+    );
+}
+
+/// `map{}` with no entries does not become a `map_literal`: it keeps the older
+/// `object_construction` reading, and the walker treats that node as pure
+/// structure. The graph therefore stays complete with no skipped kind, and the
+/// head is an ordinary `map` reference that resolves only when the project binds
+/// that name — which is what `docs/parser-design.md` documents for the entry-less
+/// form. This test pins both the dump and the reference, so the prose cannot drift
+/// back to claiming the entry-less map is counted as unsupported.
+#[test]
+fn an_entry_less_map_keeps_a_complete_graph_and_a_plain_reference() {
+    let text = "A := map{}\n";
+    let (source, model) = graph(text);
+
+    // The CST reading behind the doc claim: the entry-less braced head is an
+    // `object_construction` carrying the `map` identifier, never `map_literal`.
+    let document = Document::parse(&source).expect("document");
+    let mut kinds = Vec::new();
+    collect_kinds(document.root(), &mut kinds);
+    assert!(
+        kinds.iter().any(|kind| kind == "object_construction"),
+        "{kinds:?}"
+    );
+    assert!(
+        !kinds.iter().any(|kind| kind == "map_literal"),
+        "an entry-less head must not become a map literal: {kinds:?}"
+    );
+
+    // Dump shape: complete, nothing skipped, `map` a plain unresolved reference.
+    let dump: serde_json::Value = serde_json::from_str(
+        &GraphDump::new(vec![model.dump("empty-map.verse")])
+            .to_json()
+            .expect("dump json"),
+    )
+    .expect("dump parses");
+    let file = &dump["files"][0];
+    assert_eq!(file["isComplete"], serde_json::Value::Bool(true), "{dump}");
+    assert_eq!(file["skipped"], serde_json::json!({}), "{dump}");
+    assert_eq!(file["bindings"][0]["name"], "A", "{dump}");
+    assert_eq!(file["bindings"][0]["kind"], "constant", "{dump}");
+    let head = &file["references"][0];
+    assert_eq!(head["name"], "map", "{dump}");
+    assert_eq!(head["range"], serde_json::json!({ "start": 5, "end": 8 }));
+    assert_eq!(head["resolved"], serde_json::Value::Null, "{dump}");
+    assert_eq!(model.unresolved(&[]).len(), 1, "V3002 still has a name");
+
+    // The same head resolves once the project binds `map`, so the assertion
+    // above is about the name being unbound, not about the construct.
+    let (_, bound) = graph("map := 1\nA := map{}\n");
+    let head = bound
+        .references()
+        .iter()
+        .find(|reference| reference.name == "map")
+        .expect("head reference");
+    assert!(bound.resolve(head).is_some(), "a bound `map` resolves");
+}
+
+fn collect_kinds(node: tree_sitter::Node<'_>, kinds: &mut Vec<String>) {
+    kinds.push(node.kind().to_owned());
+    let mut cursor = node.walk();
+    for child in node.named_children(&mut cursor) {
+        collect_kinds(child, kinds);
+    }
 }

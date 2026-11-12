@@ -59,6 +59,7 @@ module.exports = grammar({
     [$._expression, $.for_iterator],
     [$._type, $.function_type, $.constrained_type],
     [$.type_definition, $.field_initializer],
+    [$.map_literal, $._expression],
   ],
 
   rules: {
@@ -591,7 +592,11 @@ module.exports = grammar({
       '"',
     ),
 
-    string_content: $ => token.immediate(/[^"\\{]+/),
+    // `prec(1)` makes this token win over the `line_comment` extra at the same
+    // position, so `"# text"` stays one string rather than a comment that
+    // swallows the closing quote. `token.immediate` still keeps the span
+    // inside the literal, and the lexer contract is otherwise untouched.
+    string_content: $ => token.immediate(prec(1, /[^"\\{]+/)),
 
     escape_sequence: $ => token.immediate(
       seq('\\', /[tnr"'\\{}<>#~&]/),
@@ -657,6 +662,7 @@ module.exports = grammar({
       $.object_construction,
       $.struct_literal,
       $.array_literal,
+      $.map_literal,
       $.logic_literal,
       $.option_expression,
       $.function_type,
@@ -836,6 +842,29 @@ module.exports = grammar({
         repeat($._expression),
         $._dedent,
       ),
+    ),
+
+    // map{Key => Value, ...} — a map literal, distinct from the `map_type`
+    // `[K]V` form and from `object_construction` (`Type{Field := value}`).
+    //
+    // The head stays an ordinary `identifier`, so a project's own `map` name
+    // keeps working (`map := 1`, `Print(map)`). At least one `key => value`
+    // entry is required: that is what distinguishes this from
+    // `object_construction`, and it keeps an entry-less `name{}` body on its
+    // previous reading instead of silently reclassifying it. Dynamic
+    // precedence prefers this reading when the body really holds `=>` pairs.
+    map_literal: $ => prec.dynamic(1, seq(
+      field('type', $.identifier),
+      '{',
+      $.map_entry,
+      repeat(seq(',', $.map_entry)),
+      '}',
+    )),
+
+    map_entry: $ => seq(
+      field('key', $._expression),
+      '=>',
+      field('value', $._expression),
     ),
 
     // logic{expr; expr} — converts failable to bool

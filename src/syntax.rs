@@ -355,7 +355,6 @@ mod tests {
             "shade := enum{Light,,Dark}\n",
             "shade := enum{,Light}\n",
             "Add(X:int,Y:int):int = X+Y\n",
-            "A := map{\"x\" => 1}\n",
         ] {
             let source = Source::from_bytes(text.as_bytes()).unwrap();
             assert!(Document::parse(&source).is_err(), "{text}");
