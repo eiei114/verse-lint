@@ -35,12 +35,20 @@ function Invoke-Lint([string]$WorkingDirectory, [string[]]$Arguments, [string]$I
 function New-Fixture([string]$Name, [string]$Body) {
     [IO.File]::WriteAllText((Join-Path $temp $Name), $Body)
 }
+# Mixed and CRLF fixtures are byte inputs, not text: a text write is free to
+# normalise the terminators this rule exists to detect.
+function New-ByteFixture([string]$Name, [string]$Body) {
+    [IO.File]::WriteAllBytes((Join-Path $temp $Name), [Text.Encoding]::UTF8.GetBytes($Body))
+}
 try {
     New-Fixture 'verse.toml' "schema-version = 1`n"
     New-Fixture 'clean.verse' "A := 1`n"
     New-Fixture 'bad.verse' "A := 1  `n"
     New-Fixture 'suppressed.verse' "# verse-lint: disable-next-line V1001 -- test`nA := 1  `n"
     New-Fixture '日 space #%.verse' "A := 1  `n# TODO later`n"
+    New-ByteFixture 'crlf.verse' "A := 1`r`nB := 2`r`n"
+    New-ByteFixture 'mixed.verse' "A := 1`r`nB := 2`r`nC := 3`n"
+
     foreach ($format in @('json', 'sarif')) {
     $schema = if ($format -eq 'sarif') { $sarifSchema } else { "$PSScriptRoot/../docs/diagnostics.schema.json" }
     foreach ($case in @(
@@ -52,6 +60,9 @@ try {
         @{ Arguments = @('missing.verse'); Exit = 2 },
         @{ Arguments = @('--invalid-flag'); Exit = 2 },
         @{ Arguments = @('日 space #%.verse', '--select=V1001,V2002'); Exit = 1 },
+        @{ Arguments = @('mixed.verse', '--select=V2003'); Exit = 0 },
+        @{ Arguments = @('mixed.verse', '--select=V2003', '--deny-warnings'); Exit = 1 },
+        @{ Arguments = @('crlf.verse', '--select=V2003'); Exit = 0 },
         @{ Arguments = @('-', '--stdin-filepath=C:/virtual/日.verse'); Input = "A := 1"; Exit = 1 },
         @{ Arguments = @('-'); Input = '<# incomplete'; Exit = 2 }
     )) {
@@ -76,6 +87,8 @@ try {
         @{ Arguments = @('clean.verse'); Exit = 0; Lines = 0 },
         @{ Arguments = @('bad.verse'); Exit = 1; Lines = 1 },
         @{ Arguments = @('long.verse', '--select=V2001'); Exit = 0; Lines = 1 },
+        @{ Arguments = @('mixed.verse', '--select=V2003'); Exit = 0; Lines = 1 },
+        @{ Arguments = @('crlf.verse', '--select=V2003'); Exit = 0; Lines = 0 },
         @{ Arguments = @('suppressed.verse'); Exit = 0; Lines = 0 },
         @{ Arguments = @('suppressed.verse', '--show-suppressed'); Exit = 0; Lines = 1 },
         @{ Arguments = @('missing.verse'); Exit = 2; Lines = 0 },

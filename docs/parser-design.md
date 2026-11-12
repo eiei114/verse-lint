@@ -196,10 +196,10 @@ protection, Unicode literals, and the grammar refusals the linter documents. It
 is not compiler acceptance and does not need UEFN.
 
 The sweep's all-rules selection is the five style IDs it names explicitly, not
-the whole live registry, because the baseline binary does not know V3001: a
-selection naming a rule the baseline has not registered is a configuration
-failure there and the comparison would fail for the wrong reason. V3001 is off
-by default, so the default-selection text and JSON runs stay byte-identical; the
-default-selection SARIF runs may instead gain its registry-derived driver-rule
-entry. The rule's own
-non-regression is covered by `tests/v3001-cli.rs` instead.
+the whole live registry, because the baseline binary does not know V3001, V3002 or
+V2003: a selection naming a rule the baseline has not registered is a
+configuration failure there and the comparison would fail for the wrong reason.
+All three are off by default, so the default-selection text and JSON runs stay
+byte-identical; the default-selection SARIF runs may instead gain their
+registry-derived driver-rule entries. Those rules' own non-regression is covered
+by `tests/v3001-cli.rs`, `tests/v3002-cli.rs` and `tests/v2003-cli.rs` instead.

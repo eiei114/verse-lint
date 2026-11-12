@@ -99,7 +99,7 @@ pub struct Rule {
     /// Selected when configuration omits `[lint] select`.
     pub selected_by_default: bool,
 }
-pub const REGISTRY: [Rule; 8] = [
+pub const REGISTRY: [Rule; 9] = [
     Rule {
         id: "V1001",
         name: "TrailingWhitespace",
@@ -141,6 +141,14 @@ pub const REGISTRY: [Rule; 8] = [
         selected_by_default: false,
     },
     Rule {
+        id: "V2003",
+        name: "MixedLineEndings",
+        severity: Severity::Warning,
+        message: "File mixes CRLF and LF line endings",
+        fixable: false,
+        selected_by_default: false,
+    },
+    Rule {
         id: "V3001",
         name: "UnusedDeclaration",
         severity: Severity::Warning,
@@ -173,6 +181,7 @@ pub const V1002: &str = "V1002";
 pub const V1003: &str = "V1003";
 pub const V2001: &str = "V2001";
 pub const V2002: &str = "V2002";
+pub const V2003: &str = "V2003";
 pub const V3001: &str = "V3001";
 pub const V3002: &str = "V3002";
 pub const V3003: &str = "V3003";
@@ -180,7 +189,9 @@ pub const V3003: &str = "V3003";
 /// Every ID a detector can emit. Test-side contract table: the registry tests
 /// check [`REGISTRY`] against it in both directions.
 #[cfg(test)]
-pub const DETECTOR_IDS: [&str; 8] = [V1001, V1002, V1003, V2001, V2002, V3001, V3002, V3003];
+pub const DETECTOR_IDS: [&str; 9] = [
+    V1001, V1002, V1003, V2001, V2002, V2003, V3001, V3002, V3003,
+];
 
 /// `select`/`ignore` entries accept a complete ID (`V1001`) or a numeric prefix
 /// (`V`, `V1`, `V2`). A complete ID is itself a valid prefix, so one shape check
@@ -531,6 +542,15 @@ fn lint_with(
     if source.text().len() > source.body_start() && !source.text().ends_with('\n') {
         emit(V1002, source.text().len()..source.text().len())?;
     }
+    if active.contains(V2003) {
+        // A byte-level property: line endings live between tokens, so this reads
+        // the source rather than the token stream. The parse above already
+        // succeeded, which is what keeps this rule out of files the run could
+        // not analyze.
+        if let Some(range) = mixed_line_ending_range(source) {
+            emit(V2003, range)?;
+        }
+    }
     if active.contains(V2001) {
         let mut offset = source.body_start();
         for line in source.text()[offset..].split_inclusive('\n') {
@@ -581,18 +601,47 @@ fn lint_with(
     Ok(result)
 }
 
+/// The terminator whose kind differs from the file's first terminator, if the
+/// file mixes styles.
+///
+/// One finding per file is the point: this rule reports file consistency, so a
+/// 10,000-line merge artifact yields one range, not a wall of them. The kind of
+/// the first terminator is the reference, and the returned range covers the
+/// first terminator of the other kind — `"\r\n"` or `"\n"` — and nothing else.
+/// A file with no terminator, one terminator, or terminators of a single kind is
+/// not mixed. Bare `CR` never reaches here: `Source::from_bytes` refuses it.
+fn mixed_line_ending_range(source: &Source) -> Option<Range<usize>> {
+    let bytes = source.text().as_bytes();
+    let mut reference = None;
+    for (offset, _) in bytes.iter().enumerate().filter(|(_, byte)| **byte == b'\n') {
+        let crlf = offset > 0 && bytes[offset - 1] == b'\r';
+        let range = if crlf {
+            offset - 1..offset + 1
+        } else {
+            offset..offset + 1
+        };
+        match reference {
+            None => reference = Some(crlf),
+            Some(kind) if kind != crlf => return Some(range),
+            Some(_) => (),
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     /// Documented contract per rule, addressed by stable ID. Order is not part
     /// of the contract, so this is looked up by ID rather than by position.
-    const DOCUMENTED: [(&str, &str, &str, bool, bool); 8] = [
+    const DOCUMENTED: [(&str, &str, &str, bool, bool); 9] = [
         (V1001, "TrailingWhitespace", "error", true, true),
         (V1002, "MissingFinalNewline", "error", true, true),
         (V1003, "TabIndentation", "error", false, true),
         (V2001, "LineTooLong", "warning", false, false),
         (V2002, "BareTodoComment", "warning", false, false),
+        (V2003, "MixedLineEndings", "warning", false, false),
         (V3001, "UnusedDeclaration", "warning", false, false),
         (V3002, "UnresolvedReference", "warning", false, false),
         (V3003, "VariableShadowing", "warning", false, false),
@@ -724,6 +773,78 @@ mod tests {
     }
 
     #[test]
+    fn mixed_line_endings_report_one_terminator_and_stay_byte_local() {
+        // The helper is the whole detector: a byte scan whose reference is the
+        // first terminator in the file.
+        let range = |text: &str| -> Option<(usize, usize, String)> {
+            let source = Source::from_bytes(text.as_bytes()).expect("source");
+            mixed_line_ending_range(&source).map(|r| (r.start, r.end, text[r].to_string()))
+        };
+        assert_eq!(
+            range("A := 1\r\nB := 2\n"),
+            Some((14, 15, "\n".to_string()))
+        );
+        assert_eq!(
+            range("A := 1\nB := 2\r\n"),
+            Some((13, 15, "\r\n".to_string()))
+        );
+        // Every terminator of the other kind after the first is still one finding.
+        assert_eq!(
+            range("A\nB\r\nC\r\nD\r\n"),
+            Some((3, 5, "\r\n".to_string())),
+            "only the first mismatch is anchored"
+        );
+        for clean in [
+            "",
+            "A := 1",
+            "A := 1\n",
+            "A := 1\r\n",
+            "A := 1\nB := 2\n",
+            "A := 1\r\nB := 2\r\n",
+            "\u{feff}A := 1\r\nB := 2\r\n",
+        ] {
+            assert_eq!(range(clean), None, "{clean:?} is consistent");
+        }
+
+        // Through the rule: exactly one finding, and the range is the terminator.
+        let source = Source::from_bytes(b"A := 1\r\nB := 2\nC := 3\r\n").unwrap();
+        let result = lint_with(
+            &source,
+            "mixed.verse",
+            &active(&[V2003]),
+            &SeverityOverrides::new(),
+            Options::default(),
+            MAX_DIAGNOSTICS,
+            &REGISTRY,
+        )
+        .expect("lint succeeds");
+        assert_eq!(result.diagnostics.len(), 1);
+        let diagnostic = &result.diagnostics[0];
+        assert_eq!(diagnostic.rule_id, V2003);
+        assert_eq!(diagnostic.range.start.line, 2);
+        assert_eq!(diagnostic.range.start.column, 7);
+        assert_eq!(diagnostic.range.end.line, 3);
+        assert_eq!(diagnostic.range.end.column, 1);
+        assert_eq!(
+            diagnostic.range.end.byte_offset - diagnostic.range.start.byte_offset,
+            1
+        );
+        assert!(!diagnostic.fixable);
+        // Off unless selected: the same file under the default family is silent.
+        let unselected = lint_with(
+            &source,
+            "mixed.verse",
+            &Settings::default().active().unwrap(),
+            &SeverityOverrides::new(),
+            Options::default(),
+            MAX_DIAGNOSTICS,
+            &REGISTRY,
+        )
+        .expect("lint succeeds");
+        assert!(unselected.diagnostics.iter().all(|d| d.rule_id != V2003));
+    }
+
+    #[test]
     fn suppressed_findings_are_retained_marked_and_ordered_like_reported_ones() {
         let source = Source::from_bytes(
             b"A := 1  \n# verse-lint: disable-next-line V1001 -- reason\nB := 2  \nC := 3  \n",
@@ -800,7 +921,7 @@ mod tests {
         let family = expand_entry("V1").expect("V1 is registered");
         assert_eq!(family, [V1001, V1002, V1003]);
         let policy = expand_entry("V2").expect("V2 is registered");
-        assert_eq!(policy, [V2001, V2002]);
+        assert_eq!(policy, [V2001, V2002, V2003]);
         // The semantic family is its own prefix: a V2 policy warning and a V3
         // semantic claim are different opt-ins and never select each other.
         assert_eq!(
@@ -852,14 +973,14 @@ mod tests {
         // A prefix subtracts the rule it actually names, not the literal text.
         assert_eq!(
             settings_with(&["V1", "V2"], &["V2002"]).active().unwrap(),
-            active(&[V1001, V1002, V1003, V2001])
+            active(&[V1001, V1002, V1003, V2001, V2003])
         );
         // Overlapping entries collapse to one effective set.
         assert_eq!(
             settings_with(&["V", "V1", V1001, "V1001"], &["V1", V1002])
                 .active()
                 .unwrap(),
-            active(&[V2001, V2002, V3001, V3002, V3003])
+            active(&[V2001, V2002, V2003, V3001, V3002, V3003])
         );
         // Subtracting everything is still the existing empty-selection failure.
         let error = settings_with(&["V1"], &["V1"]).active().unwrap_err();
@@ -891,7 +1012,10 @@ mod tests {
     #[test]
     fn expanded_lists_render_complete_ids_for_show_config() {
         let settings = settings_with(&["V2", V1002, V1002], &["V1"]);
-        assert_eq!(settings.expanded_select().unwrap(), [V1002, V2001, V2002]);
+        assert_eq!(
+            settings.expanded_select().unwrap(),
+            [V1002, V2001, V2002, V2003]
+        );
         assert_eq!(settings.expanded_ignore().unwrap(), [V1001, V1002, V1003]);
     }
 
@@ -985,6 +1109,7 @@ mod tests {
                 (V1003, "warning"),
                 (V2001, "error"),
                 (V2002, "warning"),
+                (V2003, "warning"),
                 (V3001, "warning"),
                 (V3002, "warning"),
                 (V3003, "warning"),
