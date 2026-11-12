@@ -131,7 +131,7 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
         config.settings.lint.active()?;
         return Ok(Some(config.show()?));
     }
-    if cli.dump_scopes {
+    if cli.dump_scopes || cli.semantic_coverage {
         // Rule IDs stay validated, but no rule selection is required because
         // this path runs no rule.
         config.settings.lint.validate()?;
@@ -153,6 +153,7 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
             &active,
             &severities,
             config.settings.lint.options(),
+            cli.require_complete_semantics,
             report,
         );
     } else {
@@ -213,6 +214,7 @@ fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, St
                 &active,
                 &severities,
                 config.settings.lint.options(),
+                cli.require_complete_semantics,
                 report,
             );
         }
@@ -238,9 +240,17 @@ fn inspect(
     active: &std::collections::BTreeSet<String>,
     severities: &rules::SeverityOverrides,
     options: rules::Options,
+    require_complete_semantics: bool,
     report: &mut report::Report,
 ) {
     let result = bytes.and_then(|bytes| {
+        // `--require-complete-semantics` turns an incomplete model into an
+        // execution error before a rule runs, so a strict project never receives
+        // a clean result from a model that could not see all of its names. Off
+        // by default: an unsupported construct stays information.
+        if require_complete_semantics && let Some(reason) = dump::strict_violation(&bytes)? {
+            return Err(reason);
+        }
         let source = source::Source::from_bytes(&bytes).map_err(|e| e.to_string())?;
         rules::lint(
             &source,

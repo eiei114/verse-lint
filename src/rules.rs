@@ -404,6 +404,25 @@ pub struct LintResult {
     /// report them. The count is the only trace a default run prints, and it is
     /// what the diagnostic budget and `summary.suppressed` use.
     pub suppressed: Vec<Diagnostic>,
+    /// What the rule layer did about the semantic invariant, which is otherwise
+    /// invisible: a refusal and a clean file both produce zero findings.
+    pub semantic: SemanticStatus,
+}
+
+/// The rule layer's own record of the semantic entry point.
+///
+/// This is the *test-visible* half of the invariant: an incomplete graph and a
+/// clean project both emit nothing, so without this a deleted guard would look
+/// identical to working code. A test asserts `refused_incomplete` for an
+/// incomplete input; removing the completeness check in
+/// [`ScopeGraph::reportable`] flips it to `evaluated` and fails that test.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SemanticStatus {
+    /// A semantic rule was selected and the graph was complete, so detectors ran.
+    pub evaluated: bool,
+    /// A semantic rule was selected and the graph was incomplete, so the layer
+    /// refused to emit rather than blame a name it could not see.
+    pub refused_incomplete: bool,
 }
 
 impl LintResult {
@@ -555,22 +574,27 @@ fn lint_with(
         // and no "shadowing" claim is safe when the graph could not see every
         // relevant name.
         let graph = ScopeGraph::build(source, &document)?;
-        if let Some(graph) = graph.reportable() {
-            if active.contains(V3001) {
-                for binding in graph.unused(options.unused_parameters) {
-                    emit(V3001, binding.range.clone())?;
+        match graph.reportable() {
+            Some(graph) => {
+                result.semantic.evaluated = true;
+                let graph = graph.graph();
+                if active.contains(V3001) {
+                    for binding in graph.unused(options.unused_parameters) {
+                        emit(V3001, binding.range.clone())?;
+                    }
+                }
+                if active.contains(V3002) {
+                    for reference in graph.unresolved(&options.external_names) {
+                        emit(V3002, reference.range.clone())?;
+                    }
+                }
+                if active.contains(V3003) {
+                    for binding in graph.shadowing(&options.shadow_allow) {
+                        emit(V3003, binding.range.clone())?;
+                    }
                 }
             }
-            if active.contains(V3002) {
-                for reference in graph.unresolved(&options.external_names) {
-                    emit(V3002, reference.range.clone())?;
-                }
-            }
-            if active.contains(V3003) {
-                for binding in graph.shadowing(&options.shadow_allow) {
-                    emit(V3003, binding.range.clone())?;
-                }
-            }
+            None => result.semantic.refused_incomplete = true,
         }
     }
     // Both lists use the same key, so showing suppressed findings never changes
@@ -785,6 +809,97 @@ mod tests {
         };
         assert_eq!(outcome(&result).len(), 3);
         assert_eq!(outcome(&result), outcome(&without));
+    }
+
+    #[test]
+    fn a_semantic_rule_cannot_emit_from_an_incomplete_graph_by_construction() {
+        // An object-construction field initializer is unmodelled, so the graph is
+        // incomplete. The rule layer must refuse emission for *every* semantic
+        // rule rather than rely on each detector remembering the guard, and the
+        // refusal must be visible to a test rather than indistinguishable from a
+        // clean file.
+        let incomplete =
+            Source::from_bytes(b"F():void =\n    P := point{X := 1}\n    Print(P)\n").unwrap();
+        let semantic = active(&[V3001, V3002, V3003]);
+        let result = lint_with(
+            &incomplete,
+            "incomplete.verse",
+            &semantic,
+            &SeverityOverrides::new(),
+            Options {
+                unused_parameters: true,
+                ..Options::default()
+            },
+            MAX_DIAGNOSTICS,
+            &REGISTRY,
+        )
+        .expect("lint succeeds without emitting");
+
+        // The invariant: zero emission, and the layer states why.
+        assert!(result.diagnostics.is_empty(), "{:?}", result.diagnostics);
+        assert!(result.suppressed.is_empty());
+        assert_eq!(
+            result.semantic,
+            SemanticStatus {
+                evaluated: false,
+                refused_incomplete: true,
+            },
+            "the rule layer must record its refusal, not merely stay silent"
+        );
+        // Deleting the completeness check in `ScopeGraph::reportable` makes the
+        // same input `evaluated` and this assertion fails, which is what keeps the
+        // invariant enforced by a test instead of by documentation.
+        assert!(
+            !result.semantic.evaluated,
+            "an incomplete graph must never be evaluated"
+        );
+
+        // Control: the same shapes in a complete graph do reach the detectors, so
+        // the assertions above are about incompleteness and not about silence.
+        let complete =
+            Source::from_bytes(b"F(X:int):void =\n    Local := X\n    Print(Local)\n").unwrap();
+        let evaluated = lint_with(
+            &complete,
+            "complete.verse",
+            &semantic,
+            &SeverityOverrides::new(),
+            Options {
+                unused_parameters: true,
+                ..Options::default()
+            },
+            MAX_DIAGNOSTICS,
+            &REGISTRY,
+        )
+        .expect("lint succeeds");
+        assert_eq!(
+            evaluated.semantic,
+            SemanticStatus {
+                evaluated: true,
+                refused_incomplete: false,
+            }
+        );
+    }
+
+    #[test]
+    fn semantic_status_stays_silent_when_no_semantic_rule_is_selected() {
+        // The status describes the semantic layer, so a style-only run must not
+        // claim either outcome: otherwise `refused_incomplete` would read like a
+        // problem on a run that never asked the question.
+        let incomplete =
+            Source::from_bytes(b"F():void =\n    P := point{X := 1}\n    Print(P)\n").unwrap();
+        for ids in [active(&[V1001]), active(&[V2001, V2002])] {
+            let result = lint_with(
+                &incomplete,
+                "incomplete.verse",
+                &ids,
+                &SeverityOverrides::new(),
+                Options::default(),
+                MAX_DIAGNOSTICS,
+                &REGISTRY,
+            )
+            .expect("lint succeeds");
+            assert_eq!(result.semantic, SemanticStatus::default());
+        }
     }
 
     fn settings_with(select: &[&str], ignore: &[&str]) -> Settings {

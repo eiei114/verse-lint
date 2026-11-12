@@ -23,6 +23,10 @@ use crate::{
 /// Version of the `--dump-scopes` document. Unstable diagnostics surface.
 pub const SCHEMA_VERSION: u32 = 1;
 
+/// Version of the `--semantic-coverage` document. Unlike the scope graph this is
+/// a stable reporting contract: consumers are meant to read the summary.
+pub const COVERAGE_SCHEMA_VERSION: u32 = 1;
+
 /// Resource bounds. [`Document::parse`] already limits the CST to depth 512 and
 /// 1,000,000 fingerprint events; these caps bound the additional scope-graph
 /// allocations for the same input, and an overrun fails the file closed.
@@ -94,6 +98,50 @@ pub enum BindingKind {
     ForBinding,
 }
 
+impl BindingKind {
+    /// The same spelling `--dump-scopes` serializes, so a coverage bucket and a
+    /// dumped `kind` never disagree.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Variable => "variable",
+            Self::Constant => "constant",
+            Self::Parameter => "parameter",
+            Self::Function => "function",
+            Self::Class => "class",
+            Self::Enum => "enum",
+            Self::Struct => "struct",
+            Self::Interface => "interface",
+            Self::TypeAlias => "typeAlias",
+            Self::ModuleImport => "moduleImport",
+            Self::ForBinding => "forBinding",
+        }
+    }
+}
+
+/// What a reference names, as far as a one-file model can tell. The split is the
+/// one resolution already makes, so a coverage bucket never invents a category
+/// the graph does not act on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ReferenceKind {
+    /// An ordinary name resolved through the lexical scope chain.
+    Local,
+    /// `self.Member`, resolved from the enclosing class scope.
+    Member,
+    /// An occurrence inside an extension-function receiver type.
+    ExtensionReceiver,
+}
+
+impl ReferenceKind {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Member => "member",
+            Self::ExtensionReceiver => "extensionReceiver",
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Binding {
     pub name: String,
@@ -129,6 +177,18 @@ pub struct Reference {
     pub extension_receiver: bool,
 }
 
+impl Reference {
+    pub const fn kind(&self) -> ReferenceKind {
+        if self.extension_receiver {
+            ReferenceKind::ExtensionReceiver
+        } else if self.receiver.is_some() {
+            ReferenceKind::Member
+        } else {
+            ReferenceKind::Local
+        }
+    }
+}
+
 /// Scopes in creation order, bindings and references in walk order. Nothing is
 /// read back through a hashed container, so the same source always produces the
 /// same indices.
@@ -141,6 +201,29 @@ pub struct ScopeGraph {
     by_scope: Vec<Vec<usize>>,
     references: Vec<Reference>,
     skipped: BTreeMap<&'static str, usize>,
+}
+
+/// Proof that one graph is complete. [`ScopeGraph::reportable`] is its only
+/// constructor, so a semantic rule can never be handed a graph that could not
+/// see every relevant name: the invariant is enforced here rather than by each
+/// rule author remembering to call [`ScopeGraph::is_complete`] first.
+pub struct Reportable<'a>(&'a ScopeGraph);
+
+impl<'a> Reportable<'a> {
+    pub fn graph(&self) -> &'a ScopeGraph {
+        self.0
+    }
+}
+
+/// Skipped kinds rendered as `kind (count), kind (count)`. The map is already
+/// bounded at [`MAX_SKIPPED_KINDS`] entries, so this can never grow without a
+/// bound of its own.
+fn describe_skipped(skipped: &BTreeMap<&'static str, usize>) -> String {
+    skipped
+        .iter()
+        .map(|(kind, count)| format!("{kind} ({count})"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 impl ScopeGraph {
@@ -216,8 +299,30 @@ impl ScopeGraph {
 
     /// The only graph a semantic rule may report from. `None` is a documented
     /// no-op, not a warning: the model cannot prove the names it would blame.
-    pub fn reportable(&self) -> Option<&Self> {
-        self.is_complete().then_some(self)
+    ///
+    /// This is the enforcement point of the whole layer. The returned
+    /// [`Reportable`] cannot be built any other way, so a rule that accepts one
+    /// receives a complete graph by construction — and an incomplete input is a
+    /// test failure, not a documented etiquette rule. Deleting the check below
+    /// makes incomplete graphs reportable again, which
+    /// `rules::tests::a_semantic_rule_cannot_emit_from_an_incomplete_graph_by_construction`
+    /// fails on.
+    pub fn reportable(&self) -> Option<Reportable<'_>> {
+        self.is_complete().then_some(Reportable(self))
+    }
+
+    /// The `--require-complete-semantics` refusal for this file, naming the
+    /// construct kinds the walker could not classify so the message explains the
+    /// gap instead of only reporting that one exists. `None` for a complete
+    /// graph, which is the ordinary case.
+    pub fn incomplete_reason(&self) -> Option<String> {
+        if self.is_complete() {
+            return None;
+        }
+        Some(format!(
+            "semantic model is incomplete (--require-complete-semantics); unsupported constructs: {}",
+            describe_skipped(&self.skipped)
+        ))
     }
 
     /// References that V3002 can safely claim are unresolved local names.
@@ -564,14 +669,165 @@ pub struct FileDump {
 pub struct GraphDump {
     schema_version: u32,
     files: Vec<FileDump>,
+    summary: CoverageSummary,
 }
 
 impl GraphDump {
-    pub fn new(files: Vec<FileDump>) -> Self {
+    pub fn new(files: Vec<FileDump>, summary: CoverageSummary) -> Self {
         Self {
             schema_version: SCHEMA_VERSION,
             files,
+            summary,
         }
+    }
+
+    pub fn to_json(&self) -> Result<String, String> {
+        let mut text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
+        text.push('\n');
+        Ok(text)
+    }
+}
+
+/// Per-source coverage, the only thing `--semantic-coverage` prints. It is the
+/// same numbers the aggregate summary adds up, so the two can never disagree.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileCoverage {
+    pub path: String,
+    pub is_complete: bool,
+    pub skipped: BTreeMap<String, usize>,
+    pub bindings: BTreeMap<String, usize>,
+    pub references: BTreeMap<String, usize>,
+    pub resolved_references: usize,
+    pub unresolved_references: usize,
+}
+
+impl FileCoverage {
+    pub fn new(path: &str, graph: &ScopeGraph) -> Self {
+        let mut skipped = BTreeMap::new();
+        for (kind, count) in graph.skipped() {
+            skipped.insert((*kind).to_string(), *count);
+        }
+        Self {
+            path: path.to_string(),
+            is_complete: graph.is_complete(),
+            skipped,
+            bindings: count_bindings(graph.bindings()),
+            // A reference is one of three kinds; their counts add up to the total,
+            // so no bucket can silently swallow an occurrence.
+            references: count_references(graph.references()),
+            resolved_references: graph
+                .references()
+                .iter()
+                .filter(|reference| graph.resolved_index(reference).is_some())
+                .count(),
+            unresolved_references: graph
+                .references()
+                .iter()
+                .filter(|reference| graph.resolved_index(reference).is_none())
+                .count(),
+        }
+    }
+}
+
+/// The run's coverage: what the model actually saw, added up over the sources it
+/// analyzed. Deterministic because every field is an ordered map or a count.
+///
+/// A low number is information about the *tool's* coverage, never a score of the
+/// code and never a reason for a nonzero exit.
+#[derive(Clone, Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoverageSummary {
+    pub sources_analyzed: usize,
+    pub complete_sources: usize,
+    pub incomplete_sources: usize,
+    pub skipped_kinds: BTreeMap<String, usize>,
+    pub bindings_by_kind: BTreeMap<String, usize>,
+    pub references_by_kind: BTreeMap<String, usize>,
+    pub resolved_references: usize,
+    pub unresolved_references: usize,
+}
+
+impl CoverageSummary {
+    /// Sum a run's per-file coverage. The one aggregation path, used by both
+    /// JSON surfaces, so the aggregate and a per-file entry cannot disagree.
+    pub fn from_files(files: &[FileCoverage]) -> Self {
+        let mut summary = Self::default();
+        for file in files {
+            summary.absorb(file);
+        }
+        summary
+    }
+
+    /// Add one file's coverage into the run totals.
+    fn absorb(&mut self, file: &FileCoverage) {
+        self.sources_analyzed += 1;
+        if file.is_complete {
+            self.complete_sources += 1;
+        } else {
+            self.incomplete_sources += 1;
+        }
+        merge_counts(&mut self.skipped_kinds, &file.skipped);
+        merge_counts(&mut self.bindings_by_kind, &file.bindings);
+        merge_counts(&mut self.references_by_kind, &file.references);
+        self.resolved_references += file.resolved_references;
+        self.unresolved_references += file.unresolved_references;
+    }
+
+    /// `--require-complete-semantics` asks this: is any analyzed source
+    /// incomplete? The caller turns `true` into an execution error and exit 2.
+    #[cfg(test)]
+    pub fn any_incomplete(&self) -> bool {
+        self.incomplete_sources > 0
+    }
+}
+
+fn merge_counts(total: &mut BTreeMap<String, usize>, counts: &BTreeMap<String, usize>) {
+    for (kind, count) in counts {
+        *total.entry(kind.clone()).or_insert(0) += *count;
+    }
+}
+
+fn count_bindings(bindings: &[Binding]) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for binding in bindings {
+        *counts.entry(binding.kind.as_str().to_string()).or_insert(0) += 1;
+    }
+    counts
+}
+
+fn count_references(references: &[Reference]) -> BTreeMap<String, usize> {
+    let mut counts = BTreeMap::new();
+    for reference in references {
+        *counts
+            .entry(reference.kind().as_str().to_string())
+            .or_insert(0) += 1;
+    }
+    counts
+}
+
+/// The `--semantic-coverage` document. Stable, versioned, deterministic: the
+/// aggregate summary plus the per-file numbers it was made of.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CoverageDump {
+    schema_version: u32,
+    summary: CoverageSummary,
+    files: Vec<FileCoverage>,
+}
+
+impl CoverageDump {
+    pub fn new(files: Vec<FileCoverage>) -> Self {
+        let summary = CoverageSummary::from_files(&files);
+        Self {
+            schema_version: COVERAGE_SCHEMA_VERSION,
+            summary,
+            files,
+        }
+    }
+
+    pub fn summary(&self) -> &CoverageSummary {
+        &self.summary
     }
 
     pub fn to_json(&self) -> Result<String, String> {

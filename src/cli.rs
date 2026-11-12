@@ -74,6 +74,16 @@ pub struct Cli {
     /// contract; its shape may change without notice.
     #[arg(long)]
     pub dump_scopes: bool,
+    /// Print only the semantic coverage summary as versioned JSON and run no
+    /// rule. Coverage counts describe how much of the input the model saw; they
+    /// are never a quality score and never change the exit code.
+    #[arg(long)]
+    pub semantic_coverage: bool,
+    /// Strict contract: any source whose semantic model is incomplete is an
+    /// execution error (exit 2). Off by default so an unsupported construct
+    /// does not fail an existing run.
+    #[arg(long)]
+    pub require_complete_semantics: bool,
     /// Also report findings removed by a `verse-lint:` suppression directive.
     /// They are marked as suppressed and never change the exit code.
     #[arg(long)]
@@ -110,17 +120,37 @@ impl Cli {
         if self.stdin_filepath.is_some() && !stdin && !self.show_config {
             return Err("--stdin-filepath requires stdin '-'".into());
         }
-        if self.dump_scopes {
+        if self.dump_scopes || self.semantic_coverage {
+            let surface = if self.dump_scopes {
+                "--dump-scopes"
+            } else {
+                "--semantic-coverage"
+            };
             if self.fix {
-                return Err("--dump-scopes cannot be combined with --fix".into());
+                return Err(format!("{surface} cannot be combined with --fix"));
             }
             if self.show_config {
-                return Err("--dump-scopes cannot be combined with --show-config".into());
+                return Err(format!("{surface} cannot be combined with --show-config"));
             }
             if !matches!(self.output_format, OutputFormat::Text) {
+                return Err(format!(
+                    "{surface} emits its own JSON; drop --output-format (only the default text setting is accepted)"
+                ));
+            }
+            if self.dump_scopes && self.semantic_coverage {
                 return Err(
-                    "--dump-scopes emits its own JSON; drop --output-format (only the default text setting is accepted)"
+                    "--dump-scopes and --semantic-coverage both write a JSON document to stdout; choose one"
                         .into(),
+                );
+            }
+        }
+        if self.require_complete_semantics {
+            if self.fix {
+                return Err("--require-complete-semantics cannot be combined with --fix".into());
+            }
+            if self.show_config {
+                return Err(
+                    "--require-complete-semantics cannot be combined with --show-config".into(),
                 );
             }
         }

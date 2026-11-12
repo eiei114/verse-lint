@@ -23,6 +23,9 @@ default severity; `[lint.severity]` overrides it per project.
 `verse-lint.ignore` for one run; see [ignore file](#ignore-file).
 `--fix --diff` previews the safe edits a write run would make and writes
 nothing; see [fix preview](#fix-preview-with---fix---diff).
+`--semantic-coverage` prints the run's semantic coverage as JSON and runs no
+rule; `--require-complete-semantics` turns an incomplete model into exit 2; see
+[coverage and the strict switch](#--semantic-coverage-and---require-complete-semantics).
 
 ### Rule selection and family prefixes
 
@@ -126,10 +129,12 @@ every configuration, including `--select V3001`, `--select V3002`, `--select
 V3003`, `--select V`, `unused-parameters = true` and any `shadow-allow`
 list. Incompleteness is the model's, not the file's
 cleanliness: `--dump-scopes` shows it as `isComplete: false` together with the
-unsupported CST kinds. The alternative — claiming a declaration is unused, a
-reference unresolved, or a name shadowed when the graph could not see all names —
-risks deleting or renaming live code, so silence is the documented behavior
-rather than a gap.
+unsupported CST kinds, and `--semantic-coverage` counts it. The alternative —
+claiming a declaration is unused, a reference unresolved, or a name shadowed
+when the graph could not see all names — risks deleting or renaming live code,
+so silence is the documented behavior rather than a gap.
+`--require-complete-semantics` is the opt-in way to turn that silence into a
+visible failure: with it an incomplete source is an execution error and exit 2.
 See [semantic model](semantic-model.md), [V3001](rules/v3001.md),
 [V3002](rules/v3002.md), and [V3003](rules/v3003.md).
 
@@ -419,14 +424,16 @@ The document is versioned (`schemaVersion`) and deterministic for the same input
 It contains `files`, each with `path`, `scopes` (kind, parent), `bindings`
 (name, kind, scope, byte range, mutable), `references` (name, byte range, scope,
 `resolved` as an index into `bindings` or `null`), `skipped` (unsupported CST
-kinds, by count) and `isComplete`. Ranges are half-open byte offsets with the
-same conventions as diagnostic ranges.
+kinds, by count) and `isComplete`, plus a `summary` section carrying the same
+coverage summary `--semantic-coverage` prints below. Ranges are half-open byte
+offsets with the same conventions as diagnostic ranges.
 
 `isComplete: false` means the model could not classify every name-bearing
 construct, so a semantic rule must not report from that file. See
 [semantic model](semantic-model.md).
 
-`--dump-scopes` conflicts with `--fix` and `--show-config`, and with every
+`--dump-scopes` conflicts with `--fix` and `--show-config`, with
+`--semantic-coverage` (both write a JSON document to stdout), and with every
 `--output-format` other than the default text setting (naming `text` explicitly
 is accepted). Each conflict exits 2. A requested `json` or `sarif` format still
 reports the conflict through its normal envelope rather than printing a graph;
@@ -437,6 +444,70 @@ fails closed — exit 2 with no graph — on inputs that today fail coverage
 validation. It never runs a rule, so it needs no active rule selection.
 File discovery is the same as a lint run: `[files] exclude` and
 `verse-lint.ignore` apply, and `--no-ignore-file` skips the ignore file.
+
+## `--semantic-coverage` and `--require-complete-semantics`
+
+`--semantic-coverage` prints **only** the run's semantic coverage as versioned
+JSON, runs no rule, and exits 0 even when coverage is low.
+
+```text
+verse-lint Content --semantic-coverage
+verse-lint - --semantic-coverage < Content/device.verse
+```
+
+The document conforms to [coverage.schema.json](coverage.schema.json)
+(`schemaVersion` 1) and contains a run `summary` plus the per-`files` entries it
+was built from, so the total and the parts always agree:
+
+| summary field | meaning |
+| --- | --- |
+| `sourcesAnalyzed` | sources that passed coverage validation and were walked |
+| `completeSources` | sources with `isComplete: true` |
+| `incompleteSources` | sources with `isComplete: false` |
+| `skippedKinds` | unsupported CST kinds across the run, by count |
+| `bindingsByKind` | bindings by kind, e.g. `constant`, `parameter`, `function` |
+| `referencesByKind` | references by kind: `local`, `member`, `extensionReceiver` |
+| `resolvedReferences` | references that resolved to a binding |
+| `unresolvedReferences` | references that resolved to nothing |
+
+`resolvedReferences` and `unresolvedReferences` always sum to the
+`referencesByKind` total. The summary is built only from ordered containers, so
+the same input yields the same bytes.
+
+**Exit contract: 0 for a successful report, including low coverage.** Low
+coverage is information, not an error: a number a CI reporting step reads is
+useless if a low value fails the job. The counts describe the tool's coverage of
+the input, not the code's quality. Every other exit code keeps its existing
+meaning — 2 for an incomplete inspection (a source the tool refuses, an I/O
+failure, a limit, a conflict), with no partial document printed.
+
+`--require-complete-semantics` changes the exit contract deliberately: with it,
+any analyzed source whose model is `isComplete: false` is an execution error and
+the run exits 2. It applies to a lint run, to `--semantic-coverage` and to
+`--dump-scopes`, so a strict project can refuse a clean result from an
+incomplete model in one flag.
+
+```text
+verse-lint Content --require-complete-semantics --select V3001
+verse-lint Content --semantic-coverage --require-complete-semantics
+```
+
+The message names the file and the unsupported kinds, e.g.
+`Content/device.verse: semantic model is incomplete (--require-complete-semantics); unsupported constructs: field_initializer (1)`.
+**It is off by default and is documented as strict**: enabling it in an existing
+project turns every currently unsupported construct into a build failure, and
+without the flag the same sources simply produce no semantic findings and exit
+0.
+
+Both flags conflict with `--fix` and `--show-config`, and each exits 2 before any
+source is analysed; `--require-complete-semantics` refuses `--fix` and
+`--show-config` for the same reason. `--dump-scopes` and `--semantic-coverage`
+also conflict with each other, because each owns stdout with its own document.
+Like `--dump-scopes`, `--semantic-coverage` accepts only the default text
+setting: a requested machine format reports the conflict through that format's
+envelope instead of printing a summary. Neither flag weakens a limit, guard or
+rejection: both read through the same byte, total, nesting, token and coverage
+validation as a lint run.
 
 ## GitHub annotations
 
