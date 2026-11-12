@@ -3,9 +3,10 @@
 This is the canonical description of the semantic layer verse-lint builds on top
 of its retained CST. It covers what a scope is, what a binding is, which CST
 nodes are modelled, what `isComplete: false` means, and the invariant every
-semantic rule must obey. V3001 (unused declaration) and V3002
-(unresolved reference) consume this graph; each rule is documented in its
-[own page](rules/v3001.md) and [V3002](rules/v3002.md).
+semantic rule must obey. V3001 (unused declaration), V3002
+(unresolved reference) and V3003 (variable shadowing) consume this graph; each
+rule is documented in its [own page](rules/v3001.md), [V3002](rules/v3002.md)
+and [V3003](rules/v3003.md).
 
 ## Why the tree is retained
 
@@ -185,10 +186,33 @@ intra-file reference, a `moduleImport` may be re-exported or untraceable, a
 is the conventional "deliberately unused" marker. A file-scope or class-member
 binding is reachable from elsewhere, so only a function-body local is reported.
 
-The graph consumers are [V3001](rules/v3001.md) and
-[V3002](rules/v3002.md). V3002 applies the same whole-graph completeness guard,
+The graph consumers are [V3001](rules/v3001.md), [V3002](rules/v3002.md) and
+[V3003](rules/v3003.md). V3002 applies the same whole-graph completeness guard,
 then excludes receiver members, extension receiver positions, and a small
 documented external-name allowlist; it does not infer a Verse or UEFN API.
+V3003 asks the opposite question — which binding a name captured — and stays
+narrow for the same reason: only lexical declarations are compared, same-scope
+redeclaration is left to Verse's own rules, and type-versus-value shadowing is
+left out until the model can separate the namespaces.
+
+## The shadowing query
+
+`shadowing(allow)` returns the bindings whose name also appears in an ancestor
+scope, in declaration order, one binding per inner declaration. It re-checks
+`is_complete()` internally, mirroring `unused`.
+
+| reported | why |
+|---|---|
+| a lexical declaration (`variable`, `constant`, `parameter`, `forBinding`) in an inner scope whose name is also declared before it in an ancestor scope | that is a pure scope-chain question, provable without types |
+| the nearest such ancestor only | the outer side is not named in the finding, so a second diagnostic for a farther ancestor would describe the same line twice |
+
+| excluded | why |
+|---|---|
+| a same-scope pair | that is a redeclaration question, governed by Verse's own rules |
+| an outer `class`, `struct`, `interface`, `enum`, `function` or `moduleImport` | the model has no namespaces, so a type name and a value name are indistinguishable |
+| an ancestor declared after the inner binding | declaration order means it captured nothing |
+| a `_`-prefixed inner name, or one in `[lint] shadow-allow` | deliberate convention, not a smell |
+| a `for`/`if` binding that rebinds the immediate function's own parameter | idiomatic in Verse iteration |
 
 ## The `--dump-scopes` diagnostic surface
 
@@ -211,8 +235,9 @@ complete.
 ## Non-goals
 
 - No type inference, effect inference, or cross-file resolution.
-- No third semantic rule in this layer; semantic consumers must use
-  `reportable()` and preserve the no-finding behavior for incomplete graphs.
+- No third semantic rule in this layer beyond V3001, V3002 and V3003; a further
+  consumer must use `reportable()` and preserve the no-finding behavior for
+  incomplete graphs.
 - No replacement of the lossless lexer or of strict coverage validation with
   tree-sitter error recovery.
 - Coverage counts describe the *tool's* coverage. They are not a code-quality

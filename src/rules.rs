@@ -62,6 +62,9 @@ pub struct Options {
     /// Names a project explicitly treats as provided by another file or API.
     /// Used only when V3002 is selected.
     pub external_names: Vec<String>,
+    /// Identifiers a project never wants reported as shadowing, so a deliberate
+    /// naming convention does not have to disable V3003.
+    pub shadow_allow: Vec<String>,
 }
 
 impl Default for Options {
@@ -71,6 +74,7 @@ impl Default for Options {
             max_line_length: settings.max_line_length,
             unused_parameters: settings.unused_parameters,
             external_names: settings.external_names,
+            shadow_allow: settings.shadow_allow,
         }
     }
 }
@@ -95,7 +99,7 @@ pub struct Rule {
     /// Selected when configuration omits `[lint] select`.
     pub selected_by_default: bool,
 }
-pub const REGISTRY: [Rule; 8] = [
+pub const REGISTRY: [Rule; 9] = [
     Rule {
         id: "V1001",
         name: "TrailingWhitespace",
@@ -160,6 +164,14 @@ pub const REGISTRY: [Rule; 8] = [
         fixable: false,
         selected_by_default: false,
     },
+    Rule {
+        id: "V3003",
+        name: "VariableShadowing",
+        severity: Severity::Warning,
+        message: "Declaration shadows an outer binding",
+        fixable: false,
+        selected_by_default: false,
+    },
 ];
 
 /// Stable rule IDs. Detectors dispatch on these, never on a registry position,
@@ -172,11 +184,14 @@ pub const V2002: &str = "V2002";
 pub const V2003: &str = "V2003";
 pub const V3001: &str = "V3001";
 pub const V3002: &str = "V3002";
+pub const V3003: &str = "V3003";
 
 /// Every ID a detector can emit. Test-side contract table: the registry tests
 /// check [`REGISTRY`] against it in both directions.
 #[cfg(test)]
-pub const DETECTOR_IDS: [&str; 8] = [V1001, V1002, V1003, V2001, V2002, V2003, V3001, V3002];
+pub const DETECTOR_IDS: [&str; 9] = [
+    V1001, V1002, V1003, V2001, V2002, V2003, V3001, V3002, V3003,
+];
 
 /// `select`/`ignore` entries accept a complete ID (`V1001`) or a numeric prefix
 /// (`V`, `V1`, `V2`). A complete ID is itself a valid prefix, so one shape check
@@ -267,6 +282,9 @@ pub struct Settings {
     /// `[lint] external-names`: unresolved names a project knows are supplied
     /// by another file or an API not modeled by this local scope graph.
     pub external_names: Vec<String>,
+    /// `[lint] shadow-allow`: identifiers that are never reported as shadowing,
+    /// so a project can keep a deliberate naming convention with V3003 on.
+    pub shadow_allow: Vec<String>,
     /// `[lint.severity]`: rule ID to replacement severity text. Kept as text so
     /// [`Settings::validate`] can name the offending key itself instead of
     /// deferring to a generic deserializer message.
@@ -285,6 +303,7 @@ impl Default for Settings {
             max_line_length: 120,
             unused_parameters: false,
             external_names: vec![],
+            shadow_allow: vec![],
             severity: BTreeMap::new(),
         }
     }
@@ -302,6 +321,9 @@ impl Settings {
         }
         if self.external_names.iter().any(|name| name.is_empty()) {
             return Err("external-names entries must not be empty".into());
+        }
+        if self.shadow_allow.iter().any(|name| name.is_empty()) {
+            return Err("shadow-allow entries must not be empty".into());
         }
         for (id, value) in &self.severity {
             if !REGISTRY.iter().any(|r| r.id == id) {
@@ -366,6 +388,7 @@ impl Settings {
             max_line_length: self.max_line_length,
             unused_parameters: self.unused_parameters,
             external_names: self.external_names.clone(),
+            shadow_allow: self.shadow_allow.clone(),
         }
     }
 
@@ -546,10 +569,10 @@ fn lint_with(
             offset += line.len();
         }
     }
-    if active.contains(V3001) || active.contains(V3002) {
+    if active.contains(V3001) || active.contains(V3002) || active.contains(V3003) {
         // Semantic rules share one scope graph. `reportable()` makes an
-        // incomplete model a documented no-op: neither an "unused" claim nor
-        // an unresolved-name claim is safe when the graph could not see every
+        // incomplete model a documented no-op: no "unused", no "unresolved"
+        // and no "shadowing" claim is safe when the graph could not see every
         // relevant name.
         let graph = ScopeGraph::build(source, &document)?;
         if let Some(graph) = graph.reportable() {
@@ -561,6 +584,11 @@ fn lint_with(
             if active.contains(V3002) {
                 for reference in graph.unresolved(&options.external_names) {
                     emit(V3002, reference.range.clone())?;
+                }
+            }
+            if active.contains(V3003) {
+                for binding in graph.shadowing(&options.shadow_allow) {
+                    emit(V3003, binding.range.clone())?;
                 }
             }
         }
@@ -607,7 +635,7 @@ mod tests {
 
     /// Documented contract per rule, addressed by stable ID. Order is not part
     /// of the contract, so this is looked up by ID rather than by position.
-    const DOCUMENTED: [(&str, &str, &str, bool, bool); 8] = [
+    const DOCUMENTED: [(&str, &str, &str, bool, bool); 9] = [
         (V1001, "TrailingWhitespace", "error", true, true),
         (V1002, "MissingFinalNewline", "error", true, true),
         (V1003, "TabIndentation", "error", false, true),
@@ -616,6 +644,7 @@ mod tests {
         (V2003, "MixedLineEndings", "warning", false, false),
         (V3001, "UnusedDeclaration", "warning", false, false),
         (V3002, "UnresolvedReference", "warning", false, false),
+        (V3003, "VariableShadowing", "warning", false, false),
     ];
 
     fn sample() -> Source {
@@ -637,6 +666,7 @@ mod tests {
                 max_line_length: 12,
                 unused_parameters: false,
                 external_names: vec![],
+                shadow_allow: vec![],
             },
             MAX_DIAGNOSTICS,
             registry,
@@ -896,7 +926,7 @@ mod tests {
         // semantic claim are different opt-ins and never select each other.
         assert_eq!(
             expand_entry("V3").expect("V3 is registered"),
-            [V3001, V3002]
+            [V3001, V3002, V3003]
         );
         // `V` is a prefix of every ID, so it is the whole registry.
         let all: Vec<_> = REGISTRY.iter().map(|rule| rule.id).collect();
@@ -938,7 +968,7 @@ mod tests {
         let settings = settings_with(&["V"], &["V2"]);
         assert_eq!(
             settings.active().unwrap(),
-            active(&[V1001, V1002, V1003, V3001, V3002])
+            active(&[V1001, V1002, V1003, V3001, V3002, V3003])
         );
         // A prefix subtracts the rule it actually names, not the literal text.
         assert_eq!(
@@ -950,7 +980,7 @@ mod tests {
             settings_with(&["V", "V1", V1001, "V1001"], &["V1", V1002])
                 .active()
                 .unwrap(),
-            active(&[V2001, V2002, V2003, V3001, V3002])
+            active(&[V2001, V2002, V2003, V3001, V3002, V3003])
         );
         // Subtracting everything is still the existing empty-selection failure.
         let error = settings_with(&["V1"], &["V1"]).active().unwrap_err();
@@ -1082,6 +1112,7 @@ mod tests {
                 (V2003, "warning"),
                 (V3001, "warning"),
                 (V3002, "warning"),
+                (V3003, "warning"),
             ]
         );
         // Every registered rule is present, and the key order is the stable
@@ -1111,6 +1142,7 @@ mod tests {
                 max_line_length: 12,
                 unused_parameters: false,
                 external_names: vec![],
+                shadow_allow: vec![],
             },
             MAX_DIAGNOSTICS,
             &REGISTRY,

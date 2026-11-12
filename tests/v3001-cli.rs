@@ -624,7 +624,7 @@ fn a_bodyless_signature_never_reports_its_parameters() {
 
 #[test]
 fn the_documented_rule_document_and_cli_reference_describe_the_incomplete_graph_no_op() {
-    // Both semantic rules report nothing on an incomplete graph; the user-facing
+    // Every semantic rule reports nothing on an incomplete graph; the user-facing
     // rule, index, CLI and README documents must all state that contract.
     let rule = include_str!("../docs/rules/v3001.md");
     assert!(rule.contains("when the graph is incomplete"), "{rule}");
@@ -632,21 +632,21 @@ fn the_documented_rule_document_and_cli_reference_describe_the_incomplete_graph_
     assert!(rule.contains("unused-parameters"), "{rule}");
     let index = include_str!("../docs/rules.md");
     assert!(
-        index.contains("both rules report nothing for that file"),
+        index.contains("all three rules report nothing for that file"),
         "{index}"
     );
     let cli = include_str!("../docs/cli.md");
     assert!(
-        cli.contains("V3001 and V3002 on an incomplete graph"),
+        cli.contains("V3001, V3002 and V3003 on an incomplete graph"),
         "{cli}"
     );
     assert!(
-        cli.contains("Both semantic rules report nothing at all"),
+        cli.contains("All three semantic rules report nothing at all"),
         "the CLI reference must state the incomplete-graph no-op: {cli}"
     );
     let readme = include_str!("../README.md");
     assert!(
-        readme.contains("Both rules report nothing at all"),
+        readme.contains("All three rules report nothing at all"),
         "{readme}"
     );
 }
