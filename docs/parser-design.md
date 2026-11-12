@@ -68,9 +68,19 @@ The head stays an `identifier` rather than the keyword string so a project's own
 precedence picks the map reading when the body really holds `=>` pairs.
 Documented positions today: constant/`type_definition` initializers, class field
 values, inside `array`/`option`/argument lists, as a receiver of `[...]` indexing,
-and nested inside another map value. `map{}` (no entries) still parses through
-the older `object_construction` path, so it is inspectable but the semantic
-walker classifies it as unsupported rather than as an empty map.
+and nested inside another map value.
+
+`map{}` (no entries) still parses through the older `object_construction` path
+rather than `map_literal`, and that is what the walker observes: a field-less
+`object_construction` is pure structure, so the graph stays complete
+(`isComplete: true` with an empty `skipped` map), the head keeps an ordinary
+identifier reference to `map`, and that reference resolves only if the project
+binds the name. `A := map{}` therefore reports nothing by default and leaves
+`map` unresolved for V3002 to name (`1:6`) when that rule is selected. So the
+entry-less form is neither modelled as an empty map nor counted as an
+unsupported kind; it is inspectable exactly as written, and
+`src/semantic-tests.rs` pins the dump and the reference so this paragraph cannot
+drift. Any other entry-less `ident{}` has the same shape.
 
 ### Not implemented: `<#>` indented comments
 
