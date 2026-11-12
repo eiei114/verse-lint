@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "verse-lint semantic coverage version 1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "summary", "files"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "summary": { "$ref": "#/definitions/summary" },
+    "files": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/file" }
+    }
+  },
+  "definitions": {
+    "counts": {
+      "type": "object",
+      "additionalProperties": { "type": "integer", "minimum": 0 }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sourcesAnalyzed",
+        "completeSources",
+        "incompleteSources",
+        "skippedKinds",
+        "bindingsByKind",
+        "referencesByKind",
+        "resolvedReferences",
+        "unresolvedReferences"
+      ],
+      "properties": {
+        "sourcesAnalyzed": { "type": "integer", "minimum": 0 },
+        "completeSources": { "type": "integer", "minimum": 0 },
+        "incompleteSources": { "type": "integer", "minimum": 0 },
+        "skippedKinds": { "$ref": "#/definitions/counts" },
+        "bindingsByKind": { "$ref": "#/definitions/counts" },
+        "referencesByKind": { "$ref": "#/definitions/counts" },
+        "resolvedReferences": { "type": "integer", "minimum": 0 },
+        "unresolvedReferences": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "isComplete",
+        "skipped",
+        "bindings",
+        "references",
+        "resolvedReferences",
+        "unresolvedReferences"
+      ],
+      "properties": {
+        "path": { "type": "string", "minLength": 1 },
+        "isComplete": { "type": "boolean" },
+        "skipped": { "$ref": "#/definitions/counts" },
+        "bindings": { "$ref": "#/definitions/counts" },
+        "references": { "$ref": "#/definitions/counts" },
+        "resolvedReferences": { "type": "integer", "minimum": 0 },
+        "unresolvedReferences": { "type": "integer", "minimum": 0 }
+      }
+    }
+  }
+}

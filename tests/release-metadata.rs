@@ -328,6 +328,10 @@ fn package_exclude_keeps_every_required_file() {
         "docs/parser-design.md",
         "docs/rules.md",
         "docs/release-checklist.md",
+        // Read at test time: `verify-json`'s counterpart harness and the fuzz
+        // loop validate real output against these pinned documents.
+        "docs/diagnostics.schema.json",
+        "docs/coverage.schema.json",
         "docs/rules/v1001.md",
         "docs/rules/v2001.md",
         "vendor/tree-sitter-verse/LICENSE",

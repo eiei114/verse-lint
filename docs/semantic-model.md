@@ -160,6 +160,31 @@ the whole point of the layer. Emitting "name is unused" from a graph that could
 not see a use would instruct a user to delete live code, which is worse than
 silence.
 
+### The enforcement point
+
+`reportable()` is not advice a rule author must remember; it is the only
+constructor of a `Reportable` value, and every detector query the rule layer runs
+is reached through one. The invariant therefore holds by construction:
+
+- `ScopeGraph::reportable()` returns `Option<Reportable<'_>>`, and `Reportable`
+  has no other constructor — it is created from a graph that already passed
+  `is_complete()`;
+- `src/rules.rs` builds the graph once, matches on that `Option`, and only the
+  `Some` arm can call `unused()`, `unresolved()` and `shadowing()`;
+- the `None` arm records `SemanticStatus { refused_incomplete: true }` on the
+  `LintResult`, so the refusal is *visible to a test* instead of being
+  indistinguishable from a clean file;
+- `rules::tests::a_semantic_rule_cannot_emit_from_an_incomplete_graph_by_construction`
+  asserts zero emission plus `refused_incomplete` for an incomplete input and
+  `evaluated` for a complete one. Removing the completeness check inside
+  `reportable()`, or bypassing it, flips that status and fails the test.
+
+The three queries (`unused`, `unresolved`, `shadowing`) still re-check
+`is_complete()` internally as a second, independent guard, so a future caller
+that finds a way to call them directly on an incomplete graph gets an empty
+result rather than a claim. Neither guard *is* the enforcement point: the type
+is.
+
 Because every recorded skip clears `is_complete()`, a grammar shape added in a
 future slice cannot silently start producing confident findings: it makes the
 file unreportable until the model is taught to classify it.
@@ -221,7 +246,8 @@ scope, in declaration order, one binding per inner declaration. It re-checks
 running any rule. Output is versioned (`schemaVersion`), deterministic, and
 contains scopes (kind, parent), bindings (name, kind, scope, byte range,
 mutable, exported), references (name, byte range, scope, resolved binding index
-or null), and the skipped-kind counts with `isComplete`. See [CLI](cli.md).
+or null), the skipped-kind counts with `isComplete`, plus a `summary` section
+that is the same coverage summary `--semantic-coverage` prints. See [CLI](cli.md).
 
 **`--dump-scopes` is an unstable diagnostic surface for rule authors, not a
 stable public contract.** Its shape may change without notice and without a
@@ -233,6 +259,61 @@ fails closed — exit 2, no graph — on inputs the linter already refuses to
 inspect. A refused file never contributes a partial entry that could look
 complete.
 
+## Coverage: how much the model actually saw
+
+A clean result from a model that only half-understood the project is the failure
+this tool must not produce. `--semantic-coverage` exists to make that
+measurable: it prints the run's coverage and exits 0 without running a rule.
+
+```text
+verse-lint Content --semantic-coverage
+verse-lint - --semantic-coverage < Content/device.verse
+```
+
+The document is stable and versioned (`docs/coverage.schema.json`, version 1):
+`summary` plus the per-file `files` entries it was built from. Both are
+aggregated by one function, so the total and the parts cannot disagree.
+
+| summary field | meaning |
+|---|---|
+| `sourcesAnalyzed` | sources that passed every coverage guard and were walked |
+| `completeSources` / `incompleteSources` | how many of those had `isComplete: true` / `false` |
+| `skippedKinds` | unsupported CST kinds across the run, by count |
+| `bindingsByKind` | bindings by kind (`variable`, `constant`, `parameter`, …) |
+| `referencesByKind` | references by kind: `local`, `member` (`self.Field`), `extensionReceiver` |
+| `resolvedReferences` / `unresolvedReferences` | reference resolution across the run; the two always sum to the `referencesByKind` total |
+
+Each `files[]` entry carries the same fields for one source, plus its `path` and
+`isComplete`. Counts are plain integers keyed by name, never arrays of unstable
+indices, and the object is built only from `BTreeMap`s and ordered `Vec`s, so the
+same input always produces the same bytes.
+
+**Low coverage is information, not an error.** The exit code stays 0 for a
+successful coverage report, because a number a CI reporting step reads is useless
+if a low value fails the job. Coverage counts describe the *tool's* coverage of
+the input — never the code's quality, and never a score to display as one.
+
+`--require-complete-semantics` is the opt-in switch that changes the exit
+contract: with it, any source whose graph is `isComplete: false` becomes an
+execution error and the run exits 2, so a strict project can refuse to accept a
+clean result from an incomplete model. It is **off by default** and is the strict
+mode, not the normal one:
+
+```text
+verse-lint Content --require-complete-semantics
+verse-lint Content --semantic-coverage --require-complete-semantics
+verse-lint Content --select V3001 --require-complete-semantics
+```
+
+Without the flag the same sources still produce no semantic findings and exit 0.
+With it the message names the file and the unsupported kinds, for example
+`semantic model is incomplete (--require-complete-semantics); unsupported constructs: field_initializer (1)`,
+so a reader can see what to model or exclude rather than only that something
+failed. The flag refuses `--fix` and `--show-config` for the ordinary reason:
+neither is a strict inspection run. Enabling it for an existing project will turn
+every currently unsupported construct into a build failure, which is why it is
+not the default.
+
 ## Non-goals
 
 - No type inference, effect inference, or cross-file resolution.
@@ -242,7 +323,10 @@ complete.
 - No replacement of the lossless lexer or of strict coverage validation with
   tree-sitter error recovery.
 - Coverage counts describe the *tool's* coverage. They are not a code-quality
-  score and must not be presented as one.
+  score and must not be presented as one. The semantic rules are opt-in and
+  suppress their findings by design on an incomplete model, so an "all clean"
+  semantic result never means the project was fully modelled — check
+  `--semantic-coverage` for that.
 
 ## References
 

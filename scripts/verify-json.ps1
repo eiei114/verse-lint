@@ -4,6 +4,7 @@ param([string]$Binary = "$PSScriptRoot/../target/x86_64-pc-windows-msvc/release/
 $ErrorActionPreference = 'Stop'
 $Binary = (Resolve-Path $Binary).Path
 $sarifSchema = "$PSScriptRoot/../tests/schemas/sarif-schema-2.1.0.json"
+$coverageSchema = "$PSScriptRoot/../docs/coverage.schema.json"
 if ((Get-FileHash $sarifSchema -Algorithm SHA256).Hash.ToLowerInvariant() -ne 'ad6db49878699b091f3eeb765b6e29e92a34bad4da88664d000c923b549c3a25') { throw 'Pinned SARIF schema hash changed' }
 $temp = Join-Path ([IO.Path]::GetTempPath()) ('verse-lint-schema-' + [Guid]::NewGuid())
 [IO.Directory]::CreateDirectory($temp) | Out-Null
@@ -77,6 +78,45 @@ try {
     if (Test-Json -Json ($invalid | ConvertTo-Json -Depth 50) -SchemaFile $schema -ErrorAction SilentlyContinue) { throw 'Schema accepted an intentionally invalid version' }
     Write-Output "$format schema: clean/violation/fix/suppression/Unicode/stdin/I/O/CLI outputs passed; invalid version rejected."
     }
+
+    # Coverage documents: the strict flag is exercised too, so the release binary
+    # is proven to produce a schema-valid summary *and* to refuse an incomplete
+    # model with exit 2 instead of printing a partial measurement.
+    New-Fixture 'complete.verse' "F(X:int):void =`n    Print(X)`n"
+    New-Fixture 'object.verse' "G():void =`n    P := point{X := 1}`n    Print(P)`n"
+    foreach ($case in @(
+        @{ Arguments = @('complete.verse', '--semantic-coverage'); Exit = 0 },
+        @{ Arguments = @('object.verse', '--semantic-coverage'); Exit = 0 },
+        @{ Arguments = @('.', '--dump-scopes'); Exit = 0 },
+        @{ Arguments = @('object.verse', '--semantic-coverage', '--require-complete-semantics'); Exit = 2 },
+        @{ Arguments = @('object.verse', '--semantic-coverage', '--fix'); Exit = 2 },
+        @{ Arguments = @('-', '--semantic-coverage'); Input = '<# incomplete'; Exit = 2 }
+    )) {
+        $run = Invoke-Lint $temp $case.Arguments $case.Input
+        if ($run.Code -ne $case.Exit) { throw "Coverage: unexpected exit $($run.Code) for $($case.Arguments -join ' '): $($run.Error)" }
+        if ($case.Exit -eq 2) {
+            # A refused run prints no partial document on stdout.
+            if ($run.Output -ne '') { throw "Coverage: a refused run wrote stdout for $($case.Arguments -join ' ')" }
+            continue
+        }
+        if ($case.Arguments -contains '--semantic-coverage') {
+            if (-not (Test-Json -Json $run.Output -SchemaFile $coverageSchema)) { throw "Coverage: output failed schema validation for $($case.Arguments -join ' ')" }
+            $document = $run.Output | ConvertFrom-Json -AsHashtable
+            if ($document.summary.sourcesAnalyzed -ne $document.files.Count) { throw 'Coverage: the summary does not count the reported files' }
+            if ($document.files[0].ContainsKey('scopes')) { throw 'Coverage: --semantic-coverage printed a scope graph' }
+        } else {
+            # `--dump-scopes` is an unstable surface without a pinned schema; the
+            # graph and the summary section beside it are checked by shape.
+            $document = $run.Output | ConvertFrom-Json -AsHashtable
+            if (-not $document.files[0].ContainsKey('scopes')) { throw 'Coverage: --dump-scopes lost its graph' }
+            if ($document.summary.sourcesAnalyzed -ne $document.files.Count) { throw 'Coverage: the dump summary does not count its files' }
+            if ($document.summary.completeSources + $document.summary.incompleteSources -ne $document.summary.sourcesAnalyzed) { throw 'Coverage: complete plus incomplete must equal the analyzed count' }
+        }
+    }
+    $invalidCoverage = (Invoke-Lint $temp @('complete.verse', '--semantic-coverage') $null).Output | ConvertFrom-Json -AsHashtable
+    $invalidCoverage.schemaVersion = 999
+    if (Test-Json -Json ($invalidCoverage | ConvertTo-Json -Depth 50) -SchemaFile $coverageSchema -ErrorAction SilentlyContinue) { throw 'Coverage schema accepted an intentionally invalid version' }
+    Write-Output 'coverage schema: report/strict-refusal/conflict/graph outputs passed; invalid version rejected.'
 
     # GitHub annotations: stdout is workflow commands only, never ANSI, with the
     # same exit-code contract. Paths keep the escaping GitHub decodes.

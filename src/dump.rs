@@ -1,26 +1,73 @@
-//! `--dump-scopes`: the unstable diagnostic surface for rule authors.
+//! `--dump-scopes` and `--semantic-coverage`: the two run-free JSON surfaces.
 //!
-//! This path runs no rule and changes no guard: it reads each source through the
-//! same byte limits as a lint run, requires the same [`syntax::Document`]
-//! coverage validation, and then prints the scope graph as versioned JSON.
+//! Both paths run no rule and change no guard: they read each source through the
+//! same byte limits as a lint run, require the same [`syntax::Document`]
+//! coverage validation, and then print versioned JSON. `--dump-scopes` adds a
+//! per-file scope graph; `--semantic-coverage` prints the run summary and the
+//! per-file counts it was made of, so a user can tell *how much* of the project
+//! the semantic rules could have seen before trusting a clean result.
 
 use std::path::PathBuf;
 
 use crate::{
     cli, config, files, report,
-    semantic::{self, GraphDump, ScopeGraph},
+    semantic::{self, CoverageDump, FileCoverage, GraphDump, ScopeGraph},
     source::{self, Source},
     syntax::Document,
 };
+
+/// Collects one run's graphs and coverage. Split out so the two surfaces share
+/// exactly one reading, validation and walking path.
+struct Collector<'a> {
+    /// Present only for `--dump-scopes`; the coverage surface never builds one.
+    dumps: Option<Vec<semantic::FileDump>>,
+    coverages: Vec<FileCoverage>,
+    report: &'a mut report::Report,
+    /// `--require-complete-semantics`: an incomplete model becomes an execution
+    /// error instead of information, in this path as well as in a lint run.
+    strict: bool,
+}
+
+impl Collector<'_> {
+    fn one(&mut self, bytes: Result<Vec<u8>, String>, label: &str) {
+        let result = bytes.and_then(|bytes| {
+            let source = Source::from_bytes(&bytes).map_err(|e| e.to_string())?;
+            let document = Document::parse(&source).map_err(|e| positioned(&source, &e))?;
+            ScopeGraph::build(&source, &document).map_err(|e| positioned(&source, &e))
+        });
+        match result {
+            Ok(graph) => {
+                if self.strict
+                    && let Some(reason) = graph.incomplete_reason()
+                {
+                    self.report.error(Some(label.into()), reason);
+                    return;
+                }
+                self.coverages.push(FileCoverage::new(label, &graph));
+                if let Some(dumps) = &mut self.dumps {
+                    dumps.push(graph.dump(label));
+                }
+            }
+            Err(error) => self.report.error(Some(label.into()), error),
+        }
+    }
+}
+
 /// Returns the JSON document to print, or `None` when any input failed. A
 /// failure is recorded as an execution error so the caller exits 2 without
-/// emitting a partial graph that could be mistaken for a complete one.
+/// emitting a partial document that could be mistaken for a complete one.
 pub fn run(
     cli: &cli::Cli,
     config: &config::Config,
     report: &mut report::Report,
 ) -> Result<Option<String>, String> {
-    let mut dumps = Vec::new();
+    let graph_surface = cli.dump_scopes;
+    let mut collector = Collector {
+        dumps: graph_surface.then(Vec::new),
+        coverages: Vec::new(),
+        report,
+        strict: cli.require_complete_semantics,
+    };
     if cli.paths.first().is_some_and(|p| p.as_os_str() == "-") {
         let label = match &cli.stdin_filepath {
             Some(path) => path
@@ -29,7 +76,7 @@ pub fn run(
                 .replace('\\', "/"),
             None => "<stdin>".into(),
         };
-        dump_one(read(std::io::stdin()), &label, &mut dumps, report);
+        collector.one(read(std::io::stdin()), &label);
     } else {
         let paths = if cli.paths.is_empty() {
             vec![PathBuf::from(".")]
@@ -37,7 +84,7 @@ pub fn run(
             cli.paths.clone()
         };
         // Same discovery as a lint run, including `verse-lint.ignore` (or its
-        // absence under `--no-ignore-file`), so the dumped file set matches.
+        // absence under `--no-ignore-file`), so the reported file set matches.
         let discovered = files::discover(
             &paths,
             &config.root,
@@ -50,7 +97,7 @@ pub fn run(
             }
         }
         for error in discovered.errors {
-            report.error(None, error);
+            collector.report.error(None, error);
         }
         let mut total = 0;
         for path in discovered.paths {
@@ -62,37 +109,40 @@ pub fn run(
                 total += bytes.len();
             }
             if total > files::MAX_TOTAL_BYTES {
-                report.error(
+                collector.report.error(
                     Some(label),
                     "inputs exceed the 64 MiB total limit; inspection incomplete",
                 );
                 break;
             }
-            dump_one(bytes, &label, &mut dumps, report);
+            collector.one(bytes, &label);
         }
     }
-    if !report.execution_errors.is_empty() {
+    if !collector.report.execution_errors.is_empty() {
         return Ok(None);
     }
-    Ok(Some(GraphDump::new(dumps).to_json()?))
+    // Both surfaces add up the same per-file counts, so the aggregate summary and
+    // a per-file entry can never disagree.
+    let coverage = CoverageDump::new(collector.coverages);
+    if graph_surface {
+        let summary = coverage.summary().clone();
+        let dumps = collector
+            .dumps
+            .ok_or("--dump-scopes collected no graph document")?;
+        return Ok(Some(GraphDump::new(dumps, summary).to_json()?));
+    }
+    Ok(Some(coverage.to_json()?))
 }
 
-fn dump_one(
-    bytes: Result<Vec<u8>, String>,
-    label: &str,
-    dumps: &mut Vec<semantic::FileDump>,
-    report: &mut report::Report,
-) {
-    let result = bytes.and_then(|bytes| {
-        let source = Source::from_bytes(&bytes).map_err(|e| e.to_string())?;
-        let document = Document::parse(&source).map_err(|e| positioned(&source, &e))?;
-        let graph = ScopeGraph::build(&source, &document).map_err(|e| positioned(&source, &e))?;
-        Ok(graph.dump(label))
-    });
-    match result {
-        Ok(dump) => dumps.push(dump),
-        Err(error) => report.error(Some(label.into()), error),
-    }
+/// Strict refusal for a lint run: the position-formatted reason one source
+/// cannot be reported on completely, or `None` when the model covered it.
+/// Parsing failures stay the ordinary coverage refusals; the caller reports them
+/// the same way.
+pub fn strict_violation(bytes: &[u8]) -> Result<Option<String>, String> {
+    let source = Source::from_bytes(bytes).map_err(|e| e.to_string())?;
+    let document = Document::parse(&source).map_err(|e| positioned(&source, &e))?;
+    let graph = ScopeGraph::build(&source, &document).map_err(|e| positioned(&source, &e))?;
+    Ok(graph.incomplete_reason())
 }
 
 /// Same position formatting the lint path uses for a [`source::Failure`].

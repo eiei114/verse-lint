@@ -69,7 +69,8 @@ any of them.
       includes.
 - [ ] The files the code and tests read are present: `docs/rules/*.md`,
       `docs/cli.md`, `docs/parser-design.md`, `docs/rules.md`,
-      `docs/syntax-snapshot.md`, `vendor/tree-sitter-verse/hashes.json`,
+      `docs/syntax-snapshot.md`, `docs/diagnostics.schema.json`,
+      `docs/coverage.schema.json`, `vendor/tree-sitter-verse/hashes.json`,
       `vendor/tree-sitter-verse/upstream.md`, `tests/fixtures/`,
       `tests/schemas/` and `.github/workflows/` (the SARIF upload guard reads
       it).

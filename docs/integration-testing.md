@@ -61,6 +61,63 @@ would flake on a loaded runner. `syntax::tests` asserts the budget predicate on
 both sides of the bound, asserts the documented duration constant, and proves
 that a zero budget refuses a real parse.
 
+## Mutation harness (fuzz hardening)
+
+`tests/fuzz-cli.rs` runs a bounded, deterministic mutation loop over the
+self-authored fixtures in `tests/fixtures/baseline/`. It needs no new dependency
+and no external corpus: a seeded xorshift generator applies six mutation shapes
+(delete, insert a malformed needle, corrupt one byte, duplicate a line, truncate
+— including mid-character — and splice another fixture in) and every case is
+reproducible from the fixed seed.
+
+Each mutation asserts all five of these:
+
+1. the tool never panics (the exit status is an exit code, and stderr never says
+   `panicked`);
+2. it exits only 0, 1 or 2 — never another code, never a crash;
+3. nothing on disk changes without `--fix` (a full before/after snapshot of the
+   temporary project, covering text, JSON, SARIF, GitHub and coverage runs);
+4. JSON output validates against `docs/diagnostics.schema.json` when the exit
+   code is 0 or 1;
+5. SARIF output validates against the pinned
+   `tests/schemas/sarif-schema-2.1.0.json` when it is produced.
+
+The semantic walker is inside the loop. Every mutation also runs
+`--semantic-coverage`, whose document must validate against
+`docs/coverage.schema.json`, and the same bytes are then linted with
+`--select V3001,V3002,V3003`: when the coverage report says the graph is
+incomplete, that lint run must report zero `V3xxx` findings. A malformed input
+therefore becomes a coverage rejection or a skipped-kind entry, never a panic and
+never an overreaching finding.
+
+`--fix` is the one mode that may write, so it is checked separately by
+`fix_mutations_refuse_cleanly_without_corrupting_the_input`: an exit 2 leaves the
+original bytes untouched, and a write the tool does perform must still pass the
+same coverage validation when re-read.
+
+The loop is bounded so it fits the ordinary verification path: three mutations
+per fixture, which is one full round over the corpus and keeps the whole test
+file well under a minute on a debug build. For a deliberate longer soak, raise the
+bound without editing the test:
+
+```powershell
+$env:VERSE_LINT_FUZZ_ITERATIONS = '100'
+cargo test --locked --test fuzz-cli
+```
+
+The two pinned schemas are validated by `tests/support/json_schema.rs`, a small
+in-repo validator for exactly the keyword subset those documents use. It is
+shared by `tests/fuzz-cli.rs` and `tests/semantic-coverage-cli.rs` via `#[path]`,
+adds no dependency, and fails loudly on a schema keyword or pattern it cannot
+read rather than skipping the constraint. `format` is not enforced there:
+`scripts/verify-json.ps1` remains the authoritative check of real release-binary
+JSON with PowerShell's schema validator.
+
+The harness weakens no existing limit, guard or rejection: it drives the real
+binary through the same CLI paths, so a mutation that trips a limit still exits 2
+with an execution error, and the assertions are about the outcome contract rather
+than about bypassing a check.
+
 ## Documentation drift guard
 
 A limit that changes in code while the prose keeps the old number is caught by

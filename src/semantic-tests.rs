@@ -830,9 +830,12 @@ fn an_entry_less_map_keeps_a_complete_graph_and_a_plain_reference() {
 
     // Dump shape: complete, nothing skipped, `map` a plain unresolved reference.
     let dump: serde_json::Value = serde_json::from_str(
-        &GraphDump::new(vec![model.dump("empty-map.verse")])
-            .to_json()
-            .expect("dump json"),
+        &GraphDump::new(
+            vec![model.dump("empty-map.verse")],
+            CoverageSummary::from_files(&[FileCoverage::new("empty-map.verse", &model)]),
+        )
+        .to_json()
+        .expect("dump json"),
     )
     .expect("dump parses");
     let file = &dump["files"][0];
@@ -863,4 +866,110 @@ fn collect_kinds(node: tree_sitter::Node<'_>, kinds: &mut Vec<String>) {
     for child in node.named_children(&mut cursor) {
         collect_kinds(child, kinds);
     }
+}
+
+/// A hand-built fixture with counted answers. Every number below is read off the
+/// source by hand, so a change in either direction is a real behaviour change
+/// rather than a snapshot.
+#[test]
+fn coverage_counts_a_known_fixture_exactly() {
+    let text = "F(X:int):void =\n    Local := X\n    Print(Local)\n";
+    let (_, model) = graph(text);
+    let file = FileCoverage::new("known.verse", &model);
+
+    // Bindings: `F` (function), `X` (parameter), `Local` (constant).
+    assert_eq!(file.bindings.get("function"), Some(&1), "{file:?}");
+    assert_eq!(file.bindings.get("parameter"), Some(&1), "{file:?}");
+    assert_eq!(file.bindings.get("constant"), Some(&1), "{file:?}");
+    assert_eq!(file.bindings.values().sum::<usize>(), 3, "{file:?}");
+
+    // References, in walk order: `X` (resolved parameter), `Print` (unresolved
+    // external), `Local` (resolved constant).
+    assert_eq!(file.references.get("local"), Some(&3), "{file:?}");
+    assert_eq!(file.references.values().sum::<usize>(), 3, "{file:?}");
+    assert_eq!(file.resolved_references, 2, "{file:?}");
+    assert_eq!(file.unresolved_references, 1, "{file:?}");
+    assert!(file.is_complete, "{file:?}");
+    assert!(file.skipped.is_empty(), "{file:?}");
+
+    // The per-file numbers and the aggregate agree, because the aggregate is
+    // built from them through the one aggregation path.
+    let summary = CoverageSummary::from_files(std::slice::from_ref(&file));
+    assert_eq!(summary.sources_analyzed, 1);
+    assert_eq!(summary.complete_sources, 1);
+    assert_eq!(summary.incomplete_sources, 0);
+    assert_eq!(summary.bindings_by_kind, file.bindings);
+    assert_eq!(summary.references_by_kind, file.references);
+    assert_eq!(summary.resolved_references, file.resolved_references);
+    assert_eq!(summary.unresolved_references, file.unresolved_references);
+    assert!(!summary.any_incomplete());
+}
+
+/// A member reference is its own bucket, and an incomplete file contributes its
+/// skipped kinds to the run total without inflating the complete count.
+#[test]
+fn coverage_separates_reference_kinds_and_accumulates_skipped_kinds() {
+    let (_, member) =
+        graph("probe := class:\n    Value:int = 1\n    Get():int =\n        self.Value\n");
+    let member_file = FileCoverage::new("member.verse", &member);
+    assert_eq!(member_file.references.get("member"), Some(&1));
+    assert_eq!(member_file.references.get("local"), None);
+    assert_eq!(member_file.resolved_references, 1);
+    assert_eq!(member_file.unresolved_references, 0);
+    assert!(member_file.is_complete);
+
+    let (_, object) = graph("F():void =\n    P := point{X := 1}\n    Print(P)\n");
+    let object_file = FileCoverage::new("object.verse", &object);
+    assert!(!object_file.is_complete);
+    assert_eq!(object_file.skipped.get("field_initializer"), Some(&1));
+
+    let summary = CoverageSummary::from_files(&[member_file, object_file]);
+    assert_eq!(summary.sources_analyzed, 2);
+    assert_eq!(summary.complete_sources, 1);
+    assert_eq!(summary.incomplete_sources, 1);
+    assert!(summary.any_incomplete());
+    assert_eq!(summary.skipped_kinds.get("field_initializer"), Some(&1));
+    assert_eq!(summary.references_by_kind.get("member"), Some(&1));
+}
+
+/// The coverage document is versioned, deterministic and stable: two builds of
+/// the same input must produce byte-identical JSON, and the version is the
+/// documented one rather than the unstable scope-graph version.
+#[test]
+fn coverage_document_is_versioned_and_byte_stable() {
+    let text = "using { Helpers }\nF(X:int):void =\n    Local := X\n    Print(Local)\n";
+    let build = || {
+        let (_, model) = graph(text);
+        CoverageDump::new(vec![FileCoverage::new("stable.verse", &model)]).to_json()
+    };
+    let first = build().expect("coverage json");
+    let second = build().expect("coverage json");
+    assert_eq!(first, second, "coverage output must be byte-stable");
+    assert_eq!(COVERAGE_SCHEMA_VERSION, 1);
+    let parsed: serde_json::Value = serde_json::from_str(&first).expect("valid json");
+    assert_eq!(parsed["schemaVersion"], 1);
+    assert_eq!(parsed["summary"]["sourcesAnalyzed"], 1);
+    assert_eq!(parsed["summary"]["bindingsByKind"]["moduleImport"], 1);
+    // The coverage document is its own contract with its own version constant:
+    // the unstable graph version may move without touching it.
+    assert_eq!(
+        parsed["schemaVersion"],
+        serde_json::json!(COVERAGE_SCHEMA_VERSION),
+        "the coverage document carries the coverage version"
+    );
+}
+
+/// The strict refusal names the unmodelled kinds and is absent for a complete
+/// graph, which is what makes it usable as an exit-code switch.
+#[test]
+fn incomplete_reason_names_the_skipped_kinds_only_when_incomplete() {
+    let (_, complete) = graph("F(X:int):void =\n    Print(X)\n");
+    assert_eq!(complete.incomplete_reason(), None);
+
+    let (_, incomplete) = graph("F():void =\n    P := point{X := 1}\n");
+    let reason = incomplete.incomplete_reason().expect("reason");
+    assert!(reason.contains("field_initializer (1)"), "{reason}");
+    assert!(reason.contains("--require-complete-semantics"), "{reason}");
+    // The message stays bounded and deterministic: one line, ordered by kind.
+    assert!(!reason.contains('\n'), "{reason}");
 }

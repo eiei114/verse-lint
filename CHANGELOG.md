@@ -21,6 +21,23 @@ alpha.
   directive removed, marked ` (suppressed)` in text and `"suppressed": true` in
   JSON (SARIF keeps them out of `results`); it does not say which directive
   removed them, and they never change the exit code.
+- `--semantic-coverage`, a versioned JSON report of how much of the project the
+  semantic model actually saw: sources analyzed, complete and incomplete sources,
+  skipped construct kinds, bindings and references by kind, and resolved versus
+  unresolved references. It runs no rule and exits 0 even when coverage is low,
+  because a low number is information rather than a failure. `--dump-scopes`
+  carries the same summary section next to the graph.
+- `--require-complete-semantics`, an opt-in strict switch: with it, any source whose
+  semantic model is incomplete becomes an execution error and the run exits 2, so a
+  strict project can refuse an "all clean" result from a model that could not cover
+  the input. It is off by default and conflicts with `--fix` and `--show-config`.
+- The scope graph's completeness check is now enforced by construction: `reportable()`
+  is the only way a rule obtains a graph, and `LintResult` records whether the layer
+  evaluated a complete graph or refused an incomplete one, so a test fails if the
+  enforcement is removed.
+- A bounded, seeded mutation harness over the self-authored fixtures, asserting that
+  no mutation panics, that the exit code is only 0/1/2, that nothing is written
+  without `--fix`, and that JSON and SARIF output stays schema-valid.
 - Text, JSON and SARIF 2.1.0 output. The JSON contract has a published schema in
   `docs/diagnostics.schema.json`; SARIF is validated against the pinned official
   OASIS schema and is emitted to stdout only, with no network access and no

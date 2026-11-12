@@ -64,6 +64,8 @@ verse-lint . --select V2003
 verse-lint . --select V3001
 verse-lint . --select V3002
 verse-lint . --select V3003
+verse-lint . --semantic-coverage
+verse-lint . --semantic-coverage --require-complete-semantics
 verse-lint . --show-suppressed
 verse-lint . --no-ignore-file
 verse-lint --show-config
@@ -97,6 +99,30 @@ search, no nested ignore files. `--no-ignore-file` skips it for one run, and
 `--dump-scopes` prints the model's scope graph as JSON for rule authors, runs no
 rule, and is an **unstable** surface rather than a public contract; see
 [the semantic model][semantic].
+
+`--semantic-coverage` answers the question a clean result cannot: how much of the
+project did the semantic model actually see? It prints a versioned JSON summary
+(sources analyzed, complete vs incomplete sources, skipped construct kinds,
+bindings and references by kind, and resolved vs unresolved references) and runs
+no rule. **Low coverage is information, not an error** — the command exits 0 so it
+can sit in a CI reporting step, and the numbers describe the tool's coverage, not
+your code's quality. The three semantic rules are opt-in and, by design, report
+nothing at all for a file whose model is incomplete: silence on an unsupported
+construct is the safety property that stops the linter telling you to delete or
+rename live code.
+
+If you need the opposite contract, `--require-complete-semantics` makes any
+incomplete source an execution error and exits 2, so a strict project can refuse
+to accept an "all clean" result from a model that could not cover the input:
+
+```powershell
+verse-lint Content --semantic-coverage             # report, exit 0 even when low
+verse-lint Content --semantic-coverage --require-complete-semantics  # strict, exit 2
+```
+
+It is **off by default** and is strict on purpose: switching it on for an
+existing project turns every currently unsupported construct into a failed run.
+Both flags conflict with `--fix` and `--show-config`; see [the CLI reference][cli].
 
 No arguments inspects CWD. Exit 0 means inspection completed without selected
 errors; 1 means lint violations; 2 means incomplete inspection/config/I/O failure.
@@ -135,6 +161,9 @@ of an ancestor scope's name, never a same-scope redeclaration, never a
 shadowed by a local — the model has no namespaces yet, so that pair is out of
 this slice. See [V3003][v3003].
 All three rules report nothing at all for files whose scope graph is incomplete.
+Use `--semantic-coverage` to measure how much the model saw before trusting that
+silence, and `--require-complete-semantics` to fail instead of passing when it
+did not see everything.
 `[lint.severity]`
 can promote or demote a registered rule per project (`"error"`/`"warning"` only);
 unknown IDs or values exit 2. It changes severity only, so a promoted rule still

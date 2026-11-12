@@ -45,7 +45,9 @@ fn dump_emits_versioned_json_and_exits_zero_without_running_rules() {
     assert_eq!(out.status.code(), Some(0), "{out:?}");
     assert!(out.stderr.is_empty(), "{out:?}");
     let text = String::from_utf8(out.stdout).unwrap();
-    for absent in ["diagnostics", "ruleId", "V1001", "summary"] {
+    // `summary` is the coverage section this flag now includes; a diagnostic
+    // report is what must never appear here.
+    for absent in ["diagnostics", "ruleId", "V1001"] {
         assert!(!text.contains(absent), "dump must not run rules: {absent}");
     }
     let value: Value = serde_json::from_str(&text).unwrap();
