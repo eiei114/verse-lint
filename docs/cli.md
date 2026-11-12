@@ -139,8 +139,8 @@ Mixed LF and CRLF inside one file is preserved byte for byte, which is the right
 behaviour for a read-only linter and also why the tool accepted it silently.
 [V2003](rules/v2003.md) is that opt-in policy warning: warn a file that contains
 both terminator styles, and recompute no byte of it. It is off by default, so
-`--select V2003`, `--select V2`, `[lint] select` or `[lint.severity]` promotion
-is how a project turns it on.
+`--select V2003`, `--select V2` or `[lint] select` is how a project turns it on;
+`[lint.severity]` only changes its severity once it is selected.
 
 The check reads source bytes, not tokens, because a terminator is a byte-level
 property: one inside a string or a comment counts exactly like one between two
