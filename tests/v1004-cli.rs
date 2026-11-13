@@ -395,6 +395,40 @@ fn text_json_sarif_and_github_agree_on_the_single_finding() {
     );
 }
 
+/// The Detection section states its width-two example in prose, so it can drift
+/// silently from the implementation. This pins that sentence to the binary: the
+/// run length it names as reported must really be reported at that width, and no
+/// multiple of two may be presented as the reported case.
+#[test]
+fn the_documented_width_two_example_names_a_length_the_rule_reports() {
+    let rule = include_str!("../docs/rules/v1004.md");
+    let sentence = rule
+        .split("\n\n")
+        .find(|block| block.contains("those cases flip"))
+        .unwrap_or_else(|| panic!("the width-two sentence is missing: {rule}"));
+    assert!(
+        sentence.contains("three"),
+        "the reported width-2 example must be a non-multiple of two: {sentence}"
+    );
+    assert!(
+        !sentence.contains("six is reported"),
+        "six is a multiple of two, so V1004 never reports it there: {sentence}"
+    );
+
+    // The same fixture the documented example describes, executed: three spaces
+    // is the one reported length and the even runs stay clean.
+    for (spaces, reported) in [(2, false), (3, true), (4, false), (6, false), (8, false)] {
+        let dir = project("main.verse", indented(spaces).as_bytes(), Some(WIDTH_2));
+        let (code, report) = json(dir.path(), &["main.verse", "--select", "V1004"]);
+        assert_eq!(code, 0, "{spaces} spaces: {report}");
+        assert_eq!(
+            !findings(&report).is_empty(),
+            reported,
+            "{spaces} spaces at width 2: {report}"
+        );
+    }
+}
+
 /// The documents must state the rule, the configured-only width, and the refusal
 /// to guess, because that stance is the whole reason the rule exists.
 #[test]
