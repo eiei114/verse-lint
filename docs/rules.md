@@ -8,6 +8,7 @@ protection and syntax coverage validation apply before any rule runs.
 | [V1001 trailing-whitespace](rules/v1001.md) | On | error | Remove trivia |
 | [V1002 missing-final-newline](rules/v1002.md) | On | error | Add newline |
 | [V1003 tab-indentation](rules/v1003.md) | On | error | None |
+| [V1004 space-indent-width](rules/v1004.md) | Off | warning | None |
 | [V2001 line-too-long](rules/v2001.md) | Off | warning | None |
 | [V2002 bare-todo-comment](rules/v2002.md) | Off | warning | None |
 | [V2003 mixed-line-endings](rules/v2003.md) | Off | warning | None |

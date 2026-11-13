@@ -1,10 +1,11 @@
 # CLI, configuration and JSON
 
-Shared toolchain contract version **1**. Nine rules and
+Shared toolchain contract version **1**. Ten rules and
 [suppression](suppressions.md) are implemented. Defaults are V1001/V1002/V1003;
-V2001/V2002/V2003 are opt-in warnings, and V3001/V3002/V3003 are opt-in semantic
-rules that read the [scope graph](semantic-model.md). `--fix` applies only validated
-V1001/V1002 edits using guarded Windows replacement; see [fixes](fixes.md).
+V1004 and V2001/V2002/V2003 are opt-in warnings, and V3001/V3002/V3003 are opt-in
+semantic rules that read the [scope graph](semantic-model.md). `--fix` applies
+only validated V1001/V1002 edits using guarded Windows replacement; see
+[fixes](fixes.md).
 [SARIF
 2.1.0](sarif.md) is supported and schema-validated, and `--output-format github`
 emits GitHub Actions annotations for a pull-request job. Compiler/UEFN acceptance
@@ -32,10 +33,10 @@ rule; `--require-complete-semantics` turns an incomplete model into exit 2; see
 `select`/`ignore` entries — on the command line and in the `[lint]` arrays — are
 either a complete rule ID (`V1001`) or a rule-family prefix: `V` followed by zero
 or more ASCII digits (`V`, `V1`, `V2`). A prefix expands to every registered rule
-whose ID starts with it, so `--select V1` is the V1001/V1002/V1003 family and
-`--select V` is the whole registry. Expansion reads the live registry, so a rule
-added in a later release becomes reachable through an existing prefix without
-editing the selection.
+whose ID starts with it, so `--select V1` is the V1001/V1002/V1003/V1004 family
+and `--select V` is the whole registry. Expansion reads the live registry, so a
+rule added in a later release becomes reachable through an existing prefix
+without editing the selection.
 
 Both lists are expanded before subtraction, so `--select V --ignore V2` keeps the
 V1 family: an `ignore` prefix removes the rules it names, never a literal string.
@@ -62,6 +63,7 @@ exclude = ["Vendor/**"]
 select = ["V1001", "V1002", "V1003", "V2001"] # V2001 also has to be selected
 ignore = []
 max-line-length = 120 # used only when V2001 is selected
+indent-width = 4 # used only when V1004 is selected; 1..=16, never inferred
 external-names = [] # known external names V3002 should leave alone
 shadow-allow = [] # identifiers V3003 must never report as shadowing
 [lint.severity]
@@ -74,11 +76,33 @@ first `.git` boundary. With virtual stdin, start at the virtual parent. One
 config per invocation, no nested/global merging. Exclude/label root is config
 parent or CWD. Unknown top-level, files, lint and `[lint.severity]` keys fail;
 sibling `[format]` is required to be a table but its own keys/values are
-deliberately not validated. `max-line-length` must be 1..1,000,000.
+deliberately not validated. `max-line-length` must be 1..1,000,000 and
+`indent-width` must be an integer in 1..=16.
 `--show-config` shows effective CLI rule overrides, the expanded complete rule
 IDs behind `select`/`ignore`, the effective severity of every registered rule,
-configured `external-names`, configured `shadow-allow`, config source and root
-without inspecting inputs.
+configured `external-names`, configured `shadow-allow`, the resolved
+`indent-width`, config source and root without inspecting inputs.
+
+### `[lint] indent-width`
+
+`indent-width` is an integer, `4` by default, and it changes only
+[V1004](rules/v1004.md): a structural space-indent run whose length is not a
+multiple of this width is reported.
+
+```toml
+[lint]
+select = ["V1004"]
+indent-width = 2
+```
+
+Accepted values are `1..=16`. `0`, `17`, a negative number, a float or a string
+is a configuration error with exit 2 that names the key — **even when V1004 is
+not selected**, which matches how `max-line-length` is validated today rather
+than making an unusable value silently acceptable until a rule reads it. The tool
+never infers the width from the file's most common indentation; explicit
+configuration is the only source. Like every other option it does nothing
+unless its rule is in the active set, and `--show-config` prints the resolved
+value (`indent-width = 4`).
 
 ### `[lint] unused-parameters`
 
@@ -161,6 +185,29 @@ LF lines is reported like any other mix. Suppression is the ordinary line
 directive on the diagnosed line, plus `--ignore V2003` / `[lint] ignore`.
 `--fix` never touches it: normalising endings rewrites every line, which is the
 wholesale change the rule warns about.
+
+### V1004 space-indent-width
+
+V1003 flags a tab in structural indentation but deliberately never guesses a
+tab's visual width. The neighbouring case is space indentation that is not a
+multiple of the project's width, which produces content no formatter round-trips
+predictably. [V1004](rules/v1004.md) is that opt-in policy warning: with
+`[lint] indent-width` (default `4`) it reports one warning per structural line
+whose leading space run has the wrong length. It is off by default, so
+`--select V1004`, `--select V1`, `--select V` or `[lint] select` is how a
+project turns it on.
+
+**The width is never inferred.** It comes from configuration only — not from the
+file's most common indentation and not from a tab's visual width — because a
+wrong guess silently changes block ownership. The run uses the same structural
+predicate as V1003 (physical line start, `depth == 0`, code on the line), and a
+run that contains a tab is left to V1003 alone, so the two rules never
+(double-)report one line. Blank lines, whitespace-only lines, comment-only lines,
+string/comment interiors and non-zero-depth continuation lines are not
+diagnosed, and `--fix` never touches it: adding or removing spaces would change
+block structure, which is exactly what the rule warns about. Suppression is the
+ordinary line directive on the diagnosed line, plus `--ignore V1004` /
+`[lint] ignore`.
 
 `[lint.severity]` promotes or demotes an already-registered rule for this
 project; it never adds a rule. Keys must be complete rule IDs that appear in the

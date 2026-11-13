@@ -49,6 +49,13 @@ try {
     New-Fixture '日 space #%.verse' "A := 1  `n# TODO later`n"
     New-ByteFixture 'crlf.verse' "A := 1`r`nB := 2`r`n"
     New-ByteFixture 'mixed.verse' "A := 1`r`nB := 2`r`nC := 3`n"
+    # V1004 is opt-in and reads `[lint] indent-width`, so these fixtures carry
+    # structural space indents of known length plus both configurations its
+    # contract names: a valid narrow width and an invalid one.
+    New-Fixture 'indent.verse' "f():void =`n  Print(`"x`")`n"
+    New-Fixture 'wide-indent.verse' "f():void =`n      Print(`"x`")`n"
+    New-Fixture 'narrow.toml' "schema-version = 1`n[lint]`nindent-width = 2`n"
+    New-Fixture 'invalid-indent.toml' "schema-version = 1`n[lint]`nindent-width = 0`n"
 
     foreach ($format in @('json', 'sarif')) {
     $schema = if ($format -eq 'sarif') { $sarifSchema } else { "$PSScriptRoot/../docs/diagnostics.schema.json" }
@@ -64,6 +71,11 @@ try {
         @{ Arguments = @('mixed.verse', '--select=V2003'); Exit = 0 },
         @{ Arguments = @('mixed.verse', '--select=V2003', '--deny-warnings'); Exit = 1 },
         @{ Arguments = @('crlf.verse', '--select=V2003'); Exit = 0 },
+        @{ Arguments = @('indent.verse', '--select=V1004'); Exit = 0 },
+        @{ Arguments = @('indent.verse', '--select=V1004', '--deny-warnings'); Exit = 1 },
+        @{ Arguments = @('indent.verse', '--config', 'narrow.toml', '--select=V1004'); Exit = 0 },
+        @{ Arguments = @('wide-indent.verse', '--config', 'narrow.toml', '--select=V1004'); Exit = 0 },
+        @{ Arguments = @('indent.verse', '--config', 'invalid-indent.toml', '--select=V1001'); Exit = 2 },
         @{ Arguments = @('-', '--stdin-filepath=C:/virtual/日.verse'); Input = "A := 1"; Exit = 1 },
         @{ Arguments = @('-'); Input = '<# incomplete'; Exit = 2 }
     )) {
@@ -129,6 +141,8 @@ try {
         @{ Arguments = @('long.verse', '--select=V2001'); Exit = 0; Lines = 1 },
         @{ Arguments = @('mixed.verse', '--select=V2003'); Exit = 0; Lines = 1 },
         @{ Arguments = @('crlf.verse', '--select=V2003'); Exit = 0; Lines = 0 },
+        @{ Arguments = @('indent.verse', '--select=V1004'); Exit = 0; Lines = 1 },
+        @{ Arguments = @('indent.verse', '--config', 'narrow.toml', '--select=V1004'); Exit = 0; Lines = 0 },
         @{ Arguments = @('suppressed.verse'); Exit = 0; Lines = 0 },
         @{ Arguments = @('suppressed.verse', '--show-suppressed'); Exit = 0; Lines = 1 },
         @{ Arguments = @('missing.verse'); Exit = 2; Lines = 0 },

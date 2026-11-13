@@ -188,6 +188,7 @@ fn show_config_renders_an_ordered_effective_severity_map() {
             "V1001 = \"error\"",
             "V1002 = \"error\"",
             "V1003 = \"warning\"",
+            "V1004 = \"warning\"",
             "V2001 = \"error\"",
             "V2002 = \"warning\"",
             "V2003 = \"warning\"",
