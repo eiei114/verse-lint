@@ -2,7 +2,7 @@
 
 Linter for Epic Games' Verse language and UEFN projects.
 
-> Unreleased alpha with nine lint rules, line suppression, file/stdin/project
+> Unreleased alpha with ten lint rules, line suppression, file/stdin/project
 > input, configuration, text/JSON/SARIF/GitHub annotations and guarded Windows
 > safe fixes.
 > A paired 64-case formatter convergence harness and PowerShell/cmd smoke matrix
@@ -59,6 +59,8 @@ verse-lint . --output-format sarif
 verse-lint . --output-format github
 verse-lint . --fix
 verse-lint . --fix --diff
+verse-lint . --select V1003
+verse-lint . --select V1004 --config verse.toml
 verse-lint . --select V2001,V2002 --deny-warnings
 verse-lint . --select V2003
 verse-lint . --select V3001
@@ -140,6 +142,14 @@ construct, and the refusal is tested rather than incidental. Rejection is a
 coverage statement, never a claim that UEFN would reject the source.
 
 Defaults: V1001 trailing whitespace, V1002 final newline, V1003 tab indentation.
+V1004 space-indent-width is an opt-in warning that reports a structural space-indent
+run whose length is not a multiple of `[lint] indent-width` (default `4`, accepted
+`1..=16`): the width comes from configuration only, never from the file's most
+common indentation or a tab's visual width, because a wrong guess silently changes
+block ownership. It shares V1003's structural predicate, so a run containing a
+tab belongs to V1003 and no line is reported twice; blank, whitespace-only and
+comment-only lines and delimited continuations are never diagnosed, and
+`--fix` never touches it. See [V1004][v1004].
 V2001 line length, V2002 bare TODO comments and V2003 mixed LF/CRLF line endings
 are opt-in warnings: V2003 reports one finding for a file that contains both
 terminator styles, anchored at the first terminator that differs from the file's
@@ -275,6 +285,7 @@ repository's `docs/` directory: a relative link is dead there. They point at
 [parser]: https://github.com/eiei114/verse-lint/blob/main/docs/parser-design.md
 [semantic]: https://github.com/eiei114/verse-lint/blob/main/docs/semantic-model.md
 [v3002]: https://github.com/eiei114/verse-lint/blob/main/docs/rules/v3002.md
+[v1004]: https://github.com/eiei114/verse-lint/blob/main/docs/rules/v1004.md
 [v3003]: https://github.com/eiei114/verse-lint/blob/main/docs/rules/v3003.md
 [integration]: https://github.com/eiei114/verse-lint/blob/main/docs/integration-testing.md
 [packaging]: https://github.com/eiei114/verse-lint/blob/main/docs/packaging-and-mise.md

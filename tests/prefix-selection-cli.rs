@@ -12,9 +12,13 @@ use std::{
 
 /// Every rule family in the registry, so a test that selects `V` proves the
 /// whole registry is reachable instead of only the default three.
-const ALL_IDS: [&str; 9] = [
-    "V1001", "V1002", "V1003", "V2001", "V2002", "V2003", "V3001", "V3002", "V3003",
+const ALL_IDS: [&str; 10] = [
+    "V1001", "V1002", "V1003", "V1004", "V2001", "V2002", "V2003", "V3001", "V3002", "V3003",
 ];
+/// The V1 family is the three default style rules plus the opt-in space-indent
+/// width rule, which [`tests/v1004-cli.rs`] covers directly. The fixture's
+/// indentation is a tab, so V1004 has nothing to say about it and [`V1_IDS`]
+/// lists only the rules that actually report here.
 const V1_IDS: [&str; 3] = ["V1001", "V1002", "V1003"];
 const V2_IDS: [&str; 2] = ["V2001", "V2002"];
 /// The complete V2 family as the registry expands it. V2003 is part of the
@@ -48,8 +52,8 @@ fn every_rule() -> String {
 const SEMANTIC_SOURCE: &str = "f():void =\n    Unused := 1\n    Print(\"x\")\n";
 
 /// The style rules `every_rule()` can report, which is every registered rule
-/// except V3001, V3002, V3003 and V2003. `--select V` reaches all nine; only these
-/// five have something to say about that fixture.
+/// except V3001, V3002, V3003, V2003 and V1004. `--select V` reaches all ten;
+/// only these five have something to say about that fixture.
 const STYLE_IDS: [&str; 5] = ["V1001", "V1002", "V1003", "V2001", "V2002"];
 
 fn run(root: &Path, args: &[&str]) -> Output {

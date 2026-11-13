@@ -6,7 +6,7 @@ Output is deterministic for the same inputs/configuration. This command has no
 network access: it does not upload anything, enable GitHub code scanning or
 invoke external services.
 
-- Driver metadata contains all nine rule IDs, stable names, English help,
+- Driver metadata contains all ten rule IDs, stable names, English help,
   default enabled/level settings and safe-fix capability. Names, levels and
   default-enabled flags come from the `rules::REGISTRY` entry, not a parallel
   positional list; each result's `ruleIndex` is resolved from its `ruleId`, so

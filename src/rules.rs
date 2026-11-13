@@ -56,6 +56,9 @@ impl std::fmt::Display for Severity {
 pub struct Options {
     /// Used only when V2001 is selected.
     pub max_line_length: usize,
+    /// Used only when V1004 is selected: the space-indentation width a leading
+    /// space run is compared against. Never inferred from the file.
+    pub indent_width: usize,
     /// Used only when V3001 is selected: whether an unused parameter is
     /// reported as well as an unused local.
     pub unused_parameters: bool,
@@ -72,6 +75,7 @@ impl Default for Options {
         let settings = Settings::default();
         Self {
             max_line_length: settings.max_line_length,
+            indent_width: settings.indent_width,
             unused_parameters: settings.unused_parameters,
             external_names: settings.external_names,
             shadow_allow: settings.shadow_allow,
@@ -87,6 +91,13 @@ pub type SeverityOverrides = BTreeMap<String, Severity>;
 /// default rule selection and CLI/config validation all read this registry, so
 /// adding or reordering a rule never needs a parallel positional list. Detectors
 /// address entries by the [`V1001`]-style ID constants, never by index.
+///
+/// Order is not part of the obeyed contract — every lookup is by ID — with one
+/// emitted consequence: SARIF `ruleIndex` is the position in this array. A rule
+/// registered *before* an existing one therefore renumbers results that belong to
+/// the rules after it, which is a registry-derived difference the baseline
+/// parity gate does not exempt. New rules are appended for that reason, and the
+/// `V1004` entry sits last instead of between `V1003` and `V2001`.
 #[derive(Clone, Debug)]
 pub struct Rule {
     pub id: &'static str,
@@ -99,7 +110,7 @@ pub struct Rule {
     /// Selected when configuration omits `[lint] select`.
     pub selected_by_default: bool,
 }
-pub const REGISTRY: [Rule; 9] = [
+pub const REGISTRY: [Rule; 10] = [
     Rule {
         id: "V1001",
         name: "TrailingWhitespace",
@@ -172,6 +183,18 @@ pub const REGISTRY: [Rule; 9] = [
         fixable: false,
         selected_by_default: false,
     },
+    // `V1004` sorts between `V1003` and `V2001`, but it is registered last so
+    // every existing entry keeps its `ruleIndex` (see the note above `REGISTRY`).
+    // Selection, expansion, severity maps and documentation all order by ID, so
+    // the array order is emitted only as SARIF `ruleIndex`.
+    Rule {
+        id: "V1004",
+        name: "SpaceIndentWidth",
+        severity: Severity::Warning,
+        message: "Indentation is not a multiple of the configured indent width",
+        fixable: false,
+        selected_by_default: false,
+    },
 ];
 
 /// Stable rule IDs. Detectors dispatch on these, never on a registry position,
@@ -179,6 +202,7 @@ pub const REGISTRY: [Rule; 9] = [
 pub const V1001: &str = "V1001";
 pub const V1002: &str = "V1002";
 pub const V1003: &str = "V1003";
+pub const V1004: &str = "V1004";
 pub const V2001: &str = "V2001";
 pub const V2002: &str = "V2002";
 pub const V2003: &str = "V2003";
@@ -189,8 +213,8 @@ pub const V3003: &str = "V3003";
 /// Every ID a detector can emit. Test-side contract table: the registry tests
 /// check [`REGISTRY`] against it in both directions.
 #[cfg(test)]
-pub const DETECTOR_IDS: [&str; 9] = [
-    V1001, V1002, V1003, V2001, V2002, V2003, V3001, V3002, V3003,
+pub const DETECTOR_IDS: [&str; 10] = [
+    V1001, V1002, V1003, V1004, V2001, V2002, V2003, V3001, V3002, V3003,
 ];
 
 /// `select`/`ignore` entries accept a complete ID (`V1001`) or a numeric prefix
@@ -253,6 +277,23 @@ pub fn rule(id: &str) -> &'static Rule {
 /// [`Settings::validate`], which can name both the rule and the accepted
 /// literals; a non-string value is rejected here so the message still names the
 /// offending key instead of a bare "invalid type".
+/// Read `[lint] indent-width` as a TOML integer. A string, a float or a
+/// negative value is rejected here so the message names the key instead of
+/// deferring to a bare "invalid type" report; the usable range is checked in
+/// [`Settings::validate`], which names the key too.
+fn deserialize_indent_width<'de, D>(deserializer: D) -> Result<usize, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    match toml::Value::deserialize(deserializer)? {
+        toml::Value::Integer(value) if value >= 0 => Ok(value as usize),
+        other => Err(Error::custom(format!(
+            "invalid indent-width {other} in [lint]; expected an integer between 1 and 16"
+        ))),
+    }
+}
+
 fn deserialize_severity<'de, D>(deserializer: D) -> Result<BTreeMap<String, String>, D::Error>
 where
     D: serde::Deserializer<'de>,
@@ -275,6 +316,12 @@ pub struct Settings {
     pub select: Vec<String>,
     pub ignore: Vec<String>,
     pub max_line_length: usize,
+    /// `[lint] indent-width`: the space-indentation width V1004 compares a
+    /// leading space run against. Explicit configuration only; the tool never
+    /// infers a width from the file's most common indentation.
+    #[serde(deserialize_with = "deserialize_indent_width")]
+    pub indent_width: usize,
+    /// `[lint] unused-parameters`: whether V3001 also reports a parameter with
     /// `[lint] unused-parameters`: whether V3001 also reports a parameter with
     /// no resolved reference. `false` by default, because an unused parameter is
     /// usually dictated by a callback signature rather than left behind.
@@ -301,6 +348,7 @@ impl Default for Settings {
                 .collect(),
             ignore: vec![],
             max_line_length: 120,
+            indent_width: 4,
             unused_parameters: false,
             external_names: vec![],
             shadow_allow: vec![],
@@ -318,6 +366,15 @@ impl Settings {
         self.expanded_ignore()?;
         if self.max_line_length == 0 || self.max_line_length > 1_000_000 {
             return Err("max-line-length must be between 1 and 1000000".into());
+        }
+        // Validated whether or not V1004 is selected, exactly as
+        // `max-line-length` is: a configuration the tool could not honour is
+        // an error, not a value that only matters once a rule reads it.
+        if !(1..=16).contains(&self.indent_width) {
+            return Err(format!(
+                "indent-width must be between 1 and 16, found {}",
+                self.indent_width
+            ));
         }
         if self.external_names.iter().any(|name| name.is_empty()) {
             return Err("external-names entries must not be empty".into());
@@ -386,6 +443,7 @@ impl Settings {
     pub fn options(&self) -> Options {
         Options {
             max_line_length: self.max_line_length,
+            indent_width: self.indent_width,
             unused_parameters: self.unused_parameters,
             external_names: self.external_names.clone(),
             shadow_allow: self.shadow_allow.clone(),
@@ -500,10 +558,12 @@ fn lint_with(
             if tail.is_empty() || matches!(tail.as_bytes().first(), Some(b'\r' | b'\n')) {
                 emit(V1001, token.range.clone())?;
             }
-            if depth == 0
-                && token.range.start == source.line_start(token.range.start)
-                && token.text(source).contains('\t')
-            {
+            // V1003 and V1004 share one structural-indentation predicate: a
+            // line-start run outside every delimiter, with code on the line. A
+            // run containing a tab is left to V1003 alone, so the two rules can
+            // never double-report one line, and V1004 never interprets a tab's
+            // visual width.
+            if depth == 0 && token.range.start == source.line_start(token.range.start) {
                 let line_end = source.text()[token.range.end..]
                     .find('\n')
                     .map_or(source.text().len(), |i| token.range.end + i);
@@ -512,7 +572,15 @@ fn lint_with(
                     .take_while(|t| t.range.start < line_end)
                     .any(|t| !t.kind.is_trivia() && !t.kind.is_comment());
                 if code {
-                    emit(V1003, token.range.clone())?;
+                    let indent = token.text(source);
+                    if indent.contains('\t') {
+                        emit(V1003, token.range.clone())?;
+                    } else if indent.len() % options.indent_width != 0 {
+                        // One diagnostic per offending line, spanning the whole
+                        // leading space run. No width inference and no fix: the
+                        // tool cannot know whether to add or remove spaces.
+                        emit(V1004, token.range.clone())?;
+                    }
                 }
             }
         }
@@ -659,10 +727,11 @@ mod tests {
 
     /// Documented contract per rule, addressed by stable ID. Order is not part
     /// of the contract, so this is looked up by ID rather than by position.
-    const DOCUMENTED: [(&str, &str, &str, bool, bool); 9] = [
+    const DOCUMENTED: [(&str, &str, &str, bool, bool); 10] = [
         (V1001, "TrailingWhitespace", "error", true, true),
         (V1002, "MissingFinalNewline", "error", true, true),
         (V1003, "TabIndentation", "error", false, true),
+        (V1004, "SpaceIndentWidth", "warning", false, false),
         (V2001, "LineTooLong", "warning", false, false),
         (V2002, "BareTodoComment", "warning", false, false),
         (V2003, "MixedLineEndings", "warning", false, false),
@@ -688,6 +757,7 @@ mod tests {
             &SeverityOverrides::new(),
             Options {
                 max_line_length: 12,
+                indent_width: 4,
                 unused_parameters: false,
                 external_names: vec![],
                 shadow_allow: vec![],
@@ -1034,7 +1104,7 @@ mod tests {
     #[test]
     fn a_prefix_expands_to_every_matching_registered_rule_in_registry_order() {
         let family = expand_entry("V1").expect("V1 is registered");
-        assert_eq!(family, [V1001, V1002, V1003]);
+        assert_eq!(family, [V1001, V1002, V1003, V1004]);
         let policy = expand_entry("V2").expect("V2 is registered");
         assert_eq!(policy, [V2001, V2002, V2003]);
         // The semantic family is its own prefix: a V2 policy warning and a V3
@@ -1083,12 +1153,12 @@ mod tests {
         let settings = settings_with(&["V"], &["V2"]);
         assert_eq!(
             settings.active().unwrap(),
-            active(&[V1001, V1002, V1003, V3001, V3002, V3003])
+            active(&[V1001, V1002, V1003, V1004, V3001, V3002, V3003])
         );
         // A prefix subtracts the rule it actually names, not the literal text.
         assert_eq!(
             settings_with(&["V1", "V2"], &["V2002"]).active().unwrap(),
-            active(&[V1001, V1002, V1003, V2001, V2003])
+            active(&[V1001, V1002, V1003, V1004, V2001, V2003])
         );
         // Overlapping entries collapse to one effective set.
         assert_eq!(
@@ -1131,7 +1201,10 @@ mod tests {
             settings.expanded_select().unwrap(),
             [V1002, V2001, V2002, V2003]
         );
-        assert_eq!(settings.expanded_ignore().unwrap(), [V1001, V1002, V1003]);
+        assert_eq!(
+            settings.expanded_ignore().unwrap(),
+            [V1001, V1002, V1003, V1004]
+        );
     }
 
     #[test]
@@ -1222,6 +1295,7 @@ mod tests {
                 (V1001, "error"),
                 (V1002, "error"),
                 (V1003, "warning"),
+                (V1004, "warning"),
                 (V2001, "error"),
                 (V2002, "warning"),
                 (V2003, "warning"),
@@ -1255,6 +1329,7 @@ mod tests {
             &overrides,
             Options {
                 max_line_length: 12,
+                indent_width: 4,
                 unused_parameters: false,
                 external_names: vec![],
                 shadow_allow: vec![],
