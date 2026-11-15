@@ -17,7 +17,8 @@ extracts the problem-matcher pattern from this document, runs the real binary on
 a fixture with a known finding and asserts the pattern captures the file, line,
 column, severity, rule ID and message the JSON report describes — including a
 `C:/...`-style absolute path. It also runs the PowerShell hook below against a
-temporary repository.
+temporary repository, and it lints a project twice — as a directory walk and as
+a piped buffer — so the difference the next section describes cannot drift.
 
 Every recipe keeps stdout machine-readable. Exit codes are the ones in
 [the CLI reference](cli.md#output-contract) and mean exactly this:
@@ -133,8 +134,13 @@ buffer came from.
   stopping at the first directory containing `.git`
   ([configuration](cli.md#configuration)). Without `--stdin-filepath` it starts
   at CWD and the finding is labelled `<stdin>`; with it, a buffer whose file is
-  not on disk still gets the project's `verse.toml`, `[files] exclude`
-  selection and `[lint]` options.
+  not on disk still gets the project's `verse.toml` — its `[lint]` selection,
+  options and severity overrides — and the `verse-lint.ignore` at that root is
+  located and validated, so an invalid one still fails with exit `2`.
+- **No exclusion pattern applies to a buffer.** `[files] exclude` and the
+  entries of `verse-lint.ignore` are consulted by file discovery, and a stdin
+  run never performs discovery, so a buffer whose virtual path the project
+  excludes is still linted. The note below spells out the consequence.
 - The virtual path is also the reported path, so a matcher or a hook sees the
   path the editor knows, not a temporary file.
 - Diagnostics are ordinary text, JSON or GitHub annotations. Only the input
@@ -148,7 +154,7 @@ pipes a buffer therefore never edits your source; if you want fixes, run
 
 Wiring this to a save event needs a program that can pipe the buffer. VS Code
 alone cannot: a task runs a command, it cannot capture an unsaved editor buffer.
-Editors and wrappers that can pipe text use the command above. Two practical
+Editors and wrappers that can pipe text use the command above. Three practical
 details:
 
 - Piping a buffer through a shell can change its bytes. Windows PowerShell 5.1
@@ -156,9 +162,14 @@ details:
   one would stop reporting V1002; run the pipeline under `pwsh` (PowerShell 7+),
   which passes the bytes through, or under a POSIX shell. The pre-commit
   script below refuses to run under 5.1 for that reason.
-- Without `--stdin-filepath`, a piped buffer that a project excludes would be
-  linted anyway: the virtual path is what applies `[files] exclude` and
-  `verse-lint.ignore`.
+- `--stdin-filepath` decides the label and where configuration discovery
+  starts; it does not make the exclusions apply either. A project that excludes
+  `Vendor/**` still reports `Vendor/generated.verse:1:11: error V1001` when that
+  buffer is piped in, while the same file on disk is skipped with
+  `Vendor/generated.verse: excluded (verse.toml exclude)` under
+  `verse-lint . --verbose`. A hook that lints only staged files therefore sees
+  files a directory run leaves out — the same bypass an explicit path argument
+  has ([ignore file](cli.md#ignore-file)).
 
 ## Pre-commit hook: lint only the staged files
 
@@ -169,7 +180,9 @@ commit. Both scripts below read the staged blob with `git show :<path>` and pipe
 it through stdin, which is why the stdin mode above matters.
 
 Staged `.verse` blobs only — `git diff --cached --diff-filter=ACMR` skips
-deleted files and every non-Verse file.
+deleted files and every non-Verse file. Every staged blob is linted, including
+one that `[files] exclude` or `verse-lint.ignore` keeps out of a directory run:
+stdin is not file discovery, so the hook never skips a file you staged.
 
 ### POSIX `sh`
 
@@ -270,11 +283,16 @@ foreach ($file in $files) {
         continue
     }
     git show ":$file" | & $binary @arguments
-    if ($LASTEXITCODE -eq 2) {
-        Write-Host "verse-lint could not complete the inspection of $file"
+    $code = $LASTEXITCODE
+    if ($code -eq 1) {
+        if ($status -eq 0) { $status = 1 }
+    } elseif ($code -ne 0) {
+        # 2 is an incomplete inspection, and any other non-zero code — a panic's
+        # 101, a wrapper's 3 — is one too: nothing says the buffer was inspected.
+        # Recording only 2 and 1 would leave $status at 0 and let the commit
+        # through with no result at all.
+        Write-Host "verse-lint exited $code for $file; the inspection did not complete"
         $status = 2
-    } elseif ($LASTEXITCODE -eq 1 -and $status -eq 0) {
-        $status = 1
     }
 }
 if ($status -ne 0) {
@@ -302,6 +320,11 @@ deliberately so:
 - A missing binary is `2` in both scripts, never a silent pass. That is the
   difference between "this project has no findings" and "the hook is not doing
   its job", and only one of them should let a commit through.
+- The recorded status is the **worst** the loop saw, and any non-zero code the
+  exit table does not name — a Rust panic's `101`, a wrapper's `3` — is recorded
+  as `2`. The `sh` hook's `*)` branch does the same. A code the script did not
+  record would leave the status at `0`, and the commit would proceed without any
+  inspection result.
 
 Both hooks stop at the first blocked commit and print the tool's own lines, so
 the message is the real `path:line:column: severity rule-id message` line; you

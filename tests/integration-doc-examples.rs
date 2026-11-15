@@ -10,7 +10,8 @@
 //!   nothing in an editor. One case uses a `C:/...` absolute path, which is the
 //!   case a naive `(\S+):(\d+)` pattern gets wrong.
 //! - the stdin command is executed, including the claim that `--fix` refuses
-//!   stdin with exit 2.
+//!   stdin with exit 2 and the claim that no exclusion pattern applies to a
+//!   buffer (a project that excludes the buffer's path still reports it).
 //! - the documented exit codes are observed on a clean run, an error, a denied
 //!   warning and an incomplete inspection.
 //! - the documented PowerShell pre-commit hook is extracted and run against a
@@ -387,6 +388,124 @@ fn documented_stdin_recipe_uses_the_virtual_path_and_never_fixes() {
     );
 }
 
+/// The document's stdin section states exactly which parts of the configuration
+/// reach a buffer: `verse.toml` discovery, the `[lint]` selection, options and
+/// severity overrides, and the ignore file's location and validation — but no
+/// exclusion pattern, because a stdin run never performs file discovery. This is
+/// what a save hook and the pre-commit hook above actually do, so the document
+/// must not promise the exclusions. Two sentences used to say the virtual path
+/// applies `[files] exclude` and `verse-lint.ignore`; this test runs the two
+/// behaviours side by side and fails if the document drifts back.
+#[test]
+fn documented_stdin_applies_the_configuration_but_no_exclusion_pattern() {
+    for needle in [
+        "**No exclusion pattern applies to a buffer.**",
+        "it does not make the exclusions apply either",
+    ] {
+        assert!(
+            DOC.contains(needle),
+            "docs/integration.md must keep the corrected stdin claim {needle:?}"
+        );
+    }
+    for stale in [
+        "the virtual path is what applies `[files] exclude`",
+        "`verse.toml`, `[files] exclude`",
+    ] {
+        assert!(
+            !DOC.contains(stale),
+            "docs/integration.md must not claim exclusions apply to stdin: {stale:?}"
+        );
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("verse.toml"),
+        "schema-version = 1\n[files]\nexclude = [\"Vendor/**\"]\n[lint]\nselect = [\"V1001\"]\n",
+    )
+    .unwrap();
+    fs::create_dir_all(dir.path().join("Vendor")).unwrap();
+    fs::create_dir_all(dir.path().join("Content")).unwrap();
+    fs::write(dir.path().join("Vendor/v.verse"), "value := 1   \r\n").unwrap();
+    fs::write(
+        dir.path().join("Content/generated.verse"),
+        "value := 1   \r\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("verse-lint.ignore"),
+        "Content/generated.verse\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("Content/clean.verse"), "value := 1\r\n").unwrap();
+
+    // The directory run skips both excluded files and names the source that
+    // excluded each one; only `clean.verse` is inspected.
+    let walk = run(dir.path(), &[".".to_owned(), "--verbose".to_owned()]);
+    let stderr = String::from_utf8_lossy(&walk.stderr).to_string();
+    for needle in [
+        "Vendor/v.verse: excluded (verse.toml exclude)",
+        "Content/generated.verse: excluded (verse-lint.ignore exclude)",
+    ] {
+        assert!(
+            stderr.contains(needle),
+            "the documented `--verbose` attribution must stay observable: {stderr:?}"
+        );
+    }
+    assert!(
+        !stdout_text(&walk).contains("Vendor"),
+        "an excluded file is not linted by a directory run: {:?}",
+        stdout_text(&walk)
+    );
+
+    // The same two paths piped through stdin are linted anyway, which is what
+    // the corrected document says: the buffer gets the project's `[lint]`
+    // selection, and no exclusion pattern is consulted.
+    for label in ["Vendor/v.verse", "Content/generated.verse"] {
+        let out = run_stdin(
+            dir.path(),
+            &["-", "--stdin-filepath", label, "--output-format", "json"],
+            "value := 1   \r\n",
+        );
+        let report = json_report(&out);
+        let diagnostics = report["diagnostics"].as_array().unwrap();
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "a stdin run must still report {label}, exactly as documented: {report}"
+        );
+        assert_eq!(
+            diagnostics[0]["ruleId"], "V1001",
+            "the project's `[lint]` selection still applies to the buffer: {report}"
+        );
+        assert_eq!(
+            diagnostics[0]["path"], label,
+            "the virtual path is the reported path: {report}"
+        );
+        assert_eq!(out.status.code(), Some(1), "{report}");
+    }
+
+    // The ignore file is still *located* and validated on the stdin path: the
+    // document promises that, and a finding is not a silent pass over a broken
+    // configuration.
+    fs::write(dir.path().join("verse-lint.ignore"), "!negated\n").unwrap();
+    let invalid = run_stdin(
+        dir.path(),
+        &["-", "--stdin-filepath", "Vendor/v.verse"],
+        "value := 1   \r\n",
+    );
+    assert_eq!(
+        invalid.status.code(),
+        Some(2),
+        "an invalid ignore file must still fail a stdin run: {:?}",
+        String::from_utf8_lossy(&invalid.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&invalid.stderr).contains("verse-lint.ignore:1:"),
+        "the failure must name the ignore file and its line: {:?}",
+        String::from_utf8_lossy(&invalid.stderr)
+    );
+}
+
 /// The exit-code table, observed rather than quoted: 0 clean, 1 violations (and
 /// 1 for denied warnings), 2 incomplete.
 #[test]
@@ -520,8 +639,9 @@ fn the_document_states_the_limits_and_is_linked_from_readme_and_cli() {
 
 /// The pre-commit hook from the document, extracted and run against a temporary
 /// repository. A hook that cannot block is worse than no hook, so this asserts
-/// 0 for a clean staged file, 1 for a staged error, 1 for a denied warning and
-/// 2 when the tool is missing.
+/// 0 for a clean staged file, 1 for a staged error, 1 for a denied warning,
+/// 2 when the tool is missing, 2 for an unreadable staged blob, and 2 for an
+/// exit code the documented table does not name.
 #[cfg(windows)]
 #[test]
 fn documented_powershell_hook_blocks_the_staged_findings_it_must() {
@@ -538,13 +658,23 @@ fn documented_powershell_hook_blocks_the_staged_findings_it_must() {
         "$PSVersionTable.PSVersion.Major -lt 7",
         "$OutputEncoding = [System.Text.UTF8Encoding]::new($false)",
         "git cat-file -e",
+        "$code = $LASTEXITCODE",
     ] {
         assert!(
             script.contains(needle),
             "the documented PowerShell hook must keep {needle:?}: it is what makes \
-             the hook read the staged bytes instead of a re-encoded line list"
+             the hook read the staged bytes instead of a re-encoded line list, and \
+             it is what records an exit code the table does not name"
         );
     }
+    // The `*)` branch must exist: the loop records only 1 and 2, so any other
+    // non-zero code - a Rust panic's 101, a wrapper's 3 - would leave the
+    // status at 0 and let the commit proceed with no inspection result.
+    assert!(
+        script.contains("$code -ne 0"),
+        "the documented PowerShell hook must record an unexpected exit code as \
+         incomplete, not leave it at clean: {script}"
+    );
     // The documented shim must run PowerShell 7, which the script's version
     // guard requires; `powershell` (5.1) pipes native output line by line and
     // would hide a missing final newline.
@@ -666,5 +796,31 @@ fn documented_powershell_hook_blocks_the_staged_findings_it_must() {
         "a staged file that cannot be read must exit 2: {}{}",
         stdout_text(&unreadable),
         String::from_utf8_lossy(&unreadable.stderr)
+    );
+
+    // An exit code the documented table does not name is an incomplete
+    // inspection, not a clean one. A tool that reads the staged bytes and then
+    // fails - a Rust panic's 101 is the realistic case - must still block the
+    // commit: recording only 1 and 2 used to leave the status at 0 here.
+    let failing = dir.path().join("exit101.ps1");
+    fs::write(&failing, "[Console]::In.ReadToEnd() | Out-Null\nexit 101\n").unwrap();
+    let unexpected = run_hook(&failing.to_string_lossy(), false);
+    assert_eq!(
+        unexpected.status.code(),
+        Some(2),
+        "an unexpected non-zero exit must be recorded as incomplete, never as a \
+         clean commit: {}{}",
+        stdout_text(&unexpected),
+        String::from_utf8_lossy(&unexpected.stderr)
+    );
+    let unexpected_stdout = stdout_text(&unexpected);
+    assert!(
+        unexpected_stdout.contains("verse-lint exited 101"),
+        "the hook must name the code it could not interpret: {unexpected_stdout:?}"
+    );
+    assert!(
+        unexpected_stdout.contains("commit blocked: verse-lint exited 2"),
+        "the worst recorded status is 2, and the documented message reports it: \
+         {unexpected_stdout:?}"
     );
 }
