@@ -69,6 +69,27 @@ pub struct Cli {
         ]
     )]
     pub show_config: bool,
+    /// Print one registered rule's registry summary and embedded
+    /// `docs/rules/<id>.md` document, then exit. Accepts one complete rule ID
+    /// (`V1001`); it reads no configuration and no source file.
+    #[arg(
+        long,
+        value_name = "RULE",
+        conflicts_with_all = [
+            "paths",
+            "fix",
+            "diff",
+            "output_format",
+            "select",
+            "ignore",
+            "show_suppressed",
+            "show_config",
+            "dump_scopes",
+            "semantic_coverage",
+            "require_complete_semantics"
+        ]
+    )]
+    pub explain: Option<String>,
     /// Print the per-file scope graph as JSON and run no rule. This is an
     /// UNSTABLE diagnostic surface for rule authors, not a stable public
     /// contract; its shape may change without notice.

@@ -22,9 +22,11 @@ default `select` list, CLI/config validation and the SARIF driver metadata are
 all derived from or checked against it. Detectors dispatch on the `V####` ID
 constants (`rules::V1001` …), and SARIF `ruleIndex` is resolved from `ruleId`
 when rendering, so reordering `REGISTRY` cannot rebind a finding to another
-rule ID. Adding a rule means one registry entry, its `rules/<id>.md` document
-and one row here — never a parallel positional array. The severity column is the
-registry default; a project may override it without changing this table.
+rule ID. Adding a rule means one registry entry, its `rules/<id>.md` document,
+one row here and one `include_str!` arm in `rules::embedded_doc` so
+`--explain` can print it — never a parallel positional array. The severity
+column is the registry default; a project may override it without changing this
+table.
 
 Select a complete ID (`V1001`), or a rule-family prefix of `V` plus digits: `--select
 V2` enables every registered V2 rule and `--ignore V2` removes that family. Prefixes
@@ -36,6 +38,11 @@ is set. Execution errors always exit 2 and cannot be suppressed. Prefixes apply
 only here — `[lint.severity]` keys and suppression directives still need complete
 IDs. See [suppression syntax](suppressions.md), [configuration](cli.md) and
 [fixes](fixes.md).
+
+`verse-lint --explain <RULE>` prints the registry summary of one rule and the
+text of its document from the binary itself, so a `V####` in CI output can be
+read without the repository; see
+[reading a rule](cli.md#reading-a-rule-with---explain-rule).
 
 ## Per-project severity
 
