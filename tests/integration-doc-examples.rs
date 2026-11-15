@@ -802,6 +802,22 @@ fn documented_powershell_hook_blocks_the_staged_findings_it_must() {
     // inspection, not a clean one. A tool that reads the staged bytes and then
     // fails - a Rust panic's 101 is the realistic case - must still block the
     // commit: recording only 1 and 2 used to leave the status at 0 here.
+    //
+    // The dangling entry above is removed first, so the 2 below is the hook's
+    // reading of 101 and not a leftover incomplete inspection. The control run
+    // proves the repository is back to "warnings only, commit allowed": if this
+    // stage were not clean, the exit-101 assertion would pass for the wrong
+    // reason.
+    git(&["update-index", "--force-remove", "ghost.verse"]);
+    let control = run_hook(binary(), false);
+    assert_eq!(
+        control.status.code(),
+        Some(0),
+        "with the dangling entry gone and no denied warning, only the exit-101 \
+         branch can make the next run exit 2: {}{}",
+        stdout_text(&control),
+        String::from_utf8_lossy(&control.stderr)
+    );
     let failing = dir.path().join("exit101.ps1");
     fs::write(&failing, "[Console]::In.ReadToEnd() | Out-Null\nexit 101\n").unwrap();
     let unexpected = run_hook(&failing.to_string_lossy(), false);
