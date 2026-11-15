@@ -384,6 +384,12 @@ and `summary`, including recoverable argument/config failures when a valid JSON
 output request can be identified. Invalid output format itself uses stderr only.
 Help/version bypass config. JSON never contains ANSI color or progress logs.
 
+Copy-pasteable recipes that consume these formats — a VS Code problem matcher,
+a save-time stdin run, pre-commit hooks for `sh` and PowerShell, a GitHub Actions
+job and a JSON summary read — are in
+[editor, pre-commit and CI integration](integration.md). They add no flag and
+describe no behaviour this section does not define.
+
 - Every diagnostic has path, ruleId, severity, message, range, fixable and
   suppressed. `severity` is the effective value after `[lint.severity]`.
   `suppressed` is always present: `false` for a reported finding and `true` for

@@ -1,0 +1,400 @@
+# Editor, pre-commit and CI integration
+
+`verse-lint` exposes three machine-readable surfaces and one virtual-input mode.
+All of them are plain command output, so an editor, a commit hook or a CI job only
+has to run the binary — **there is no language server and no editor extension**,
+in this release or planned in it:
+
+- text stdout: `path:line:column: severity rule-id message`
+  ([output contract](cli.md#output-contract));
+- JSON stdout, conforming to [diagnostics.schema.json](diagnostics.schema.json);
+- `--output-format github`: one [GitHub Actions workflow
+  command](cli.md#github-annotations) per finding;
+- `verse-lint - --stdin-filepath <file>`: lint a buffer that is not on disk.
+
+The recipes below are copy-pasteable and test-enforced. `tests/integration-doc-examples.rs`
+extracts the problem-matcher pattern from this document, runs the real binary on
+a fixture with a known finding and asserts the pattern captures the file, line,
+column, severity, rule ID and message the JSON report describes — including a
+`C:/...`-style absolute path. It also runs the PowerShell hook below against a
+temporary repository.
+
+Every recipe keeps stdout machine-readable. Exit codes are the ones in
+[the CLI reference](cli.md#output-contract) and mean exactly this:
+
+| Exit | Meaning |
+| --- | --- |
+| `0` | Inspection completed; no selected errors (and, with `--deny-warnings`, no warnings either). |
+| `1` | Lint violations, or warnings under `--deny-warnings`. Findings were reported. |
+| `2` | Incomplete inspection: a source the tool refuses, a limit, an I/O failure or a configuration failure. Nothing may be read as "clean". |
+
+`2` is not a bigger `1`. It says part of the input was never inspected, and it
+prints execution errors on stderr in every format (in JSON they also appear in
+`executionErrors`). Treating `2` as success is the one mistake that makes a hook
+or a job worthless.
+
+A hook or a task never rewrites your files unless you add `--fix` yourself.
+`--fix` is a write run, not a formatter: it applies validated V1001/V1002 edits
+through the guarded Windows writer described in [safe fixes](fixes.md). Preview
+it with `--fix --diff` before wiring it into anything automatic.
+
+## Editor: a VS Code task with a problem matcher
+
+VS Code cannot parse arbitrary compiler output. A task plus a
+[problem matcher](https://code.visualstudio.com/docs/debugtest/problem-matchers)
+is the built-in way to turn a command's text output into clickable entries in the
+Problems panel, and it is the only integration VS Code needs here.
+
+Put this in `.vscode/tasks.json`:
+
+```json
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "verse-lint: lint workspace",
+      "type": "process",
+      "command": "${workspaceFolder}/target/x86_64-pc-windows-msvc/release/verse-lint.exe",
+      "args": [".", "--output-format", "text", "--color", "never"],
+      "options": { "cwd": "${workspaceFolder}" },
+      "problemMatcher": {
+        "owner": "verse-lint",
+        "source": "verse-lint",
+        "fileLocation": ["relative", "${workspaceFolder}"],
+        "pattern": {
+          "regexp": "^((?:[A-Za-z]:)?[^:]+):(\\d+):(\\d+): (error|warning) (V\\d+) ([^\\r\\n]*)$",
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "code": 5,
+          "message": 6
+        }
+      }
+    }
+  ]
+}
+```
+
+Read as a plain regular expression (JSON doubles every backslash), the pattern
+is `^((?:[A-Za-z]:)?[^:]+):(\d+):(\d+): (error|warning) (V\d+) ([^\r\n]*)$`.
+In your own repository the binary is already installed, so only `command` and
+`options.cwd` change.
+
+Why each part is there:
+
+- `--color never` keeps ANSI out of the output. VS Code pipes the task's stdout,
+  so `auto` would already disable color, but a fixed value makes the bytes
+  independent of the terminal and of `NO_COLOR`.
+- `"type": "process"` runs the binary directly. A shell task would add quoting
+  rules for a path that may contain spaces, and VS Code's own output would mix
+  with the findings.
+- `--output-format text` is the default and is named anyway, because the pattern
+  parses exactly that shape: `path:line:column: severity rule-id message`.
+- The first capture group is one group, not two, because a problem matcher has
+  exactly one `file` index. `(?:[A-Za-z]:)?` lets a drive letter stay part of
+  the path and `[^:]+` takes the rest, so the colon that separates the path from
+  the line number is the last colon on the line. That is what makes
+  `C:/Users/you/Content/device.verse:12:7: ...` one finding, while
+  `Content/device.verse:12:7: ...` and `../shared/x.verse:12:7: ...` match too.
+- A Windows file name cannot hold a colon, so the pattern covers every real
+  path. The one path that can is the **virtual** `--stdin-filepath` label of the
+  next section. A label such as `C:/Program:Data/buffer.verse` would not match:
+  give it a real path, or skip the matcher and read JSON when you need such a
+  name.
+- `fileLocation` is `["relative", "${workspaceFolder}"]` because the tool's paths
+  are `/`-separated and relative to the **configuration root** (the directory
+  owning `verse.toml`, or CWD when there is none) — see
+  [output contract](cli.md#output-contract). Keep `verse.toml` at the workspace
+  root and this prefix is right. If your configuration lives in `Content/`,
+  the same paths are `Content/`-relative: use
+  `["relative", "${workspaceFolder}/Content"]`, or run the task with
+  `"options": { "cwd": "${workspaceFolder}/Content" }`.
+- A path on another Windows volume is reported as an absolute path. Only that
+  case needs `"fileLocation": "absolute"`, and it is the case a workspace-relative
+  prefix cannot resolve.
+
+Run the task with **Terminal → Run Task** (or bind a key to
+`workbench.action.tasks.runTask`). VS Code has no built-in "run a task on save",
+so this task lints the files as they are on disk. Unsaved buffers are covered by
+the next section.
+
+## Save-time linting through stdin
+
+```powershell
+verse-lint - --stdin-filepath Content/device.verse
+```
+
+`-` reads UTF-8 source from stdin and must be the only path. `--stdin-filepath`
+is a **virtual** path: it is never written, it only tells the tool where the
+buffer came from.
+
+- Configuration discovery starts at the virtual file's parent and walks upward,
+  stopping at the first directory containing `.git`
+  ([configuration](cli.md#configuration)). Without `--stdin-filepath` it starts
+  at CWD and the finding is labelled `<stdin>`; with it, a buffer whose file is
+  not on disk still gets the project's `verse.toml`, `[files] exclude`
+  selection and `[lint]` options.
+- The virtual path is also the reported path, so a matcher or a hook sees the
+  path the editor knows, not a temporary file.
+- Diagnostics are ordinary text, JSON or GitHub annotations. Only the input
+  mode differs.
+
+**Stdin never fixes.** `--fix` is refused with stdin — the run exits `2` with
+`--fix cannot be used with stdin` — because a write run needs a file it can
+stage, lock, validate and replace ([safe fixes](fixes.md)). A save hook that
+pipes a buffer therefore never edits your source; if you want fixes, run
+`--fix` (or `--fix --diff` first) as its own deliberate command.
+
+Wiring this to a save event needs a program that can pipe the buffer. VS Code
+alone cannot: a task runs a command, it cannot capture an unsaved editor buffer.
+Editors and wrappers that can pipe text use the command above. Two practical
+details:
+
+- Piping a buffer through a shell can change its bytes. Windows PowerShell 5.1
+  re-encodes text line by line **and appends a final newline**, so a buffer without
+  one would stop reporting V1002; run the pipeline under `pwsh` (PowerShell 7+),
+  which passes the bytes through, or under a POSIX shell. The pre-commit
+  script below refuses to run under 5.1 for that reason.
+- Without `--stdin-filepath`, a piped buffer that a project excludes would be
+  linted anyway: the virtual path is what applies `[files] exclude` and
+  `verse-lint.ignore`.
+
+## Pre-commit hook: lint only the staged files
+
+A commit hook should lint **what is about to be committed**, not the working
+tree. A partially staged file, or an editor that saved something you did not
+stage, would otherwise be reported at line numbers that do not exist in the
+commit. Both scripts below read the staged blob with `git show :<path>` and pipe
+it through stdin, which is why the stdin mode above matters.
+
+Staged `.verse` blobs only — `git diff --cached --diff-filter=ACMR` skips
+deleted files and every non-Verse file.
+
+### POSIX `sh`
+
+`.git/hooks/pre-commit` (make it executable), or any file a `core.hooksPath`
+points at:
+
+```sh
+#!/bin/sh
+# Lint the staged content of added/copied/modified/renamed .verse files.
+# Set VERSE_LINT to the binary's path if it is not on PATH;
+# set VERSE_LINT_DENY_WARNINGS=1 to also fail on warnings.
+set -u
+
+binary=${VERSE_LINT:-verse-lint}
+if ! command -v "$binary" >/dev/null 2>&1; then
+    printf 'verse-lint was not found at %s; set VERSE_LINT to its path\n' "$binary" >&2
+    exit 2
+fi
+deny=${VERSE_LINT_DENY_WARNINGS:+--deny-warnings}
+
+files=$(git diff --cached --name-only --diff-filter=ACMR -- '*.verse')
+[ -n "$files" ] || exit 0
+
+status=0
+while IFS= read -r file; do
+    [ -n "$file" ] || continue
+    output=$(git show ":$file" | "$binary" - --stdin-filepath "$file" \
+        --output-format text --color never $deny 2>&1)
+    code=$?
+    case $code in
+        0) ;;
+        1) printf '%s\n' "$output"; [ "$status" -eq 2 ] || status=1 ;;
+        2) printf '%s\n' "$output"; status=2 ;;
+        *) printf 'verse-lint exited %s for %s\n' "$code" "$file"; status=2 ;;
+    esac
+done <<EOF
+$files
+EOF
+
+if [ "$status" -ne 0 ]; then
+    printf 'commit blocked: verse-lint exited %s (0 clean, 1 violations, 2 incomplete)\n' "$status"
+fi
+exit "$status"
+```
+
+Two deliberate choices: the file list is captured before the loop, so the
+exit status is not lost in a pipe's subshell, and the loop body records the
+worst exit so a later clean file cannot hide an earlier `2`. A file name
+containing a newline breaks this loop; use `git diff --cached -z` and a `read -d`
+loop if you must support such names.
+
+### PowerShell
+
+Git runs hooks with `sh`, so a PowerShell script needs a two-line shim. Save the
+script as `.githooks/pre-commit.ps1` and point `core.hooksPath` at `.githooks`
+(`git config core.hooksPath .githooks`); then `.githooks/pre-commit` is:
+
+```sh
+#!/bin/sh
+exec pwsh -NoProfile -File .githooks/pre-commit.ps1
+```
+
+The script itself:
+
+```powershell
+# Lint the staged content of added/copied/modified/renamed .verse files.
+# Set VERSE_LINT to the binary's path if it is not on PATH;
+# set VERSE_LINT_DENY_WARNINGS=1 to also fail on warnings.
+$ErrorActionPreference = 'Stop'
+# PowerShell 7 pipes bytes between two native commands; Windows PowerShell 5.1
+# pipes text line by line, which appends a final newline and would hide a
+# V1002 finding. Run this hook with pwsh, which the sh shim does.
+if ($PSVersionTable.PSVersion.Major -lt 7) {
+    Write-Host 'This hook needs pwsh (PowerShell 7+): Windows PowerShell 5.1 pipes native output line by line and would hide a missing final newline'
+    exit 2
+}
+# A staged blob that cannot be read is an incomplete inspection, not a clean
+# file. `git show` would feed the tool nothing and it would exit 0.
+$OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+
+$binary = if ($env:VERSE_LINT) { $env:VERSE_LINT } else { 'verse-lint' }
+if (-not (Get-Command $binary -ErrorAction SilentlyContinue)) {
+    Write-Host "verse-lint was not found at '$binary'; set VERSE_LINT to its path"
+    exit 2
+}
+$denyWarnings = [bool]$env:VERSE_LINT_DENY_WARNINGS
+$files = @(git diff --cached --name-only --diff-filter=ACMR -- '*.verse')
+if ($files.Count -eq 0) { exit 0 }
+
+$status = 0
+foreach ($file in $files) {
+    $arguments = @('-', '--stdin-filepath', $file, '--output-format', 'text', '--color', 'never')
+    if ($denyWarnings) { $arguments += '--deny-warnings' }
+    git cat-file -e ":$file" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "verse-lint could not read the staged content of $file"
+        $status = 2
+        continue
+    }
+    git show ":$file" | & $binary @arguments
+    if ($LASTEXITCODE -eq 2) {
+        Write-Host "verse-lint could not complete the inspection of $file"
+        $status = 2
+    } elseif ($LASTEXITCODE -eq 1 -and $status -eq 0) {
+        $status = 1
+    }
+}
+if ($status -ne 0) {
+    Write-Host "commit blocked: verse-lint exited $status (0 clean, 1 violations, 2 incomplete)"
+}
+exit $status
+```
+
+`--deny-warnings` is an option, not a default: most policy rules (V2001, V2002,
+V2003, V1004, V3001, V3002, V3003) are opt-in warnings, and failing every commit
+for a warning is a project decision. With it, a warning exits `1` just like an
+error; without it, only errors block the commit — and suppressed findings never
+do ([suppressed findings](cli.md#suppressed-findings)).
+
+The PowerShell hook is stricter about its own prerequisites than the `sh` one, and
+deliberately so:
+
+- It runs under `pwsh` (PowerShell 7+), which pipes raw bytes between two native
+  commands. Windows PowerShell 5.1 pipes text line by line and appends a final
+  newline, so a staged blob without one would look fixed: V1002 would never be
+  reported. The version guard exits `2` instead of producing a false clean result.
+- `git cat-file -e` checks the staged blob before piping it. If the object is
+  missing, `git show` writes nothing and the tool would report a clean empty buffer;
+  this way the hook exits `2`.
+- A missing binary is `2` in both scripts, never a silent pass. That is the
+  difference between "this project has no findings" and "the hook is not doing
+  its job", and only one of them should let a commit through.
+
+Both hooks stop at the first blocked commit and print the tool's own lines, so
+the message is the real `path:line:column: severity rule-id message` line; you
+can click it in a terminal that understands file links. They never pass `--fix`,
+and neither script edits the index.
+
+## Continuous integration: GitHub annotations
+
+`--output-format github` writes one Actions workflow command per finding, so the
+pull request shows the finding on the changed line. It needs no uploaded report,
+no code-scanning database, no token and no extra permission — only the ordinary
+checkout, and the finding is attached to the step's log and the diff.
+
+```yaml
+name: Lint Verse
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verse-lint:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build verse-lint from source
+        shell: pwsh
+        run: cargo build --release --locked --target x86_64-pc-windows-msvc
+      - name: Lint Verse
+        shell: pwsh
+        run: ./target/x86_64-pc-windows-msvc/release/verse-lint.exe Content --output-format github
+```
+
+- The build step is there because the crate is **not published**: there is no
+  crate on crates.io and no release asset to download yet ([installation
+  paths](../README.md#installation)). Building needs the Rust toolchain this
+  repository pins in `rust-toolchain.toml` and the MSVC build tools, which the
+  `windows-2025` image provides. Replace the step with an install step once a
+  published artifact exists; nothing else changes.
+- The job fails on a non-zero exit: `1` for violations and `2` for an incomplete
+  inspection. That is intended — a run that could not inspect every source is
+  not a passing run.
+- `Content` stands in for your source root. `file=` in the annotation is the
+  config-root-relative path, and GitHub resolves it against the repository root,
+  so annotations line up only when the configuration root is the repository root.
+  The full rule, including what a nested `verse.toml` does, is in
+  [GitHub annotations](cli.md#github-annotations).
+- GitHub shows at most 10 warning and 10 error annotations per step. Beyond that
+  the workflow commands still run but are not attached to the diff, so keep
+  `--output-format json` (or `sarif`) for a complete report and use the
+  annotations for review. See [GitHub annotations](cli.md#github-annotations).
+- No network access, no GitHub API call and no `GITHUB_*` sniffing happen in the
+  tool. `--color` is inert for this format: a workflow command never carries
+  ANSI.
+
+Do not add a `github/codeql-action/upload-sarif` step. This repository decided
+against code-scanning upload — the linter is a style linter, not a security
+scanner, and every finding would become a permanent alert — and the reasons are
+recorded in [ADR 0001](adr/0001-sarif-upload-policy.md) and [SARIF](sarif.md#upload-policy-none).
+Emitting SARIF writes stdout and uploads nothing. If you want code scanning in
+your own repository, that upload is your own step under your own permissions,
+and it is not something this tool's documentation recommends.
+
+## JSON from a script
+
+`--output-format json` keeps a machine-readable summary that is easy to assert
+on, and it is still emitted when the run exits `2`, so a script can tell "clean"
+from "not fully inspected" without parsing prose:
+
+```sh
+set -o pipefail   # without this, the pipeline reports jq's status, not the linter's
+verse-lint Content --output-format json |
+  jq -r '.summary | "errors=\(.errors) warnings=\(.warnings) complete=\(.complete)"'
+```
+
+```powershell
+$report = verse-lint.exe Content --output-format json | ConvertFrom-Json
+$exit = $LASTEXITCODE
+"files={0} errors={1} warnings={2} complete={3}" -f `
+    $report.summary.filesChecked, $report.summary.errors, $report.summary.warnings, $report.summary.complete
+if ($exit -eq 2 -or $report.summary.errors -gt 0) { exit 1 }
+```
+
+`summary.errors` and `summary.warnings` count active diagnostics only — suppressed
+findings never inflate them — and `summary.complete` is `false` whenever an execution
+error occurred. The field list is
+[the output contract](cli.md#output-contract) plus
+[diagnostics.schema.json](diagnostics.schema.json); `schemaVersion` is `1`.
+
+A blocked commit, a failed job or a `2` is worth reporting differently from a
+lint finding: the first two say the tool could not do its job, the third says
+your source has findings. Do not paper over the difference by treating every
+non-zero exit as "warnings".
