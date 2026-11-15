@@ -40,7 +40,7 @@ fn unicode_stdin_has_regions_but_no_fabricated_file_uri_or_edits() {
     assert_eq!(v["version"], "2.1.0");
     let run = &v["runs"][0];
     assert_eq!(run["columnKind"], "unicodeCodePoints");
-    assert_eq!(run["tool"]["driver"]["rules"].as_array().unwrap().len(), 10);
+    assert_eq!(run["tool"]["driver"]["rules"].as_array().unwrap().len(), 11);
     let result = &run["results"][0];
     assert_eq!(result["ruleId"], "V1001");
     assert!(result.get("fixes").is_none());
@@ -127,6 +127,7 @@ fn driver_rule_metadata_matches_docs_defaults_and_selection_order() {
         ("V1002", "MissingFinalNewline", "error", true, true),
         ("V1003", "TabIndentation", "error", false, true),
         ("V1004", "SpaceIndentWidth", "warning", false, false),
+        ("V1005", "ExcessFinalBlankLines", "warning", false, false),
         ("V2001", "LineTooLong", "warning", false, false),
         ("V2002", "BareTodoComment", "warning", false, false),
         ("V2003", "MixedLineEndings", "warning", false, false),

@@ -1,6 +1,6 @@
 use crate::{
     diagnostic::Diagnostic,
-    lex::Kind,
+    lex::{Kind, Token},
     semantic::ScopeGraph,
     source::{Failure, Source},
     suppressions::Suppressions,
@@ -97,7 +97,7 @@ pub type SeverityOverrides = BTreeMap<String, Severity>;
 /// registered *before* an existing one therefore renumbers results that belong to
 /// the rules after it, which is a registry-derived difference the baseline
 /// parity gate does not exempt. New rules are appended for that reason, and the
-/// `V1004` entry sits last instead of between `V1003` and `V2001`.
+/// `V1004` and `V1005` entries sit last instead of between `V1003` and `V2001`.
 #[derive(Clone, Debug)]
 pub struct Rule {
     pub id: &'static str,
@@ -110,7 +110,7 @@ pub struct Rule {
     /// Selected when configuration omits `[lint] select`.
     pub selected_by_default: bool,
 }
-pub const REGISTRY: [Rule; 10] = [
+pub const REGISTRY: [Rule; 11] = [
     Rule {
         id: "V1001",
         name: "TrailingWhitespace",
@@ -195,6 +195,17 @@ pub const REGISTRY: [Rule; 10] = [
         fixable: false,
         selected_by_default: false,
     },
+    // `V1005` also sorts inside the V1 family and is appended for the same
+    // `ruleIndex` reason. It reads only trailing trivia, so it needs no new
+    // grammar, scanner snapshot or semantic model.
+    Rule {
+        id: "V1005",
+        name: "ExcessFinalBlankLines",
+        severity: Severity::Warning,
+        message: "File ends with more than one blank line",
+        fixable: false,
+        selected_by_default: false,
+    },
 ];
 
 /// Stable rule IDs. Detectors dispatch on these, never on a registry position,
@@ -203,6 +214,7 @@ pub const V1001: &str = "V1001";
 pub const V1002: &str = "V1002";
 pub const V1003: &str = "V1003";
 pub const V1004: &str = "V1004";
+pub const V1005: &str = "V1005";
 pub const V2001: &str = "V2001";
 pub const V2002: &str = "V2002";
 pub const V2003: &str = "V2003";
@@ -213,8 +225,8 @@ pub const V3003: &str = "V3003";
 /// Every ID a detector can emit. Test-side contract table: the registry tests
 /// check [`REGISTRY`] against it in both directions.
 #[cfg(test)]
-pub const DETECTOR_IDS: [&str; 10] = [
-    V1001, V1002, V1003, V1004, V2001, V2002, V2003, V3001, V3002, V3003,
+pub const DETECTOR_IDS: [&str; 11] = [
+    V1001, V1002, V1003, V1004, V1005, V2001, V2002, V2003, V3001, V3002, V3003,
 ];
 
 /// `select`/`ignore` entries accept a complete ID (`V1001`) or a numeric prefix
@@ -629,6 +641,14 @@ fn lint_with(
     if source.text().len() > source.body_start() && !source.text().ends_with('\n') {
         emit(V1002, source.text().len()..source.text().len())?;
     }
+    if active.contains(V1005) {
+        // Token-level, like V1001 and V1002: the range starts on the first
+        // excess blank line, which is by construction outside every string and
+        // comment, because only trailing trivia follows the last real token.
+        if let Some(range) = excess_final_blank_lines(&document.tokens, source) {
+            emit(V1005, range)?;
+        }
+    }
     if active.contains(V2003) {
         // A byte-level property: line endings live between tokens, so this reads
         // the source rather than the token stream. The parse above already
@@ -693,6 +713,51 @@ fn lint_with(
     Ok(result)
 }
 
+/// The trailing blank lines beyond the one terminator that ends the file's last
+/// content, if there is more than one.
+///
+/// The scan reads the token list, not the bytes: everything after the last
+/// non-trivia token is trivia, so the returned range can never begin inside a
+/// string, a character literal or a comment. A terminator inside a protected
+/// span belongs to that span's token and therefore never counts, which is why a
+/// block comment containing blank lines is not a finding.
+///
+/// One terminator after the last content is the clean termination V1002 asks for.
+/// Two or more mean at least one blank line, and the range runs from the first
+/// byte of the first excess blank line — immediately after the terminator that
+/// ended the last content line — to end of file, so the report covers the excess
+/// itself rather than pointing at EOF. An empty or whitespace-only body has no
+/// non-trivia token at all and is left to V1001.
+fn excess_final_blank_lines(tokens: &[Token], source: &Source) -> Option<Range<usize>> {
+    let last = tokens.iter().rposition(|token| !token.kind.is_trivia())?;
+    let mut terminators = 0usize;
+    for token in &tokens[last + 1..] {
+        match token.kind {
+            Kind::Newline => terminators += 1,
+            // Whitespace before the first terminator sits on the last content
+            // line (and is V1001's finding). After it, a space means a
+            // whitespace-only line, which V1001 owns as well, so this rule
+            // reports only genuinely empty lines and the two never describe
+            // one line.
+            Kind::Space if terminators > 0 => return None,
+            Kind::Space => (),
+            // Only trivia follows the last content token; anything else is
+            // impossible and silently ignored rather than guessed at.
+            _ => return None,
+        }
+    }
+    if terminators < 2 {
+        return None;
+    }
+    // One terminator ends the last content line; the rest are blank lines. The
+    // range runs from the first byte of the first blank line to end of file,
+    // so a large tail is one finding with a visible extent, not one per line.
+    let first = tokens[last + 1..]
+        .iter()
+        .find(|token| token.kind == Kind::Newline)?;
+    Some(first.range.end..source.text().len())
+}
+
 /// The terminator whose kind differs from the file's first terminator, if the
 /// file mixes styles.
 ///
@@ -727,11 +792,12 @@ mod tests {
 
     /// Documented contract per rule, addressed by stable ID. Order is not part
     /// of the contract, so this is looked up by ID rather than by position.
-    const DOCUMENTED: [(&str, &str, &str, bool, bool); 10] = [
+    const DOCUMENTED: [(&str, &str, &str, bool, bool); 11] = [
         (V1001, "TrailingWhitespace", "error", true, true),
         (V1002, "MissingFinalNewline", "error", true, true),
         (V1003, "TabIndentation", "error", false, true),
         (V1004, "SpaceIndentWidth", "warning", false, false),
+        (V1005, "ExcessFinalBlankLines", "warning", false, false),
         (V2001, "LineTooLong", "warning", false, false),
         (V2002, "BareTodoComment", "warning", false, false),
         (V2003, "MixedLineEndings", "warning", false, false),
@@ -847,6 +913,8 @@ mod tests {
         let mut found: Vec<_> = reversed.diagnostics.iter().map(|d| d.rule_id).collect();
         found.sort_unstable();
         found.dedup();
+        // The sample deliberately has no excess final blank line: it ends with
+        // trailing whitespace, which is V1001's finding and not V1005's.
         assert_eq!(found, [V1001, V1002, V1003, V2001, V2002]);
     }
 
@@ -1003,6 +1071,79 @@ mod tests {
     }
 
     #[test]
+    fn excess_final_blank_lines_measures_the_trailing_trivia_only() {
+        // The helper is the whole detector: a token-range scan whose only input
+        // is trivia after the last non-trivia token.
+        let range = |text: &str| -> Option<(usize, usize, String)> {
+            let source = Source::from_bytes(text.as_bytes()).expect("source");
+            let tokens = crate::lex::scan(&source).expect("lexed");
+            excess_final_blank_lines(&tokens, &source)
+                .map(|r| (r.start, r.end, text[r].to_string()))
+        };
+        assert_eq!(range("A := 1\n\n"), Some((7, 8, "\n".to_string())));
+        assert_eq!(range("A := 1\r\n\r\n"), Some((8, 10, "\r\n".to_string())));
+        // One finding for a long tail, covering every excess byte.
+        assert_eq!(range("A := 1\n\n\n\n"), Some((7, 10, "\n\n\n".to_string())));
+        // A comment is content, so the tail after it is the excess.
+        assert_eq!(
+            range("A := 1\n# note\n\n"),
+            Some((14, 15, "\n".to_string()))
+        );
+        for clean in [
+            "",
+            "\n\n",
+            "   \n",
+            "  \n\n",
+            "A := 1",
+            "A := 1\n",
+            "A := 1\r\n",
+            "A := 1\n# note\n",
+            "\u{feff}A := 1\n",
+            // A whitespace-only trailing line is V1001's finding.
+            "A := 1\n\n  \n",
+            "A := 1\n  \n\n",
+            "A := 1\n  ",
+            // A terminator inside a block comment belongs to that token.
+            "f():void =\n    Print(\"x\")\n<# x\n\ny #>\n",
+        ] {
+            assert_eq!(range(clean), None, "{clean:?} is clean");
+        }
+
+        // Through the rule: one finding, one line span, and the default family
+        // leaves it alone because the rule is opt-in.
+        let source = Source::from_bytes(b"A := 1\n\n\n").unwrap();
+        let result = lint_with(
+            &source,
+            "blank.verse",
+            &active(&[V1005]),
+            &SeverityOverrides::new(),
+            Options::default(),
+            MAX_DIAGNOSTICS,
+            &REGISTRY,
+        )
+        .expect("lint succeeds");
+        assert_eq!(result.diagnostics.len(), 1);
+        let diagnostic = &result.diagnostics[0];
+        assert_eq!(diagnostic.rule_id, V1005);
+        assert_eq!(diagnostic.range.start.line, 2);
+        assert_eq!(diagnostic.range.start.column, 1);
+        assert_eq!(diagnostic.range.end.line, 4);
+        assert_eq!(diagnostic.range.end.column, 1);
+        assert!(!diagnostic.fixable);
+        let unselected = lint_with(
+            &source,
+            "blank.verse",
+            &Settings::default().active().unwrap(),
+            &SeverityOverrides::new(),
+            Options::default(),
+            MAX_DIAGNOSTICS,
+            &REGISTRY,
+        )
+        .expect("lint succeeds");
+        assert!(unselected.diagnostics.iter().all(|d| d.rule_id != V1005));
+    }
+
+    #[test]
     fn a_semantic_rule_cannot_emit_from_an_incomplete_graph_by_construction() {
         // An object-construction field initializer is unmodelled, so the graph is
         // incomplete. The rule layer must refuse emission for *every* semantic
@@ -1104,7 +1245,7 @@ mod tests {
     #[test]
     fn a_prefix_expands_to_every_matching_registered_rule_in_registry_order() {
         let family = expand_entry("V1").expect("V1 is registered");
-        assert_eq!(family, [V1001, V1002, V1003, V1004]);
+        assert_eq!(family, [V1001, V1002, V1003, V1004, V1005]);
         let policy = expand_entry("V2").expect("V2 is registered");
         assert_eq!(policy, [V2001, V2002, V2003]);
         // The semantic family is its own prefix: a V2 policy warning and a V3
@@ -1153,12 +1294,12 @@ mod tests {
         let settings = settings_with(&["V"], &["V2"]);
         assert_eq!(
             settings.active().unwrap(),
-            active(&[V1001, V1002, V1003, V1004, V3001, V3002, V3003])
+            active(&[V1001, V1002, V1003, V1004, V1005, V3001, V3002, V3003])
         );
         // A prefix subtracts the rule it actually names, not the literal text.
         assert_eq!(
             settings_with(&["V1", "V2"], &["V2002"]).active().unwrap(),
-            active(&[V1001, V1002, V1003, V1004, V2001, V2003])
+            active(&[V1001, V1002, V1003, V1004, V1005, V2001, V2003])
         );
         // Overlapping entries collapse to one effective set.
         assert_eq!(
@@ -1203,7 +1344,7 @@ mod tests {
         );
         assert_eq!(
             settings.expanded_ignore().unwrap(),
-            [V1001, V1002, V1003, V1004]
+            [V1001, V1002, V1003, V1004, V1005]
         );
     }
 
@@ -1296,6 +1437,7 @@ mod tests {
                 (V1002, "error"),
                 (V1003, "warning"),
                 (V1004, "warning"),
+                (V1005, "warning"),
                 (V2001, "error"),
                 (V2002, "warning"),
                 (V2003, "warning"),

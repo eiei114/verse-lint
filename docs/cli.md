@@ -1,8 +1,9 @@
 # CLI, configuration and JSON
 
-Shared toolchain contract version **1**. Ten rules and
+Shared toolchain contract version **1**. Eleven rules and
 [suppression](suppressions.md) are implemented. Defaults are V1001/V1002/V1003;
-V1004 and V2001/V2002/V2003 are opt-in warnings, and V3001/V3002/V3003 are opt-in
+V1004/V1005 and V2001/V2002/V2003 are opt-in warnings, and V3001/V3002/V3003 are
+opt-in
 semantic rules that read the [scope graph](semantic-model.md). `--fix` applies
 only validated V1001/V1002 edits using guarded Windows replacement; see
 [fixes](fixes.md).
@@ -33,7 +34,8 @@ rule; `--require-complete-semantics` turns an incomplete model into exit 2; see
 `select`/`ignore` entries — on the command line and in the `[lint]` arrays — are
 either a complete rule ID (`V1001`) or a rule-family prefix: `V` followed by zero
 or more ASCII digits (`V`, `V1`, `V2`). A prefix expands to every registered rule
-whose ID starts with it, so `--select V1` is the V1001/V1002/V1003/V1004 family
+whose ID starts with it, so `--select V1` is the V1001/V1002/V1003/V1004/V1005
+family
 and `--select V` is the whole registry. Expansion reads the live registry, so a
 rule added in a later release becomes reachable through an existing prefix
 without editing the selection.
@@ -185,6 +187,29 @@ LF lines is reported like any other mix. Suppression is the ordinary line
 directive on the diagnosed line, plus `--ignore V2003` / `[lint] ignore`.
 `--fix` never touches it: normalising endings rewrites every line, which is the
 wholesale change the rule warns about.
+
+### V1005 excess-final-blank-lines
+
+A file that ends with blank lines survives every other rule: V1001 looks at
+whitespace *on* a line and V1002 only refuses a missing terminator.
+[V1005](rules/v1005.md) is the opt-in warning for that tail. It is off by
+default, so `--select V1005`, `--select V1`, `--select V` or `[lint] select` is
+how a project turns it on.
+
+The check reads the token stream: everything after the last token that is
+neither trivia nor a comment is terminators only, so a terminator inside a
+string, a character literal or a comment is never counted. Exactly one final
+terminator is clean, two or more are reported as **one** finding per file whose
+range runs from the first blank line to end of file. Empty, BOM-only and
+whitespace-only files are clean — a whitespace-only trailing line belongs to
+V1001, and this rule counts only genuinely empty lines so the two never
+describe one line.
+
+It is **file-level** like V1002: a `disable-line` or `disable-next-line
+directive naming it fails with exit 2 ("file-level V1005 cannot be suppressed by
+a line directive; use config ignore"), whether or not it is selected. Use
+`--ignore V1005` / `[lint] ignore` instead. `--fix` never touches it, because
+removing a tail rewrites bytes outside any finding the author marked.
 
 ### V1004 space-indent-width
 
