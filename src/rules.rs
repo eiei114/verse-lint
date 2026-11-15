@@ -197,6 +197,54 @@ pub const REGISTRY: [Rule; 10] = [
     },
 ];
 
+/// The embedded Markdown document for one registered rule.
+///
+/// `include_str!` puts the text inside the binary, so `--explain` works for an
+/// installed executable that ships without the repository's `docs/` directory —
+/// no file is read at run time and no new dependency is needed. The mapping sits
+/// next to [`REGISTRY`] on purpose: a new rule means a new document, and
+/// `every_registered_rule_has_an_embedded_document` fails until this function
+/// answers for the new ID. The real documents stay the only copy of the prose;
+/// nothing here restates a rule's rationale.
+fn embedded_doc(rule_id: &str) -> Option<&'static str> {
+    Some(match rule_id {
+        V1001 => include_str!("../docs/rules/v1001.md"),
+        V1002 => include_str!("../docs/rules/v1002.md"),
+        V1003 => include_str!("../docs/rules/v1003.md"),
+        V1004 => include_str!("../docs/rules/v1004.md"),
+        V2001 => include_str!("../docs/rules/v2001.md"),
+        V2002 => include_str!("../docs/rules/v2002.md"),
+        V2003 => include_str!("../docs/rules/v2003.md"),
+        V3001 => include_str!("../docs/rules/v3001.md"),
+        V3002 => include_str!("../docs/rules/v3002.md"),
+        V3003 => include_str!("../docs/rules/v3003.md"),
+        _ => return None,
+    })
+}
+
+/// Resolve one `--explain` argument to its registry entry and embedded document.
+///
+/// Only a complete, registered ID is accepted: a prefix is a `select`/`ignore`
+/// form, and `--explain` has exactly one rule to describe. The refusals are
+/// worded like the `select`/`ignore` ones so both surfaces list the same accepted
+/// form, and an unregistered ID names itself instead of becoming a silent no-op.
+pub fn explain_entry(entry: &str) -> Result<(&'static Rule, &'static str), String> {
+    if !is_well_formed_entry(entry) {
+        return Err(format!(
+            "invalid rule entry {entry:?} for --explain; use a complete rule ID like \"V1001\""
+        ));
+    }
+    let Some(rule) = REGISTRY.iter().find(|rule| rule.id == entry) else {
+        return Err(format!(
+            "--explain needs one complete registered rule ID; {entry:?} matched no registered rule \
+             (a prefix such as \"V1\" is only accepted by select/ignore)"
+        ));
+    };
+    let doc = embedded_doc(rule.id)
+        .ok_or_else(|| format!("rule {} has no embedded document", rule.id))?;
+    Ok((rule, doc))
+}
+
 /// Stable rule IDs. Detectors dispatch on these, never on a registry position,
 /// so reordering [`REGISTRY`] cannot rebind a diagnostic to another rule.
 pub const V1001: &str = "V1001";
@@ -772,6 +820,73 @@ mod tests {
         let mut rules: Vec<Rule> = REGISTRY.to_vec();
         rules.reverse();
         rules
+    }
+
+    #[test]
+    fn every_registered_rule_has_an_embedded_document() {
+        // `--explain` cannot describe a rule whose prose is missing, and an
+        // installed binary has no `docs/` directory to fall back to. Adding a
+        // registry entry without its `include_str!` therefore fails here, which
+        // is what keeps the mapping next to `REGISTRY` honest.
+        for rule in &REGISTRY {
+            let doc = embedded_doc(rule.id)
+                .unwrap_or_else(|| panic!("{} has no embedded rule document", rule.id));
+            assert!(
+                !doc.trim().is_empty(),
+                "{} embeds an empty document",
+                rule.id
+            );
+            let heading = doc.lines().next().unwrap_or_default();
+            assert!(
+                heading.starts_with(&format!("# {}", rule.id)),
+                "{} embeds a document that does not open with its own heading: {heading:?}",
+                rule.id
+            );
+        }
+        // The mapping is total: no registered ID falls through to `None`.
+        assert!(
+            REGISTRY.iter().all(|rule| embedded_doc(rule.id).is_some()),
+            "an embedded document is missing for a registered rule"
+        );
+    }
+
+    #[test]
+    fn explain_rejects_a_prefix_an_unknown_id_and_a_malformed_entry() {
+        // A prefix is a `select`/`ignore` form; `--explain` describes one rule.
+        let prefix = explain_entry("V1").expect_err("a prefix must not explain one rule");
+        assert!(
+            prefix.contains("matched no registered rule") && prefix.contains("\"V1\""),
+            "{prefix}"
+        );
+        let unknown = explain_entry("V9999").expect_err("an unknown ID must fail");
+        assert!(
+            unknown.contains("\"V9999\" matched no registered rule"),
+            "{unknown}"
+        );
+        for entry in ["v1001", "V1001x", "1001", ""] {
+            let error = explain_entry(entry).expect_err(entry);
+            assert!(
+                error.contains("invalid rule entry") && error.contains("--explain"),
+                "{entry:?}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn explain_resolves_every_registered_id_and_its_own_document() {
+        for rule in &REGISTRY {
+            let (resolved, doc) = explain_entry(rule.id).expect(rule.id);
+            assert_eq!(resolved.id, rule.id);
+            assert_eq!(resolved.name, rule.name);
+            assert!(
+                doc.lines()
+                    .next()
+                    .unwrap_or_default()
+                    .starts_with(&format!("# {}", rule.id)),
+                "{} resolved another rule's document",
+                rule.id
+            );
+        }
     }
 
     #[test]

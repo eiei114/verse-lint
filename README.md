@@ -71,6 +71,7 @@ verse-lint . --semantic-coverage --require-complete-semantics
 verse-lint . --show-suppressed
 verse-lint . --no-ignore-file
 verse-lint --show-config
+verse-lint --explain V1001
 verse-lint Content/device.verse --dump-scopes
 ```
 
@@ -101,6 +102,15 @@ search, no nested ignore files. `--no-ignore-file` skips it for one run, and
 `--dump-scopes` prints the model's scope graph as JSON for rule authors, runs no
 rule, and is an **unstable** surface rather than a public contract; see
 [the semantic model][semantic].
+
+`--explain <RULE>` answers the question a CI log raises: `V3003` names a rule, and
+the explanation lives in `docs/rules/v3003.md`, which an installed binary does not
+carry. It prints the registry summary line (ID, name, default on/off, default
+severity, safe fix) followed by that document, which is embedded in the binary at
+build time, so nothing is read from disk and it works on a machine without the
+repository. It takes one complete rule ID — a prefix like `V1` is a
+`select`/`ignore` form — runs no rule and reads no configuration or source, and an
+unknown or malformed ID exits 2. See [reading a rule][cli-explain].
 
 `--semantic-coverage` answers the question a clean result cannot: how much of the
 project did the semantic model actually see? It prints a versioned JSON summary
@@ -293,4 +303,5 @@ repository's `docs/` directory: a relative link is dead there. They point at
 [adr]: https://github.com/eiei114/verse-lint/blob/main/docs/adr/0001-sarif-upload-policy.md
 [checklist]: https://github.com/eiei114/verse-lint/blob/main/docs/release-checklist.md
 [cli-github]: https://github.com/eiei114/verse-lint/blob/main/docs/cli.md#github-annotations
+[cli-explain]: https://github.com/eiei114/verse-lint/blob/main/docs/cli.md#reading-a-rule-with---explain-rule
 [contributing]: https://github.com/eiei114/verse-lint/blob/main/CONTRIBUTING.md
