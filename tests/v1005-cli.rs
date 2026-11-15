@@ -47,7 +47,7 @@ fn findings(report: &Value) -> Vec<(u64, u64, u64, u64)> {
             assert_eq!(diagnostic["severity"], "warning", "{report}");
             assert_eq!(diagnostic["fixable"], false, "{report}");
             assert_eq!(
-                diagnostic["message"], "File ends with more than one blank line",
+                diagnostic["message"], "File ends with excess blank lines",
                 "{report}"
             );
             let start = &diagnostic["range"]["start"];
@@ -104,9 +104,8 @@ fn one_terminator_is_clean_and_two_or_more_are_reported_once() {
     }
 }
 
-/// The tail is measured from the last token that is neither trivia nor a
-/// comment, so a final comment line is content and the blank lines after it are
-/// the excess.
+/// The tail is measured from the last non-trivia token, so a comment line is
+/// content and the blank lines after it are the excess.
 #[test]
 fn a_comment_is_content_so_blank_lines_after_it_are_reported() {
     let dir = project("main.verse", b"A := 1\n# note\n\n");
@@ -382,7 +381,7 @@ fn text_json_and_sarif_agree_on_the_single_finding() {
     let text = run(dir.path(), &["main.verse", "--select", "V1005"]);
     assert_eq!(
         String::from_utf8(text.stdout).unwrap(),
-        "main.verse:2:1: warning V1005 File ends with more than one blank line\n"
+        "main.verse:2:1: warning V1005 File ends with excess blank lines\n"
     );
 
     let (_, report) = json(dir.path(), &["main.verse", "--select", "V1005"]);
@@ -450,6 +449,15 @@ fn the_documents_state_the_rule_contract() {
     assert!(index.contains("| Off | warning | None |"), "{index}");
     let cli = include_str!("../docs/cli.md");
     assert!(cli.contains("V1005"), "{cli}");
+    // Comments and code are content: the anchor is the last non-trivia token,
+    // and the docs must not claim a comment is excluded from it.
+    for document in [rule, cli] {
+        assert!(document.contains("non-trivia token"), "{document}");
+        assert!(
+            !document.contains("neither trivia nor a comment"),
+            "{document}"
+        );
+    }
     let readme = include_str!("../README.md");
     assert!(readme.contains("[V1005][v1005]"), "{readme}");
     assert!(

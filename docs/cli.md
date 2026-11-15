@@ -196,14 +196,15 @@ whitespace *on* a line and V1002 only refuses a missing terminator.
 default, so `--select V1005`, `--select V1`, `--select V` or `[lint] select` is
 how a project turns it on.
 
-The check reads the token stream: everything after the last token that is
-neither trivia nor a comment is terminators only, so a terminator inside a
-string, a character literal or a comment is never counted. Exactly one final
-terminator is clean, two or more are reported as **one** finding per file whose
-range runs from the first blank line to end of file. Empty, BOM-only and
-whitespace-only files are clean — a whitespace-only trailing line belongs to
-V1001, and this rule counts only genuinely empty lines so the two never
-describe one line.
+The check reads the token stream: everything after the last non-trivia token is
+terminators only. Trivia is a BOM, a space or a terminator; a comment line and
+any code are content, so a terminator inside a string, a character literal or a
+comment is never counted and a final comment line anchors the tail after
+itself. Exactly one final terminator is clean, two or more are reported as
+**one** finding per file whose range runs from the first blank line to end of
+file. Empty, BOM-only and whitespace-only files are clean — a whitespace-only
+trailing line belongs to V1001, and this rule counts only genuinely empty lines
+so the two never describe one line.
 
 It is **file-level** like V1002: a `disable-line` or `disable-next-line
 directive naming it fails with exit 2 ("file-level V1005 cannot be suppressed by

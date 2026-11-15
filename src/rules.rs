@@ -202,7 +202,7 @@ pub const REGISTRY: [Rule; 11] = [
         id: "V1005",
         name: "ExcessFinalBlankLines",
         severity: Severity::Warning,
-        message: "File ends with more than one blank line",
+        message: "File ends with excess blank lines",
         fixable: false,
         selected_by_default: false,
     },
