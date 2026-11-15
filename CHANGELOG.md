@@ -21,6 +21,12 @@ alpha.
   directive removed, marked ` (suppressed)` in text and `"suppressed": true` in
   JSON (SARIF keeps them out of `results`); it does not say which directive
   removed them, and they never change the exit code.
+- `--explain <RULE>` prints a registered rule's registry summary line — ID, name,
+  default selection, default severity, safe-fix capability — followed by its
+  `docs/rules/<id>.md` document, which is embedded in the binary at build time.
+  It reads no configuration and no source file, so an installed binary answers
+  "what is this `V3003` in my CI log?" without the repository; an unknown or
+  malformed ID exits 2.
 - `--semantic-coverage`, a versioned JSON report of how much of the project the
   semantic model actually saw: sources analyzed, complete and incomplete sources,
   skipped construct kinds, bindings and references by kind, and resolved versus

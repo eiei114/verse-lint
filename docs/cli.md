@@ -28,6 +28,9 @@ nothing; see [fix preview](#fix-preview-with---fix---diff).
 `--semantic-coverage` prints the run's semantic coverage as JSON and runs no
 rule; `--require-complete-semantics` turns an incomplete model into exit 2; see
 [coverage and the strict switch](#--semantic-coverage-and---require-complete-semantics).
+`--explain V1001` prints one rule's registry summary and its document from the
+binary itself, without reading configuration or sources; see
+[reading a rule](#reading-a-rule-with---explain-rule).
 
 ### Rule selection and family prefixes
 
@@ -504,6 +507,53 @@ rejected entry form with its line number, both caps at their boundary and one pa
 it, `--no-ignore-file`, explicit-argument bypass, `--verbose` attribution and
 `--show-config` output. The parser and loader are also unit tested in
 `src/files.rs`.
+
+## Reading a rule with `--explain <RULE>`
+
+A `V3003` in a CI log names a rule whose rationale lives in
+`docs/rules/<id>.md`, a directory the installed binary does not carry and that
+neither crates.io nor docs.rs serves. `--explain` closes that gap: it prints the
+registry summary line and the embedded document, and exits 0 without resolving
+configuration, opening a source file or running any rule.
+
+```text
+verse-lint --explain V1001
+verse-lint --explain V3003 --color never
+```
+
+```text
+V1001 TrailingWhitespace — default: on; default severity: error; safe fix: yes
+document: docs/rules/v1001.md
+
+# V1001 — trailing-whitespace
+…
+```
+
+The summary line carries the registry facts that decide how a rule reports: ID,
+SARIF-style name, whether it is selected by default, its default severity and
+whether a safe fix exists. Those facts come from the same `REGISTRY` that
+selection, `--show-config` and SARIF metadata read, so they cannot disagree with
+what a run actually does. A `[lint.severity]` override or a `--select` in a
+project does not change this output: it documents the tool default, exactly as
+SARIF `defaultConfiguration.level` does.
+
+The document text is `include_str!`-embedded at build time, from the repository's
+own `docs/rules/<id>.md`. It is not a second hand-written copy of the prose and
+is not read from disk at run time, so it works on any machine that has the
+binary. A unit test fails if a `REGISTRY` entry has no embedded document, which
+is why the mapping sits next to the registry.
+
+The argument is one complete registered ID (`V1001`). Prefixes are a
+`select`/`ignore` form and are not accepted here — `--explain V1` names nothing
+to describe. A malformed entry (`v1001`, `V1001x`, `1001`) and an unregistered
+ID (`V9999`) both exit 2 with the existing configuration-error style, before
+anything is read. Like `--show-config`, `--explain` describes the tool rather
+than a project, so it conflicts with `paths`, `--fix`, `--diff`,
+`--output-format`, `--select`, `--ignore`, `--show-suppressed`, `--show-config`,
+`--dump-scopes`, `--semantic-coverage` and `--require-complete-semantics`; each
+rejection is exit 2 and prints no rule document. The output is plain text in
+every case — `--color` is accepted and inert here, so a `--color always` run
+still emits no ANSI — and a successful explain always exits 0.
 
 ## `--dump-scopes` (unstable, for rule authors)
 

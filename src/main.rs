@@ -3,6 +3,7 @@ mod config;
 mod diagnostic;
 mod diff;
 mod dump;
+mod explain;
 mod files;
 mod fix;
 mod fix_run;
@@ -104,6 +105,12 @@ fn requested_machine_format(args: &[OsString]) -> Option<cli::OutputFormat> {
 }
 
 fn run(cli: &cli::Cli, report: &mut report::Report) -> Result<Option<String>, String> {
+    // `--explain` describes one rule; it must not read configuration or source
+    // files, so it answers before the configuration search starts. Like
+    // `--show-config` the caller writes the returned text to stdout and exits 0.
+    if let Some(id) = &cli.explain {
+        return explain::render(id).map(Some);
+    }
     let mut config = config::resolve(
         cli.config.as_deref(),
         cli.stdin_filepath.as_deref(),
