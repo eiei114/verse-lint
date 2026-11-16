@@ -1127,6 +1127,18 @@ fn documented_posix_hook_blocks_the_staged_findings_it_must() {
     // the second half of the same `*)` gap the PowerShell hook had.
     let failing = dir.path().join("exit101.sh");
     fs::write(&failing, "#!/bin/sh\ncat >/dev/null\nexit 101\n").unwrap();
+    // `fs::write` creates the file without an execute bit, and a shebang does
+    // not add one. On Linux and macOS the hook runs `$VERSE_LINT` directly, so a
+    // non-executable fixture would fail at lookup or exec with a different
+    // report and never reach the `verse-lint exited 101` branch this case is
+    // about. On Windows the execute bit does not exist and `fs::write` is enough.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&failing).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&failing, permissions).unwrap();
+    }
     let unexpected = run_hook(&failing.to_string_lossy(), false);
     assert_eq!(
         unexpected.status.code(),
