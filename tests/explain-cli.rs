@@ -24,8 +24,9 @@ fn stderr(out: &Output) -> String {
 
 /// Every registered rule ID, in registry order. Kept here rather than derived at
 /// run time so an ID that silently disappears from the registry also fails.
-const IDS: [&str; 10] = [
+const IDS: [&str; 11] = [
     "V1001", "V1002", "V1003", "V2001", "V2002", "V2003", "V3001", "V3002", "V3003", "V1004",
+    "V1005",
 ];
 
 /// The registry summary line and the document heading an explain run must print.
@@ -35,6 +36,7 @@ fn expected_name(id: &str) -> &'static str {
         "V1002" => "MissingFinalNewline",
         "V1003" => "TabIndentation",
         "V1004" => "SpaceIndentWidth",
+        "V1005" => "ExcessFinalBlankLines",
         "V2001" => "LineTooLong",
         "V2002" => "BareTodoComment",
         "V2003" => "MixedLineEndings",

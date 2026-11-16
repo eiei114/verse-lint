@@ -2,7 +2,7 @@
 
 Linter for Epic Games' Verse language and UEFN projects.
 
-> Unreleased alpha with ten lint rules, line suppression, file/stdin/project
+> Unreleased alpha with eleven lint rules, line suppression, file/stdin/project
 > input, configuration, text/JSON/SARIF/GitHub annotations and guarded Windows
 > safe fixes.
 > A paired 64-case formatter convergence harness and PowerShell/cmd smoke matrix
@@ -160,6 +160,15 @@ block ownership. It shares V1003's structural predicate, so a run containing a
 tab belongs to V1003 and no line is reported twice; blank, whitespace-only and
 comment-only lines and delimited continuations are never diagnosed, and
 `--fix` never touches it. See [V1004][v1004].
+V1005 excess-final-blank-lines is the other opt-in V1 warning: a file whose last
+line is followed by more than one terminator has at least one stray blank line,
+which V1001 (whitespace on a line) and V1002 (a missing terminator) both leave
+alone. Exactly one final terminator is clean; two or more produce one finding per
+file covering the excess tail to end of file, empty/BOM-only/whitespace-only files
+stay clean, and terminators inside a string or comment never count because the
+check reads the token stream. It is file-level like V1002, so a line directive
+naming it fails with exit 2 — use `--ignore` — and `--fix` never touches it. See
+[V1005][v1005].
 V2001 line length, V2002 bare TODO comments and V2003 mixed LF/CRLF line endings
 are opt-in warnings: V2003 reports one finding for a file that contains both
 terminator styles, anchored at the first terminator that differs from the file's
@@ -297,6 +306,7 @@ repository's `docs/` directory: a relative link is dead there. They point at
 [v3002]: https://github.com/eiei114/verse-lint/blob/main/docs/rules/v3002.md
 [v1004]: https://github.com/eiei114/verse-lint/blob/main/docs/rules/v1004.md
 [v3003]: https://github.com/eiei114/verse-lint/blob/main/docs/rules/v3003.md
+[v1005]: https://github.com/eiei114/verse-lint/blob/main/docs/rules/v1005.md
 [integration]: https://github.com/eiei114/verse-lint/blob/main/docs/integration-testing.md
 [packaging]: https://github.com/eiei114/verse-lint/blob/main/docs/packaging-and-mise.md
 [sarif]: https://github.com/eiei114/verse-lint/blob/main/docs/sarif.md

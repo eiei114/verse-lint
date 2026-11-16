@@ -54,6 +54,11 @@ try {
     # contract names: a valid narrow width and an invalid one.
     New-Fixture 'indent.verse' "f():void =`n  Print(`"x`")`n"
     New-Fixture 'wide-indent.verse' "f():void =`n      Print(`"x`")`n"
+    # V1005 is opt-in and reads only trailing trivia, so its fixtures carry
+    # exactly one and exactly two final terminators, plus a directive that the
+    # file-level refusal has to reject.
+    New-Fixture 'trailing-blank.verse' "A := 1`n`n"
+    New-Fixture 'trailing-blank-refusal.verse' "# verse-lint: disable-next-line V1005 -- deliberate`nA := 1`n`n"
     New-Fixture 'narrow.toml' "schema-version = 1`n[lint]`nindent-width = 2`n"
     New-Fixture 'invalid-indent.toml' "schema-version = 1`n[lint]`nindent-width = 0`n"
 
@@ -76,6 +81,9 @@ try {
         @{ Arguments = @('indent.verse', '--config', 'narrow.toml', '--select=V1004'); Exit = 0 },
         @{ Arguments = @('wide-indent.verse', '--config', 'narrow.toml', '--select=V1004'); Exit = 0 },
         @{ Arguments = @('indent.verse', '--config', 'invalid-indent.toml', '--select=V1001'); Exit = 2 },
+        @{ Arguments = @('trailing-blank.verse', '--select=V1005'); Exit = 0 },
+        @{ Arguments = @('trailing-blank.verse', '--select=V1005', '--deny-warnings'); Exit = 1 },
+        @{ Arguments = @('trailing-blank-refusal.verse', '--select=V1005'); Exit = 2 },
         @{ Arguments = @('-', '--stdin-filepath=C:/virtual/日.verse'); Input = "A := 1"; Exit = 1 },
         @{ Arguments = @('-'); Input = '<# incomplete'; Exit = 2 }
     )) {
@@ -143,6 +151,8 @@ try {
         @{ Arguments = @('crlf.verse', '--select=V2003'); Exit = 0; Lines = 0 },
         @{ Arguments = @('indent.verse', '--select=V1004'); Exit = 0; Lines = 1 },
         @{ Arguments = @('indent.verse', '--config', 'narrow.toml', '--select=V1004'); Exit = 0; Lines = 0 },
+        @{ Arguments = @('trailing-blank.verse', '--select=V1005'); Exit = 0; Lines = 1 },
+        @{ Arguments = @('clean.verse', '--select=V1005'); Exit = 0; Lines = 0 },
         @{ Arguments = @('suppressed.verse'); Exit = 0; Lines = 0 },
         @{ Arguments = @('suppressed.verse', '--show-suppressed'); Exit = 0; Lines = 1 },
         @{ Arguments = @('missing.verse'); Exit = 2; Lines = 0 },

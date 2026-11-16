@@ -197,10 +197,10 @@ is not compiler acceptance and does not need UEFN.
 
 The sweep's all-rules selection is the five style IDs it names explicitly, not
 the whole live registry, because the baseline binary does not know V3001, V3002,
-V2003 or V1004: a selection naming a rule the baseline has not registered is a
-configuration failure there and the comparison would fail for the wrong reason.
-All four are off by default, so the default-selection text and JSON runs stay
-byte-identical; the default-selection SARIF runs may instead gain their
+V2003, V1004 or V1005: a selection naming a rule the baseline has not registered
+is a configuration failure there and the comparison would fail for the wrong
+reason. All five are off by default, so the default-selection text and JSON runs
+stay byte-identical; the default-selection SARIF runs may instead gain their
 registry-derived driver-rule entries. Those rules' own non-regression is covered
-by `tests/v3001-cli.rs`, `tests/v3002-cli.rs`, `tests/v2003-cli.rs` and
-`tests/v1004-cli.rs` instead.
+by `tests/v3001-cli.rs`, `tests/v3002-cli.rs`, `tests/v2003-cli.rs`,
+`tests/v1004-cli.rs` and `tests/v1005-cli.rs` instead.
