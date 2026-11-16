@@ -16,9 +16,11 @@ The recipes below are copy-pasteable and test-enforced. `tests/integration-doc-e
 extracts the problem-matcher pattern from this document, runs the real binary on
 a fixture with a known finding and asserts the pattern captures the file, line,
 column, severity, rule ID and message the JSON report describes — including a
-`C:/...`-style absolute path. It also runs the PowerShell hook below against a
-temporary repository, and it lints a project twice — as a directory walk and as
-a piped buffer — so the difference the next section describes cannot drift.
+`C:/...`-style absolute path. It also runs both hooks below against a temporary
+repository — a clean staged file, a staged finding, a denied warning, an
+unreadable staged blob and a path with a non-ASCII byte — and it lints a project
+twice, as a directory walk and as a piped buffer, so the difference the next
+section describes cannot drift.
 
 Every recipe keeps stdout machine-readable. Exit codes are the ones in
 [the CLI reference](cli.md#output-contract) and mean exactly this:
@@ -159,9 +161,13 @@ details:
 
 - Piping a buffer through a shell can change its bytes. Windows PowerShell 5.1
   re-encodes text line by line **and appends a final newline**, so a buffer without
-  one would stop reporting V1002; run the pipeline under `pwsh` (PowerShell 7+),
-  which passes the bytes through, or under a POSIX shell. The pre-commit
-  script below refuses to run under 5.1 for that reason.
+  one would stop reporting V1002. PowerShell 7.0–7.3 convert a native program's
+  output to `.NET` strings before piping or redirecting it, which appends the same
+  final newline and would hide the same finding; `PSNativeCommandPreserveBytePipe`
+  only became mainstream in 7.4 ([about_Pipelines](https://learn.microsoft.com/powershell/module/microsoft.powershell.core/about/about_pipelines)).
+  Run the pipeline under `pwsh` **7.4 or later**, or under a POSIX shell, and
+  `$OutputEncoding` does not prevent that conversion. The pre-commit script below
+  refuses to run under anything older than 7.4 for that reason.
 - `--stdin-filepath` decides the label and where configuration discovery
   starts; it does not make the exclusions apply either. A project that excludes
   `Vendor/**` still reports `Vendor/generated.verse:1:11: error V1001` when that
@@ -203,14 +209,36 @@ if ! command -v "$binary" >/dev/null 2>&1; then
 fi
 deny=${VERSE_LINT_DENY_WARNINGS:+--deny-warnings}
 
-files=$(git diff --cached --name-only --diff-filter=ACMR -- '*.verse')
+blob=$(mktemp) || { printf 'verse-lint: could not create a temporary file\n' >&2; exit 2; }
+trap 'rm -f "$blob"' EXIT HUP INT TERM
+
+# `core.quotePath=false` is what makes a non-ASCII path usable: with Git's
+# default quoting, Content/cafe-and-a-diacritic.verse comes back as the C-quoted
+# label "Content/caf\303\251.verse", which `git show` and `--stdin-filepath` both
+# reject. That label blocked every commit touching such a path, and exited 2 on
+# a clean one.
+if ! files=$(git -c core.quotePath=false diff --cached --name-only \
+    --diff-filter=ACMR -- '*.verse'); then
+    printf 'verse-lint could not list the staged files\n'
+    exit 2
+fi
 [ -n "$files" ] || exit 0
 
 status=0
 while IFS= read -r file; do
     [ -n "$file" ] || continue
-    output=$(git show ":$file" | "$binary" - --stdin-filepath "$file" \
-        --output-format text --color never $deny 2>&1)
+    # A staged blob that cannot be read is an incomplete inspection, not a clean
+    # file: `git show` writes nothing on failure and the tool would exit 0 on an
+    # empty buffer. Piping `git show` straight into the tool only reports the
+    # tool's status — `sh` has no `pipefail` — so the blob goes to a file first
+    # and `git show` is checked before anything is linted.
+    if ! git show ":$file" > "$blob" 2>/dev/null; then
+        printf 'verse-lint could not read the staged content of %s\n' "$file"
+        status=2
+        continue
+    fi
+    output=$({ "$binary" - --stdin-filepath "$file" \
+        --output-format text --color never $deny < "$blob" ; } 2>&1)
     code=$?
     case $code in
         0) ;;
@@ -228,11 +256,16 @@ fi
 exit "$status"
 ```
 
-Two deliberate choices: the file list is captured before the loop, so the
-exit status is not lost in a pipe's subshell, and the loop body records the
-worst exit so a later clean file cannot hide an earlier `2`. A file name
-containing a newline breaks this loop; use `git diff --cached -z` and a `read -d`
-loop if you must support such names.
+Three deliberate choices: the file list is captured before the loop, so the exit
+status is not lost in a pipe's subshell and Git's quoting never reaches `git
+show`; the staged blob goes through a temporary file so `git show`'s status is
+checked **before** the tool runs, instead of being overwritten by the linter's;
+and the loop body records the worst exit, so a later clean file cannot hide an
+earlier `2`.
+
+The loop is newline-delimited because a file name containing a newline cannot
+survive it. Where such names are possible, use `git diff --cached -z` and a
+`read -d ''` loop, which needs `bash`/`ksh`/`zsh` instead of a plain `sh`.
 
 ### PowerShell
 
@@ -252,16 +285,19 @@ The script itself:
 # Set VERSE_LINT to the binary's path if it is not on PATH;
 # set VERSE_LINT_DENY_WARNINGS=1 to also fail on warnings.
 $ErrorActionPreference = 'Stop'
-# PowerShell 7 pipes bytes between two native commands; Windows PowerShell 5.1
-# pipes text line by line, which appends a final newline and would hide a
-# V1002 finding. Run this hook with pwsh, which the sh shim does.
-if ($PSVersionTable.PSVersion.Major -lt 7) {
-    Write-Host 'This hook needs pwsh (PowerShell 7+): Windows PowerShell 5.1 pipes native output line by line and would hide a missing final newline'
+# A native byte pipeline only arrived in PowerShell 7.4: before it, piping or
+# redirecting a native program's output converted that output to .NET strings,
+# which appends a final newline and would hide a V1002 finding. Windows
+# PowerShell 5.1 pipes text line by line for the same reason. Run this hook
+# with pwsh, which the sh shim does.
+if ($PSVersionTable.PSVersion -lt [version]'7.4') {
+    Write-Host 'This hook needs pwsh (PowerShell 7.4+): earlier versions pipe native output as text lines and would hide a missing final newline'
     exit 2
 }
-# A staged blob that cannot be read is an incomplete inspection, not a clean
-# file. `git show` would feed the tool nothing and it would exit 0.
+# Encoding for both directions: the staged list is read as UTF-8 and the staged
+# blob is written as UTF-8, so a non-ASCII path arrives as itself.
 $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
+[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 
 $binary = if ($env:VERSE_LINT) { $env:VERSE_LINT } else { 'verse-lint' }
 if (-not (Get-Command $binary -ErrorAction SilentlyContinue)) {
@@ -269,7 +305,16 @@ if (-not (Get-Command $binary -ErrorAction SilentlyContinue)) {
     exit 2
 }
 $denyWarnings = [bool]$env:VERSE_LINT_DENY_WARNINGS
-$files = @(git diff --cached --name-only --diff-filter=ACMR -- '*.verse')
+# `core.quotePath=false` is what makes a non-ASCII path usable: with Git's
+# default quoting, Content/cafe-and-a-diacritic.verse comes back as the C-quoted
+# label Content/caf\303\251.verse, which `git show`, `git cat-file -e` and
+# `--stdin-filepath` all reject. That label blocked every commit touching such a
+# path, and exited 2 on a clean one.
+$files = @(git -c core.quotePath=false diff --cached --name-only --diff-filter=ACMR -- '*.verse')
+if ($LASTEXITCODE -ne 0) {
+    Write-Host 'verse-lint could not list the staged files'
+    exit 2
+}
 if ($files.Count -eq 0) { exit 0 }
 
 $status = 0
@@ -310,10 +355,21 @@ do ([suppressed findings](cli.md#suppressed-findings)).
 The PowerShell hook is stricter about its own prerequisites than the `sh` one, and
 deliberately so:
 
-- It runs under `pwsh` (PowerShell 7+), which pipes raw bytes between two native
-  commands. Windows PowerShell 5.1 pipes text line by line and appends a final
-  newline, so a staged blob without one would look fixed: V1002 would never be
-  reported. The version guard exits `2` instead of producing a false clean result.
+- It runs under `pwsh` **7.4 or later**, the first version that pipes raw bytes
+  between two native commands: PowerShell 7.0–7.3 converted a native program's
+  output to `.NET` strings before piping or redirecting it, and Windows
+  PowerShell 5.1 pipes text line by line. Both append a final newline, so a staged
+  blob without one would look fixed and V1002 would never be reported. The
+  version guard (`$PSVersionTable.PSVersion -lt [version]'7.4'`) exits `2`
+  instead of producing a false clean result.
+- It reads the staged list with `core.quotePath=false`. The default quoting
+  filters the name through Git's C-quoting rules whenever a path holds a byte
+  above `0x7f`, so a non-ASCII name arrives as `"Content/caf\303\251.verse"` — a
+  label `git show`, `git cat-file -e` and `--stdin-filepath` all reject, which
+  blocked every commit touching a non-ASCII `.verse` path and exited `2` on a
+  clean one. Both hooks disable that quoting. A name containing a newline still
+  splits into two records, so use `git diff --cached -z` and a `read -d ''` loop
+  in the `sh` script if such names are possible.
 - `git cat-file -e` checks the staged blob before piping it. If the object is
   missing, `git show` writes nothing and the tool would report a clean empty buffer;
   this way the hook exits `2`.
@@ -353,20 +409,39 @@ jobs:
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
+      - name: Check out verse-lint
+        uses: actions/checkout@v4
+        with:
+          repository: eiei114/verse-lint
+          ref: main          # pin a commit SHA once you rely on this in CI
+          path: .verse-lint
       - name: Build verse-lint from source
         shell: pwsh
+        working-directory: .verse-lint
         run: cargo build --release --locked --target x86_64-pc-windows-msvc
       - name: Lint Verse
         shell: pwsh
-        run: ./target/x86_64-pc-windows-msvc/release/verse-lint.exe Content --output-format github
+        run: ./.verse-lint/target/x86_64-pc-windows-msvc/release/verse-lint.exe Content --output-format github
 ```
 
-- The build step is there because the crate is **not published**: there is no
-  crate on crates.io and no release asset to download yet ([installation
-  paths](../README.md#installation)). Building needs the Rust toolchain this
-  repository pins in `rust-toolchain.toml` and the MSVC build tools, which the
-  `windows-2025` image provides. Replace the step with an install step once a
-  published artifact exists; nothing else changes.
+- The two `actions/checkout` steps matter: the first checks out **your** Verse
+  repository, the second checks out the linter into `.verse-lint/`. The crate is
+  **not published**: there is no crate on crates.io and no release asset to
+  download yet ([installation paths](../README.md#installation)), so the
+  workflow has to build it. Building in your own repository would fail — that
+  repository has no `Cargo.toml` and no `rust-toolchain.toml`, and
+  `cargo build --locked` would stop the job before the lint step ran
+  (`error: could not find Cargo.toml`). The linter's own checkout carries the
+  pinned `rust-toolchain.toml` and `Cargo.lock`, and the `windows-2025` image
+  provides the MSVC build tools. Replace the build step with an install step (and
+  drop the second checkout) once a published artifact exists; nothing else
+  changes.
+- `ref: main` is a moving target and a supply-chain surface: pin a commit SHA,
+  as this repository's own workflow does for `actions/checkout`, so a lint run
+  cannot change meaning without a commit you reviewed.
+- The lint step runs from the repository root, so `./.verse-lint/target/...` is
+  the binary the previous step just built. The linter is not on `PATH` and is not
+  installed globally; the relative path is the whole wiring.
 - The job fails on a non-zero exit: `1` for violations and `2` for an incomplete
   inspection. That is intended — a run that could not inspect every source is
   not a passing run.

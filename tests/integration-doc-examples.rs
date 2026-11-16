@@ -71,6 +71,38 @@ fn documented_task() -> serde_json::Value {
     })
 }
 
+/// An `sh` this host can actually run: the one on `PATH` (Linux, macOS and a
+/// Git Bash session) or, on Windows, the one Git for Windows ships next to its
+/// own executables. `None` means the documented POSIX hook cannot be exercised
+/// here; the test says so instead of pretending it passed.
+fn posix_shell() -> Option<std::path::PathBuf> {
+    let works = |program: &std::ffi::OsStr| {
+        Command::new(program)
+            .args(["-c", "exit 0"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    };
+    if works(std::ffi::OsStr::new("sh")) {
+        return Some(std::path::PathBuf::from("sh"));
+    }
+    if !cfg!(windows) {
+        return None;
+    }
+    // Git for Windows keeps `sh.exe` three levels above `git --exec-path`: that
+    // directory is `<Git>/mingw64/libexec/git-core`, and `<Git>/bin/` and
+    // `<Git>/usr/bin/` hold the POSIX tools.
+    let exec = Command::new("git").arg("--exec-path").output().ok()?;
+    let exec = std::path::PathBuf::from(String::from_utf8_lossy(&exec.stdout).trim().to_owned());
+    let root = exec.parent()?.parent()?.parent()?.to_path_buf();
+    ["bin/sh.exe", "usr/bin/sh.exe"]
+        .into_iter()
+        .map(|candidate| root.join(candidate))
+        .find(|path| path.is_file() && works(path.as_os_str()))
+}
+
 fn binary() -> &'static str {
     env!("CARGO_BIN_EXE_verse-lint")
 }
@@ -610,6 +642,27 @@ fn the_document_states_the_limits_and_is_linked_from_readme_and_cli() {
             "the documented CI recipe must not upload SARIF: found {prohibited:?}\n{workflow}"
         );
     }
+    // The recipe has to build the linter in the linter's own checkout. A
+    // consumer repository has no Cargo.toml and no rust-toolchain.toml, so the
+    // older one-checkout recipe failed at `cargo build` and never reached the
+    // lint step.
+    for needle in [
+        "path: .verse-lint",
+        "working-directory: .verse-lint",
+        "./.verse-lint/target/x86_64-pc-windows-msvc/release/verse-lint.exe",
+    ] {
+        assert!(
+            workflow.contains(needle),
+            "the documented CI recipe must keep {needle:?}: the linter is built in its \
+             own checkout, because the consuming repository has no Cargo.toml\n{workflow}"
+        );
+    }
+    assert!(
+        !workflow.contains(
+            "      - name: Build verse-lint from source\n        shell: pwsh\n        run:"
+        ),
+        "the documented build step must not run in the consuming repository: {workflow}"
+    );
     // The JSON snippet a reader copies is real JSON and reads the documented key.
     let snippet = block_with(DOC, "sh", "jq -r");
     assert!(
@@ -619,11 +672,12 @@ fn the_document_states_the_limits_and_is_linked_from_readme_and_cli() {
     // The POSIX hook has to lint the *staged* bytes through stdin and exit with
     // the recorded status; a hook that lints the worktree would report lines the
     // commit does not contain.
-    let sh_hook = block_with(DOC, "sh", "git diff --cached");
+    let sh_hook = block_with(DOC, "sh", "VERSE_LINT");
     for needle in [
         "--stdin-filepath",
         "git show \":$file\"",
         "--diff-filter=ACMR",
+        "core.quotePath=false",
         "exit \"$status\"",
     ] {
         assert!(
@@ -655,18 +709,31 @@ fn documented_powershell_hook_blocks_the_staged_findings_it_must() {
     }
     let script = block_with(DOC, "powershell", "VERSE_LINT_DENY_WARNINGS");
     for needle in [
-        "$PSVersionTable.PSVersion.Major -lt 7",
+        "$PSVersionTable.PSVersion -lt [version]'7.4'",
         "$OutputEncoding = [System.Text.UTF8Encoding]::new($false)",
         "git cat-file -e",
         "$code = $LASTEXITCODE",
+        "core.quotePath=false",
     ] {
         assert!(
             script.contains(needle),
             "the documented PowerShell hook must keep {needle:?}: it is what makes \
-             the hook read the staged bytes instead of a re-encoded line list, and \
-             it is what records an exit code the table does not name"
+             the hook read the staged bytes instead of a re-encoded line list, what \
+             reads the staged names without Git's C-quoting, and what records an \
+             exit code the table does not name"
         );
     }
+    // The guard has to be 7.4, not 7.0: a native byte pipeline only arrived with
+    // PSNativeCommandPreserveBytePipe in 7.4, and every earlier `pwsh` converted a
+    // native program's output to .NET strings, which appends the final newline
+    // V1002 looks for. 7.0-7.3 would therefore report a clean staged blob that
+    // has no final newline, which is the false clean result the guard exists to
+    // prevent.
+    assert!(
+        !script.contains("PSVersion.Major -lt 7"),
+        "the documented guard must not accept 7.0-7.3: those versions cannot pipe \
+         native bytes, so V1002 would never be reported: {script}"
+    );
     // The `*)` branch must exist: the loop records only 1 and 2, so any other
     // non-zero code - a Rust panic's 101, a wrapper's 3 - would leave the
     // status at 0 and let the commit proceed with no inspection result.
@@ -675,9 +742,9 @@ fn documented_powershell_hook_blocks_the_staged_findings_it_must() {
         "the documented PowerShell hook must record an unexpected exit code as \
          incomplete, not leave it at clean: {script}"
     );
-    // The documented shim must run PowerShell 7, which the script's version
-    // guard requires; `powershell` (5.1) pipes native output line by line and
-    // would hide a missing final newline.
+    // The documented shim must run PowerShell, whose version guard the script
+    // enforces; `powershell` (5.1) pipes native output line by line and would
+    // hide a missing final newline.
     let shim = block_with(DOC, "sh", "pre-commit.ps1");
     assert!(
         shim.contains("pwsh"),
@@ -731,6 +798,43 @@ fn documented_powershell_hook_blocks_the_staged_findings_it_must() {
         stdout_text(&clean),
         String::from_utf8_lossy(&clean.stderr)
     );
+
+    // A staged path with a non-ASCII byte is the case Git's default
+    // `core.quotePath` turns into a C-quoted `"...\303\251..."` label.
+    // `git diff --cached --name-only` hands that label out and both `git show`
+    // and `git cat-file -e` reject it, so this used to exit 2 on a *clean*
+    // commit and a finding on such a path could never be reached. The hooks read
+    // the list with `core.quotePath=false`, which is the unquoted name.
+    let unicode = "Content/caf\u{e9}.verse";
+    fs::create_dir(project.join("Content")).unwrap();
+    fs::write(project.join(unicode), "value := 1\r\n").unwrap();
+    git(&["add", unicode]);
+    let unicode_clean = run_hook(binary(), false);
+    assert_eq!(
+        unicode_clean.status.code(),
+        Some(0),
+        "a clean staged file whose path holds a non-ASCII byte must commit, not be \
+         reported unreadable: {}{}",
+        stdout_text(&unicode_clean),
+        String::from_utf8_lossy(&unicode_clean.stderr)
+    );
+    fs::write(project.join(unicode), "value := 1   \r\n").unwrap();
+    git(&["add", unicode]);
+    let unicode_blocked = run_hook(binary(), false);
+    assert_eq!(
+        unicode_blocked.status.code(),
+        Some(1),
+        "the same path with a V1001 finding must block the commit: {}{}",
+        stdout_text(&unicode_blocked),
+        String::from_utf8_lossy(&unicode_blocked.stderr)
+    );
+    assert!(
+        stdout_text(&unicode_blocked).contains(&format!("{unicode}:1:")),
+        "the finding must be labelled with the real path, not a C-quoted one: {:?}",
+        stdout_text(&unicode_blocked)
+    );
+    fs::write(project.join(unicode), "value := 1\r\n").unwrap();
+    git(&["add", unicode]);
 
     fs::write(project.join("bad.verse"), "value := 1   \r\n").unwrap();
     git(&["add", "bad.verse"]);
@@ -838,5 +942,203 @@ fn documented_powershell_hook_blocks_the_staged_findings_it_must() {
         unexpected_stdout.contains("commit blocked: verse-lint exited 2"),
         "the worst recorded status is 2, and the documented message reports it: \
          {unexpected_stdout:?}"
+    );
+    assert!(
+        stdout_text(&unexpected).contains("commit blocked: verse-lint exited 2"),
+        "the worst recorded status is 2, and the documented message reports it: \
+         {unexpected_stdout:?}"
+    );
+}
+
+/// The documented POSIX hook, extracted and run against a temporary repository.
+///
+/// The PowerShell test above covers the PowerShell script. This one covers the
+/// `sh` script, whose two repaired defects were the ones a reader cannot see by
+/// reading it: the pipeline status of `git show | tool` (which `sh` reports as
+/// the tool's, so an unreadable blob looked clean) and Git's C-quoted pathnames
+/// (which blocked every commit touching a non-ASCII `.verse` path).
+#[test]
+fn documented_posix_hook_blocks_the_staged_findings_it_must() {
+    if Command::new("git").arg("--version").output().is_err() {
+        eprintln!("skipped: git is unavailable, so the documented hook cannot run");
+        return;
+    }
+    let Some(shell) = posix_shell() else {
+        eprintln!("skipped: no POSIX sh on this host, so the documented hook cannot run");
+        return;
+    };
+    let script = block_with(DOC, "sh", "VERSE_LINT");
+    for needle in [
+        "core.quotePath=false",
+        "git show \":$file\"",
+        "$blob",
+        "commit blocked: verse-lint exited",
+    ] {
+        assert!(
+            script.contains(needle),
+            "the documented sh hook must keep {needle:?}: it is what stops Git's \
+             quoting from reaching `git show`, what checks `git show` before the \
+             tool runs, and what reports the worst status"
+        );
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let hook = dir.path().join("pre-commit.sh");
+    fs::write(&hook, format!("{script}\n")).unwrap();
+    let project = dir.path().join("project");
+    fs::create_dir(&project).unwrap();
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .current_dir(&project)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    git(&["init", "--quiet"]);
+    fs::write(
+        project.join("verse.toml"),
+        "schema-version = 1\n[lint]\nselect = [\"V1001\", \"V2001\"]\n",
+    )
+    .unwrap();
+    fs::write(project.join("clean.verse"), "value := 1\r\n").unwrap();
+    git(&["add", "verse.toml", "clean.verse"]);
+
+    // `VERSE_LINT` is the documented way to point the hook at a binary that is
+    // not on PATH, so the test never depends on PATH either.
+    let run_hook = |binary: &str, deny: bool| {
+        let mut command = Command::new(&shell);
+        command
+            .current_dir(&project)
+            .arg(&hook)
+            .env("VERSE_LINT", binary)
+            .env_remove("VERSE_LINT_DENY_WARNINGS");
+        if deny {
+            command.env("VERSE_LINT_DENY_WARNINGS", "1");
+        }
+        command.output().unwrap()
+    };
+
+    let clean = run_hook(binary(), false);
+    assert_eq!(
+        clean.status.code(),
+        Some(0),
+        "a clean staged file must commit: {}{}",
+        stdout_text(&clean),
+        String::from_utf8_lossy(&clean.stderr)
+    );
+
+    // The repaired quoting failure: a staged path with a non-ASCII byte used to
+    // arrive at `git show` as a `"...\303\251..."` label, which fails, so the
+    // hook exited 2 on a clean commit and could never reach the finding below.
+    let unicode = "Content/caf\u{e9}.verse";
+    fs::create_dir(project.join("Content")).unwrap();
+    fs::write(project.join(unicode), "value := 1\r\n").unwrap();
+    git(&["add", unicode]);
+    let unicode_clean = run_hook(binary(), false);
+    assert_eq!(
+        unicode_clean.status.code(),
+        Some(0),
+        "a clean staged file whose path holds a non-ASCII byte must commit, not \
+         be reported unreadable: {}{}",
+        stdout_text(&unicode_clean),
+        String::from_utf8_lossy(&unicode_clean.stderr)
+    );
+    fs::write(project.join(unicode), "value := 1   \r\n").unwrap();
+    git(&["add", unicode]);
+    let unicode_blocked = run_hook(binary(), false);
+    assert_eq!(
+        unicode_blocked.status.code(),
+        Some(1),
+        "the same path with a V1001 finding must block the commit: {}{}",
+        stdout_text(&unicode_blocked),
+        String::from_utf8_lossy(&unicode_blocked.stderr)
+    );
+    assert!(
+        stdout_text(&unicode_blocked).contains(&format!("{unicode}:1:")),
+        "the finding must be labelled with the real path, not a C-quoted one: {:?}",
+        stdout_text(&unicode_blocked)
+    );
+    fs::write(project.join(unicode), "value := 1\r\n").unwrap();
+    git(&["add", unicode]);
+
+    // A staged entry whose blob is gone: `git show` fails, writes nothing, and
+    // the tool exits 0 on the empty buffer. Without a separate `git show` check
+    // the pipeline's status is the tool's, so the commit went through.
+    git(&[
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        "100644,0000000000000000000000000000000000000001,ghost.verse",
+    ]);
+    let unreadable = run_hook(binary(), false);
+    assert_eq!(
+        unreadable.status.code(),
+        Some(2),
+        "a staged file that cannot be read must exit 2: {}{}",
+        stdout_text(&unreadable),
+        String::from_utf8_lossy(&unreadable.stderr)
+    );
+    let unreadable_stdout = stdout_text(&unreadable);
+    assert!(
+        unreadable_stdout.contains("could not read the staged content of ghost.verse"),
+        "the hook must name the blob it could not read: {unreadable_stdout:?}"
+    );
+    git(&["update-index", "--force-remove", "ghost.verse"]);
+
+    // A missing binary is 2 in both scripts, never a silent pass.
+    let absent = run_hook("C:/nowhere/verse-lint.exe", false);
+    assert_eq!(
+        absent.status.code(),
+        Some(2),
+        "a missing tool must exit 2 rather than commit: {}{}",
+        stdout_text(&absent),
+        String::from_utf8_lossy(&absent.stderr)
+    );
+
+    // A warning-only staged file passes by default and fails under the documented
+    // option, so `--deny-warnings` reaches the tool through the loop.
+    let long = format!("value := {}\r\n", "x".repeat(130));
+    fs::write(project.join("long.verse"), &long).unwrap();
+    git(&["add", "long.verse"]);
+    let warned = run_hook(binary(), false);
+    assert_eq!(
+        warned.status.code(),
+        Some(0),
+        "a warning alone must not block a commit: {}{}",
+        stdout_text(&warned),
+        String::from_utf8_lossy(&warned.stderr)
+    );
+    let denied = run_hook(binary(), true);
+    assert_eq!(
+        denied.status.code(),
+        Some(1),
+        "VERSE_LINT_DENY_WARNINGS must block the same warning: {}{}",
+        stdout_text(&denied),
+        String::from_utf8_lossy(&denied.stderr)
+    );
+
+    // An exit code the documented table does not name is an incomplete
+    // inspection, not a clean one: a Rust panic's 101 arriving as "clean" was
+    // the second half of the same `*)` gap the PowerShell hook had.
+    let failing = dir.path().join("exit101.sh");
+    fs::write(&failing, "#!/bin/sh\ncat >/dev/null\nexit 101\n").unwrap();
+    let unexpected = run_hook(&failing.to_string_lossy(), false);
+    assert_eq!(
+        unexpected.status.code(),
+        Some(2),
+        "an unexpected non-zero exit must be recorded as incomplete, never as a \
+         clean commit: {}{}",
+        stdout_text(&unexpected),
+        String::from_utf8_lossy(&unexpected.stderr)
+    );
+    let unexpected_stdout = stdout_text(&unexpected);
+    assert!(
+        unexpected_stdout.contains("verse-lint exited 101"),
+        "the hook must name the code it could not interpret: {unexpected_stdout:?}"
     );
 }
