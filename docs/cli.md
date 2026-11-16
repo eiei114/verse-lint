@@ -3,9 +3,8 @@
 Shared toolchain contract version **1**. Eleven rules and
 [suppression](suppressions.md) are implemented. Defaults are V1001/V1002/V1003;
 V1004/V1005 and V2001/V2002/V2003 are opt-in warnings, and V3001/V3002/V3003 are
-opt-in
-semantic rules that read the [scope graph](semantic-model.md). `--fix` applies
-only validated V1001/V1002 edits using guarded Windows replacement; see
+opt-in semantic rules that read the [scope graph](semantic-model.md). `--fix`
+applies only validated V1001/V1002 edits using guarded Windows replacement; see
 [fixes](fixes.md).
 [SARIF
 2.1.0](sarif.md) is supported and schema-validated, and `--output-format github`
@@ -37,11 +36,10 @@ binary itself, without reading configuration or sources; see
 `select`/`ignore` entries — on the command line and in the `[lint]` arrays — are
 either a complete rule ID (`V1001`) or a rule-family prefix: `V` followed by zero
 or more ASCII digits (`V`, `V1`, `V2`). A prefix expands to every registered rule
-whose ID starts with it, so `--select V1` is the V1001/V1002/V1003/V1004/V1005
-family
-and `--select V` is the whole registry. Expansion reads the live registry, so a
-rule added in a later release becomes reachable through an existing prefix
-without editing the selection.
+whose ID starts with it, so `--select V1` is the
+V1001/V1002/V1003/V1004/V1005 family, and `--select V` is the whole registry.
+Expansion reads the live registry, so a rule added in a later release becomes
+reachable through an existing prefix without editing the selection.
 
 Both lists are expanded before subtraction, so `--select V --ignore V2` keeps the
 V1 family: an `ignore` prefix removes the rules it names, never a literal string.
@@ -209,9 +207,9 @@ file. Empty, BOM-only and whitespace-only files are clean — a whitespace-only
 trailing line belongs to V1001, and this rule counts only genuinely empty lines
 so the two never describe one line.
 
-It is **file-level** like V1002: a `disable-line` or `disable-next-line
-directive naming it fails with exit 2 ("file-level V1005 cannot be suppressed by
-a line directive; use config ignore"), whether or not it is selected. Use
+It is **file-level** like V1002: a `disable-line` or `disable-next-line`
+directive naming it fails with exit 2 ("file-level V1005 cannot be suppressed
+by a line directive; use config ignore"), whether or not it is selected. Use
 `--ignore V1005` / `[lint] ignore` instead. `--fix` never touches it, because
 removing a tail rewrites bytes outside any finding the author marked.
 

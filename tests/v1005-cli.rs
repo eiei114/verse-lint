@@ -458,6 +458,21 @@ fn the_documents_state_the_rule_contract() {
             "{document}"
         );
     }
+    // This section is prose, so every inline code span has to close inside its
+    // own paragraph. An unpaired backtick makes the next sentence render as
+    // code and silently hides the suppression guidance it carries.
+    let section = cli
+        .split("### V1005 excess-final-blank-lines")
+        .nth(1)
+        .and_then(|rest| rest.split("### ").next())
+        .expect("docs/cli.md lost the V1005 section");
+    for paragraph in section.split("\n\n") {
+        assert_eq!(
+            paragraph.matches('`').count() % 2,
+            0,
+            "unpaired backtick in the V1005 section: {paragraph}"
+        );
+    }
     let readme = include_str!("../README.md");
     assert!(readme.contains("[V1005][v1005]"), "{readme}");
     assert!(
