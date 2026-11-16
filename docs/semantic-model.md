@@ -314,12 +314,22 @@ neither is a strict inspection run. Enabling it for an existing project will tur
 every currently unsupported construct into a build failure, which is why it is
 not the default.
 
+A control-flow model would answer a different question — which statement
+runs — and the scope graph cannot answer it. V3004 `unreachable-code` stays
+unbuilt until the bounded [control-flow plan](control-flow-plan.md) is accepted:
+that plan records which block and terminator shapes the pinned snapshot
+proves, which it refuses (and would need an owner-approved snapshot expansion
+to reach), and the decisions that are the owner's to make. The invariant does not
+change for it: a rule may report only from a model it can prove complete.
+
 ## Non-goals
 
 - No type inference, effect inference, or cross-file resolution.
-- No third semantic rule in this layer beyond V3001, V3002 and V3003; a further
-  consumer must use `reportable()` and preserve the no-finding behavior for
-  incomplete graphs.
+- No further semantic rule in this layer without a written plan. V3001, V3002 and
+  V3003 are the whole implemented layer; V3004 `unreachable-code` — the
+  placeholder the vault design lists — may be built only from the bounded
+  [control-flow plan](control-flow-plan.md), and any further consumer must use
+  `reportable()` and preserve the no-finding behavior for incomplete graphs.
 - No replacement of the lossless lexer or of strict coverage validation with
   tree-sitter error recovery.
 - Coverage counts describe the *tool's* coverage. They are not a code-quality
@@ -332,4 +342,5 @@ not the default.
 
 - [Parser design](parser-design.md)
 - [Syntax snapshot](syntax-snapshot.md)
+- [Control-flow plan for V3004](control-flow-plan.md)
 - [CLI, configuration and JSON](cli.md)
