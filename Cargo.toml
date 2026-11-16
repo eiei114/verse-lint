@@ -50,5 +50,12 @@ sha2 = "0.10"
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Storage_FileSystem", "Win32_Security_Authorization"] }
 
+# Test-only. `tests/integration-doc-examples.rs` compiles the VS Code
+# problem-matcher expression `docs/integration.md` tells a reader to paste, and
+# matches it against the real text output; the same crate is already in the
+# dependency graph through `tree-sitter`, so this adds no crate to the build.
+[dev-dependencies]
+regex = "1"
+
 [build-dependencies]
 cc = "1"

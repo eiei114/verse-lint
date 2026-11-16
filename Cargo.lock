@@ -625,6 +625,7 @@ dependencies = [
  "globset",
  "ignore",
  "pathdiff",
+ "regex",
  "serde",
  "serde_json",
  "sha2",

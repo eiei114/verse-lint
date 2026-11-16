@@ -1,0 +1,1156 @@
+//! `docs/integration.md` tells a reader how to wire the binary into an editor,
+//! a commit hook and a CI job. That document is only useful if its recipes are
+//! literally runnable, so this module executes the parts a test can drive:
+//!
+//! - the VS Code `tasks.json` block is parsed as JSON, its problem-matcher
+//!   regular expression is compiled, and the *real* text output of the binary is
+//!   matched against it. The captured file/line/column/severity/code/message
+//!   must equal what the same run reports in JSON, so a documented pattern that
+//!   drifts from the output contract fails here instead of silently showing
+//!   nothing in an editor. One case uses a `C:/...` absolute path, which is the
+//!   case a naive `(\S+):(\d+)` pattern gets wrong.
+//! - the stdin command is executed, including the claim that `--fix` refuses
+//!   stdin with exit 2 and the claim that no exclusion pattern applies to a
+//!   buffer (a project that excludes the buffer's path still reports it).
+//! - the documented exit codes are observed on a clean run, an error, a denied
+//!   warning and an incomplete inspection.
+//! - the documented PowerShell pre-commit hook is extracted and run against a
+//!   temporary Git repository, because a hook script that only *looks* right
+//!   blocks nothing.
+//!
+//! It never claims a language server or an extension exists; the document states
+//! that there is none, and that statement is checked too.
+use std::{
+    fs,
+    path::Path,
+    process::{Command, Output, Stdio},
+};
+
+const DOC: &str = include_str!("../docs/integration.md");
+const README: &str = include_str!("../README.md");
+const CLI_DOC: &str = include_str!("../docs/cli.md");
+
+/// Every fenced block in `document` tagged with `language`, in order.
+fn fenced_blocks(document: &str, language: &str) -> Vec<String> {
+    let opening = format!("```{language}");
+    let mut blocks = Vec::new();
+    let mut lines = document.lines();
+    while let Some(line) = lines.next() {
+        if line.trim() != opening {
+            continue;
+        }
+        let mut body = Vec::new();
+        for line in lines.by_ref() {
+            if line.trim() == "```" {
+                break;
+            }
+            body.push(line);
+        }
+        blocks.push(body.join("\n"));
+    }
+    blocks
+}
+
+/// The one fenced block that contains `needle`; its absence is a failure the
+/// document cannot recover from.
+fn block_with(document: &str, language: &str, needle: &str) -> String {
+    fenced_blocks(document, language)
+        .into_iter()
+        .find(|block| block.contains(needle))
+        .unwrap_or_else(|| {
+            panic!("docs/integration.md has no ```{language} block containing {needle:?}")
+        })
+}
+
+/// The documented `.vscode/tasks.json`, parsed. This also proves the snippet is
+/// valid JSON a reader can paste.
+fn documented_task() -> serde_json::Value {
+    let block = block_with(DOC, "json", "problemMatcher");
+    serde_json::from_str(&block).unwrap_or_else(|e| {
+        panic!("the tasks.json block in docs/integration.md is not valid JSON: {e}\n{block}")
+    })
+}
+
+/// An `sh` this host can actually run: the one on `PATH` (Linux, macOS and a
+/// Git Bash session) or, on Windows, the one Git for Windows ships next to its
+/// own executables. `None` means the documented POSIX hook cannot be exercised
+/// here; the test says so instead of pretending it passed.
+fn posix_shell() -> Option<std::path::PathBuf> {
+    let works = |program: &std::ffi::OsStr| {
+        Command::new(program)
+            .args(["-c", "exit 0"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    };
+    if works(std::ffi::OsStr::new("sh")) {
+        return Some(std::path::PathBuf::from("sh"));
+    }
+    if !cfg!(windows) {
+        return None;
+    }
+    // Git for Windows keeps `sh.exe` three levels above `git --exec-path`: that
+    // directory is `<Git>/mingw64/libexec/git-core`, and `<Git>/bin/` and
+    // `<Git>/usr/bin/` hold the POSIX tools.
+    let exec = Command::new("git").arg("--exec-path").output().ok()?;
+    let exec = std::path::PathBuf::from(String::from_utf8_lossy(&exec.stdout).trim().to_owned());
+    let root = exec.parent()?.parent()?.parent()?.to_path_buf();
+    ["bin/sh.exe", "usr/bin/sh.exe"]
+        .into_iter()
+        .map(|candidate| root.join(candidate))
+        .find(|path| path.is_file() && works(path.as_os_str()))
+}
+
+fn binary() -> &'static str {
+    env!("CARGO_BIN_EXE_verse-lint")
+}
+
+fn run(root: &Path, args: &[String]) -> Output {
+    Command::new(binary())
+        .current_dir(root)
+        .args(args)
+        .output()
+        .unwrap()
+}
+
+/// Run the binary with `input` on stdin, the way a hook or an editor pipe does.
+fn run_stdin(root: &Path, args: &[&str], input: &str) -> Output {
+    use std::io::Write;
+    let mut child = Command::new(binary())
+        .current_dir(root)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
+    child.wait_with_output().unwrap()
+}
+
+fn stdout_text(out: &Output) -> String {
+    String::from_utf8(out.stdout.clone()).unwrap()
+}
+
+fn json_report(out: &Output) -> serde_json::Value {
+    serde_json::from_slice(&out.stdout)
+        .unwrap_or_else(|e| panic!("{e}: {}", String::from_utf8_lossy(&out.stderr)))
+}
+
+/// A project whose `verse.toml` selects one bundled policy rule, plus a fixture
+/// that produces one error and one warning so both severity words appear.
+fn project() -> tempfile::TempDir {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("verse.toml"),
+        "schema-version = 1\n[lint]\nselect = [\"V1001\", \"V2002\"]\n",
+    )
+    .unwrap();
+    fs::create_dir(dir.path().join("Content")).unwrap();
+    fs::write(
+        dir.path().join("Content/device.verse"),
+        "# TODO revisit\r\ndevice := class(creative_device):\r\n    OnBegin<override>()<suspends>:void =   \r\n        Print(\"ready\")\r\n",
+    )
+    .unwrap();
+    dir
+}
+
+/// The documented matcher, read out of the document rather than duplicated here.
+///
+/// The expression is compiled with the `regex` crate as a portable check that it
+/// is a valid regular expression; VS Code itself uses a JavaScript `RegExp`. The
+/// documented pattern deliberately stays inside the syntax both engines accept
+/// (no lookaround, no backreferences), so a compile here is meaningful.
+struct DocumentedPattern {
+    regex: regex::Regex,
+    file: usize,
+    line: usize,
+    column: usize,
+    severity: usize,
+    code: usize,
+    message: usize,
+    args: Vec<String>,
+}
+
+fn documented_pattern() -> DocumentedPattern {
+    let task = documented_task();
+    let matcher = &task["tasks"][0]["problemMatcher"];
+    let pattern = &matcher["pattern"];
+    let regexp = pattern["regexp"]
+        .as_str()
+        .expect("the problem-matcher pattern has a regexp string");
+    let index = |key: &str| {
+        pattern[key]
+            .as_u64()
+            .unwrap_or_else(|| panic!("the documented pattern has no `{key}` capture index"))
+            as usize
+    };
+    let args: Vec<String> = task["tasks"][0]["args"]
+        .as_array()
+        .expect("the documented task has an args array")
+        .iter()
+        .map(|arg| {
+            arg.as_str()
+                .expect("each documented argument is a string")
+                .to_owned()
+        })
+        .collect();
+    DocumentedPattern {
+        regex: regex::Regex::new(regexp)
+            .unwrap_or_else(|e| panic!("{regexp:?} does not compile: {e}")),
+        file: index("file"),
+        line: index("line"),
+        column: index("column"),
+        severity: index("severity"),
+        code: index("code"),
+        message: index("message"),
+        args,
+    }
+}
+
+/// One text line matched against the documented pattern, compared with the JSON
+/// diagnostic that describes the same finding.
+fn assert_line_matches(pattern: &DocumentedPattern, line: &str, diagnostic: &serde_json::Value) {
+    let captures = pattern.regex.captures(line).unwrap_or_else(|| {
+        panic!("the documented problem-matcher pattern does not match {line:?}")
+    });
+    let group = |index: usize| {
+        captures
+            .get(index)
+            .unwrap_or_else(|| panic!("the documented pattern has no group {index}"))
+            .as_str()
+    };
+    let start = &diagnostic["range"]["start"];
+    assert_eq!(
+        group(pattern.file),
+        diagnostic["path"].as_str().unwrap(),
+        "{line:?}"
+    );
+    assert_eq!(
+        group(pattern.line),
+        start["line"].as_u64().unwrap().to_string(),
+        "{line:?}"
+    );
+    assert_eq!(
+        group(pattern.column),
+        start["column"].as_u64().unwrap().to_string(),
+        "{line:?}"
+    );
+    assert_eq!(
+        group(pattern.severity),
+        diagnostic["severity"].as_str().unwrap(),
+        "{line:?}"
+    );
+    assert_eq!(
+        group(pattern.code),
+        diagnostic["ruleId"].as_str().unwrap(),
+        "{line:?}"
+    );
+    assert_eq!(
+        group(pattern.message),
+        diagnostic["message"].as_str().unwrap(),
+        "{line:?}"
+    );
+}
+
+/// The documented task arguments, with the JSON format swapped in for the
+/// comparison run. The text run uses the documented arguments verbatim.
+fn with_json_format(args: &[String]) -> Vec<String> {
+    let mut args = args.to_vec();
+    let index = args
+        .iter()
+        .position(|arg| arg == "--output-format")
+        .expect("the documented task names --output-format");
+    args[index + 1] = "json".into();
+    args
+}
+
+#[test]
+fn documented_problem_matcher_matches_real_relative_paths() {
+    let pattern = documented_pattern();
+    let dir = project();
+    let text = run(dir.path(), &pattern.args);
+    let json = run(dir.path(), &with_json_format(&pattern.args));
+    let report = json_report(&json);
+
+    let diagnostics = report["diagnostics"].as_array().unwrap();
+    assert_eq!(
+        diagnostics.len(),
+        2,
+        "the fixture must produce one error and one warning so both documented \
+         severity words are exercised: {report}"
+    );
+    let text_stdout = stdout_text(&text);
+    let lines: Vec<&str> = text_stdout.lines().collect();
+    assert_eq!(
+        lines.len(),
+        diagnostics.len(),
+        "text output must carry one documented line per diagnostic: {text_stdout:?}"
+    );
+    for (line, diagnostic) in lines.iter().zip(diagnostics) {
+        assert_line_matches(&pattern, line, diagnostic);
+    }
+    let severities: Vec<&str> = diagnostics
+        .iter()
+        .map(|diagnostic| diagnostic["severity"].as_str().unwrap())
+        .collect();
+    for severity in ["error", "warning"] {
+        assert!(
+            severities.contains(&severity),
+            "both documented severity words must occur, so the pattern's severity \
+             group is not accidentally only ever one of them: {report}"
+        );
+    }
+    // The documented exit code for reported violations.
+    assert_eq!(text.status.code(), Some(1), "{text_stdout}");
+}
+
+/// A drive letter contains a colon, so `C:/Users/you/Content/device.verse:1:14:`
+/// is the case a pattern without a path class either rejects or splits wrong.
+/// A virtual stdin path is the portable way to obtain exactly that label.
+#[test]
+fn documented_problem_matcher_matches_a_windows_drive_path() {
+    let pattern = documented_pattern();
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("verse.toml"), "schema-version = 1\n").unwrap();
+    const LABEL: &str = "C:/Users/you/Content/device.verse";
+    let buffer = "value := 1   \r\n";
+
+    let text = run_stdin(
+        dir.path(),
+        &[
+            "-",
+            "--stdin-filepath",
+            LABEL,
+            "--output-format",
+            "text",
+            "--color",
+            "never",
+        ],
+        buffer,
+    );
+    let json = run_stdin(
+        dir.path(),
+        &["-", "--stdin-filepath", LABEL, "--output-format", "json"],
+        buffer,
+    );
+    let report = json_report(&json);
+    let diagnostics = report["diagnostics"].as_array().unwrap();
+    assert_eq!(
+        diagnostics.len(),
+        1,
+        "the buffer must produce exactly the trailing-whitespace finding: {report}"
+    );
+    assert_eq!(
+        diagnostics[0]["path"], LABEL,
+        "stdin reports its virtual path, which is this label: {report}"
+    );
+
+    let text = stdout_text(&text);
+    let line = text.lines().next().expect("the run reports one line");
+    assert!(
+        line.starts_with("C:/Users/you/Content/device.verse:"),
+        "the drive letter must stay at the start of the matched line: {line:?}"
+    );
+    assert_line_matches(&pattern, line, &diagnostics[0]);
+}
+
+/// The stdin recipe and its two documented consequences: the virtual path picks
+/// up the project's configuration, and `--fix` refuses stdin with exit 2.
+#[test]
+fn documented_stdin_recipe_uses_the_virtual_path_and_never_fixes() {
+    let dir = project();
+    // Only V2001 is selected here, so a long line is reported and the buffer's
+    // trailing whitespace is not: that proves the configuration was discovered
+    // from the virtual path rather than from defaults.
+    fs::write(
+        dir.path().join("verse.toml"),
+        "schema-version = 1\n[lint]\nselect = [\"V2001\"]\n",
+    )
+    .unwrap();
+    const LABEL: &str = "Content/device.verse";
+    let long = format!("value := {}\r\n       \r\n", "x".repeat(130));
+
+    let out = run_stdin(
+        dir.path(),
+        &[
+            "-",
+            "--stdin-filepath",
+            LABEL,
+            "--output-format",
+            "text",
+            "--color",
+            "never",
+        ],
+        &long,
+    );
+    let stdout = stdout_text(&out);
+    assert_eq!(out.status.code(), Some(0), "{stdout}");
+    assert!(
+        stdout.starts_with("Content/device.verse:1:"),
+        "the documented command must label the finding with the virtual path: {stdout:?}"
+    );
+    assert!(
+        stdout.contains("warning V2001"),
+        "the project's selection must apply to a stdin run: {stdout:?}"
+    );
+    assert!(
+        !stdout.contains("V1001"),
+        "V1001 is not selected here, so the buffer proves config discovery: {stdout:?}"
+    );
+
+    let fixed = run_stdin(dir.path(), &["-", "--fix"], "value := 1   \r\n");
+    assert_eq!(
+        fixed.status.code(),
+        Some(2),
+        "the document states `--fix` with stdin exits 2: {:?}",
+        stdout_text(&fixed)
+    );
+    assert!(
+        String::from_utf8_lossy(&fixed.stderr).contains("cannot be used with stdin"),
+        "--fix must refuse stdin with the documented message: {:?}",
+        String::from_utf8_lossy(&fixed.stderr)
+    );
+}
+
+/// The document's stdin section states exactly which parts of the configuration
+/// reach a buffer: `verse.toml` discovery, the `[lint]` selection, options and
+/// severity overrides, and the ignore file's location and validation — but no
+/// exclusion pattern, because a stdin run never performs file discovery. This is
+/// what a save hook and the pre-commit hook above actually do, so the document
+/// must not promise the exclusions. Two sentences used to say the virtual path
+/// applies `[files] exclude` and `verse-lint.ignore`; this test runs the two
+/// behaviours side by side and fails if the document drifts back.
+#[test]
+fn documented_stdin_applies_the_configuration_but_no_exclusion_pattern() {
+    for needle in [
+        "**No exclusion pattern applies to a buffer.**",
+        "it does not make the exclusions apply either",
+    ] {
+        assert!(
+            DOC.contains(needle),
+            "docs/integration.md must keep the corrected stdin claim {needle:?}"
+        );
+    }
+    for stale in [
+        "the virtual path is what applies `[files] exclude`",
+        "`verse.toml`, `[files] exclude`",
+    ] {
+        assert!(
+            !DOC.contains(stale),
+            "docs/integration.md must not claim exclusions apply to stdin: {stale:?}"
+        );
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(
+        dir.path().join("verse.toml"),
+        "schema-version = 1\n[files]\nexclude = [\"Vendor/**\"]\n[lint]\nselect = [\"V1001\"]\n",
+    )
+    .unwrap();
+    fs::create_dir_all(dir.path().join("Vendor")).unwrap();
+    fs::create_dir_all(dir.path().join("Content")).unwrap();
+    fs::write(dir.path().join("Vendor/v.verse"), "value := 1   \r\n").unwrap();
+    fs::write(
+        dir.path().join("Content/generated.verse"),
+        "value := 1   \r\n",
+    )
+    .unwrap();
+    fs::write(
+        dir.path().join("verse-lint.ignore"),
+        "Content/generated.verse\n",
+    )
+    .unwrap();
+    fs::write(dir.path().join("Content/clean.verse"), "value := 1\r\n").unwrap();
+
+    // The directory run skips both excluded files and names the source that
+    // excluded each one; only `clean.verse` is inspected.
+    let walk = run(dir.path(), &[".".to_owned(), "--verbose".to_owned()]);
+    let stderr = String::from_utf8_lossy(&walk.stderr).to_string();
+    for needle in [
+        "Vendor/v.verse: excluded (verse.toml exclude)",
+        "Content/generated.verse: excluded (verse-lint.ignore exclude)",
+    ] {
+        assert!(
+            stderr.contains(needle),
+            "the documented `--verbose` attribution must stay observable: {stderr:?}"
+        );
+    }
+    assert!(
+        !stdout_text(&walk).contains("Vendor"),
+        "an excluded file is not linted by a directory run: {:?}",
+        stdout_text(&walk)
+    );
+
+    // The same two paths piped through stdin are linted anyway, which is what
+    // the corrected document says: the buffer gets the project's `[lint]`
+    // selection, and no exclusion pattern is consulted.
+    for label in ["Vendor/v.verse", "Content/generated.verse"] {
+        let out = run_stdin(
+            dir.path(),
+            &["-", "--stdin-filepath", label, "--output-format", "json"],
+            "value := 1   \r\n",
+        );
+        let report = json_report(&out);
+        let diagnostics = report["diagnostics"].as_array().unwrap();
+        assert_eq!(
+            diagnostics.len(),
+            1,
+            "a stdin run must still report {label}, exactly as documented: {report}"
+        );
+        assert_eq!(
+            diagnostics[0]["ruleId"], "V1001",
+            "the project's `[lint]` selection still applies to the buffer: {report}"
+        );
+        assert_eq!(
+            diagnostics[0]["path"], label,
+            "the virtual path is the reported path: {report}"
+        );
+        assert_eq!(out.status.code(), Some(1), "{report}");
+    }
+
+    // The ignore file is still *located* and validated on the stdin path: the
+    // document promises that, and a finding is not a silent pass over a broken
+    // configuration.
+    fs::write(dir.path().join("verse-lint.ignore"), "!negated\n").unwrap();
+    let invalid = run_stdin(
+        dir.path(),
+        &["-", "--stdin-filepath", "Vendor/v.verse"],
+        "value := 1   \r\n",
+    );
+    assert_eq!(
+        invalid.status.code(),
+        Some(2),
+        "an invalid ignore file must still fail a stdin run: {:?}",
+        String::from_utf8_lossy(&invalid.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&invalid.stderr).contains("verse-lint.ignore:1:"),
+        "the failure must name the ignore file and its line: {:?}",
+        String::from_utf8_lossy(&invalid.stderr)
+    );
+}
+
+/// The exit-code table, observed rather than quoted: 0 clean, 1 violations (and
+/// 1 for denied warnings), 2 incomplete.
+#[test]
+fn documented_exit_codes_are_the_ones_the_binary_returns() {
+    for needle in ["| `0` |", "| `1` |", "| `2` |"] {
+        assert!(
+            DOC.contains(needle),
+            "docs/integration.md must keep the exit-code table row {needle:?}"
+        );
+    }
+    let dir = project();
+    fs::write(dir.path().join("Content/clean.verse"), "value := 42\r\n").unwrap();
+
+    // The clean file on its own: exit 0 and no finding line for it.
+    let clean = run(dir.path(), &["Content/clean.verse".to_owned()]);
+    assert!(
+        !stdout_text(&clean).contains("clean.verse"),
+        "a clean file prints no findings: {:?}",
+        stdout_text(&clean)
+    );
+    assert_eq!(
+        clean.status.code(),
+        Some(0),
+        "exit 0 means no selected errors"
+    );
+
+    let error = run(dir.path(), &["Content/device.verse".to_owned()]);
+    assert_eq!(
+        error.status.code(),
+        Some(1),
+        "exit 1 means reported violations"
+    );
+
+    // A warning-only run is 0, and `--deny-warnings` promotes it to 1 without
+    // changing severity — exactly the documented option for a hook.
+    fs::write(
+        dir.path().join("verse.toml"),
+        "schema-version = 1\n[lint]\nselect = [\"V2001\"]\n",
+    )
+    .unwrap();
+    let long = format!("value := {}\r\n", "x".repeat(130));
+    fs::write(dir.path().join("Content/long.verse"), &long).unwrap();
+    let warning = run(dir.path(), &["Content/long.verse".to_owned()]);
+    assert_eq!(
+        warning.status.code(),
+        Some(0),
+        "a warning alone is not a failure"
+    );
+    let denied = run(
+        dir.path(),
+        &[
+            "Content/long.verse".to_owned(),
+            "--deny-warnings".to_owned(),
+        ],
+    );
+    assert_eq!(
+        denied.status.code(),
+        Some(1),
+        "--deny-warnings must turn the same warning into exit 1"
+    );
+
+    // 2 is "incomplete", not "more violations": the path was never inspected.
+    let missing = run(dir.path(), &["Content/absent.verse".to_owned()]);
+    assert_eq!(missing.status.code(), Some(2), "an I/O failure exits 2");
+    let stderr = String::from_utf8_lossy(&missing.stderr);
+    assert!(
+        stderr.contains("verse-lint:"),
+        "exit 2 must explain itself on stderr: {stderr:?}"
+    );
+}
+
+/// The document has to say what is not there: no language server, no extension,
+/// and no automatic `--fix` from a hook. It also has to be reachable from the
+/// two places a reader starts at.
+#[test]
+fn the_document_states_the_limits_and_is_linked_from_readme_and_cli() {
+    assert!(
+        DOC.contains("there is no language server and no editor extension"),
+        "the document must state that no LSP or extension exists"
+    );
+    assert!(
+        DOC.contains("**Stdin never fixes.**"),
+        "the document must state that stdin never fixes"
+    );
+    assert!(
+        DOC.contains("A hook or a task never rewrites your files unless you add `--fix` yourself."),
+        "the document must state that a hook never fixes on its own"
+    );
+    assert!(
+        CLI_DOC.contains("](integration.md)"),
+        "docs/cli.md must link the integration guide"
+    );
+    assert!(
+        README.contains("docs/integration.md"),
+        "README.md must link the integration guide with the absolute URL crates.io needs"
+    );
+    // The documented workflow snippet must not introduce a code-scanning upload.
+    let workflow = block_with(DOC, "yaml", "verse-lint.exe");
+    for prohibited in ["upload-sarif", "security-events", "codeql-action"] {
+        assert!(
+            !workflow.contains(prohibited),
+            "the documented CI recipe must not upload SARIF: found {prohibited:?}\n{workflow}"
+        );
+    }
+    // The recipe has to build the linter in the linter's own checkout. A
+    // consumer repository has no Cargo.toml and no rust-toolchain.toml, so the
+    // older one-checkout recipe failed at `cargo build` and never reached the
+    // lint step.
+    for needle in [
+        "path: .verse-lint",
+        "working-directory: .verse-lint",
+        "./.verse-lint/target/x86_64-pc-windows-msvc/release/verse-lint.exe",
+    ] {
+        assert!(
+            workflow.contains(needle),
+            "the documented CI recipe must keep {needle:?}: the linter is built in its \
+             own checkout, because the consuming repository has no Cargo.toml\n{workflow}"
+        );
+    }
+    assert!(
+        !workflow.contains(
+            "      - name: Build verse-lint from source\n        shell: pwsh\n        run:"
+        ),
+        "the documented build step must not run in the consuming repository: {workflow}"
+    );
+    // The JSON snippet a reader copies is real JSON and reads the documented key.
+    let snippet = block_with(DOC, "sh", "jq -r");
+    assert!(
+        snippet.contains(".summary"),
+        "the JSON recipe must read `summary`, as the output contract defines it"
+    );
+    // The POSIX hook has to lint the *staged* bytes through stdin and exit with
+    // the recorded status; a hook that lints the worktree would report lines the
+    // commit does not contain.
+    let sh_hook = block_with(DOC, "sh", "VERSE_LINT");
+    for needle in [
+        "--stdin-filepath",
+        "git show \":$file\"",
+        "--diff-filter=ACMR",
+        "core.quotePath=false",
+        "exit \"$status\"",
+    ] {
+        assert!(
+            sh_hook.contains(needle),
+            "the documented sh hook must keep {needle:?}"
+        );
+    }
+    assert!(
+        !sh_hook.contains("--fix"),
+        "the documented sh hook must never rewrite the source it lints"
+    );
+}
+
+/// The pre-commit hook from the document, extracted and run against a temporary
+/// repository. A hook that cannot block is worse than no hook, so this asserts
+/// 0 for a clean staged file, 1 for a staged error, 1 for a denied warning,
+/// 2 when the tool is missing, 2 for an unreadable staged blob, and 2 for an
+/// exit code the documented table does not name.
+#[cfg(windows)]
+#[test]
+fn documented_powershell_hook_blocks_the_staged_findings_it_must() {
+    // The hook needs both `pwsh` and `git`; without them the documented setup is
+    // not installable and there is nothing to run.
+    for tool in ["pwsh", "git"] {
+        if Command::new(tool).arg("--version").output().is_err() {
+            eprintln!("skipped: {tool} is unavailable, so the documented hook cannot run");
+            return;
+        }
+    }
+    let script = block_with(DOC, "powershell", "VERSE_LINT_DENY_WARNINGS");
+    for needle in [
+        "$PSVersionTable.PSVersion -lt [version]'7.4'",
+        "$OutputEncoding = [System.Text.UTF8Encoding]::new($false)",
+        "git cat-file -e",
+        "$code = $LASTEXITCODE",
+        "core.quotePath=false",
+    ] {
+        assert!(
+            script.contains(needle),
+            "the documented PowerShell hook must keep {needle:?}: it is what makes \
+             the hook read the staged bytes instead of a re-encoded line list, what \
+             reads the staged names without Git's C-quoting, and what records an \
+             exit code the table does not name"
+        );
+    }
+    // The guard has to be 7.4, not 7.0: a native byte pipeline only arrived with
+    // PSNativeCommandPreserveBytePipe in 7.4, and every earlier `pwsh` converted a
+    // native program's output to .NET strings, which appends the final newline
+    // V1002 looks for. 7.0-7.3 would therefore report a clean staged blob that
+    // has no final newline, which is the false clean result the guard exists to
+    // prevent.
+    assert!(
+        !script.contains("PSVersion.Major -lt 7"),
+        "the documented guard must not accept 7.0-7.3: those versions cannot pipe \
+         native bytes, so V1002 would never be reported: {script}"
+    );
+    // The `*)` branch must exist: the loop records only 1 and 2, so any other
+    // non-zero code - a Rust panic's 101, a wrapper's 3 - would leave the
+    // status at 0 and let the commit proceed with no inspection result.
+    assert!(
+        script.contains("$code -ne 0"),
+        "the documented PowerShell hook must record an unexpected exit code as \
+         incomplete, not leave it at clean: {script}"
+    );
+    // The documented shim must run PowerShell, whose version guard the script
+    // enforces; `powershell` (5.1) pipes native output line by line and would
+    // hide a missing final newline.
+    let shim = block_with(DOC, "sh", "pre-commit.ps1");
+    assert!(
+        shim.contains("pwsh"),
+        "the documented shim must invoke pwsh, not Windows PowerShell: {shim}"
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let hook = dir.path().join("pre-commit.ps1");
+    fs::write(&hook, format!("{script}\n")).unwrap();
+    let project = dir.path().join("project");
+    fs::create_dir(&project).unwrap();
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .current_dir(&project)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    git(&["init", "--quiet"]);
+    fs::write(
+        project.join("verse.toml"),
+        "schema-version = 1\n[lint]\nselect = [\"V1001\", \"V2001\"]\n",
+    )
+    .unwrap();
+    fs::write(project.join("clean.verse"), "value := 1\r\n").unwrap();
+    git(&["add", "verse.toml", "clean.verse"]);
+
+    let run_hook = |binary: &str, deny: bool| {
+        let mut command = Command::new("pwsh");
+        command
+            .current_dir(&project)
+            .args(["-NoProfile", "-File"])
+            .arg(&hook)
+            .env("VERSE_LINT", binary)
+            .env_remove("VERSE_LINT_DENY_WARNINGS");
+        if deny {
+            command.env("VERSE_LINT_DENY_WARNINGS", "1");
+        }
+        command.output().unwrap()
+    };
+
+    let clean = run_hook(binary(), false);
+    assert_eq!(
+        clean.status.code(),
+        Some(0),
+        "a clean staged file must commit: {}{}",
+        stdout_text(&clean),
+        String::from_utf8_lossy(&clean.stderr)
+    );
+
+    // A staged path with a non-ASCII byte is the case Git's default
+    // `core.quotePath` turns into a C-quoted `"...\303\251..."` label.
+    // `git diff --cached --name-only` hands that label out and both `git show`
+    // and `git cat-file -e` reject it, so this used to exit 2 on a *clean*
+    // commit and a finding on such a path could never be reached. The hooks read
+    // the list with `core.quotePath=false`, which is the unquoted name.
+    let unicode = "Content/caf\u{e9}.verse";
+    fs::create_dir(project.join("Content")).unwrap();
+    fs::write(project.join(unicode), "value := 1\r\n").unwrap();
+    git(&["add", unicode]);
+    let unicode_clean = run_hook(binary(), false);
+    assert_eq!(
+        unicode_clean.status.code(),
+        Some(0),
+        "a clean staged file whose path holds a non-ASCII byte must commit, not be \
+         reported unreadable: {}{}",
+        stdout_text(&unicode_clean),
+        String::from_utf8_lossy(&unicode_clean.stderr)
+    );
+    fs::write(project.join(unicode), "value := 1   \r\n").unwrap();
+    git(&["add", unicode]);
+    let unicode_blocked = run_hook(binary(), false);
+    assert_eq!(
+        unicode_blocked.status.code(),
+        Some(1),
+        "the same path with a V1001 finding must block the commit: {}{}",
+        stdout_text(&unicode_blocked),
+        String::from_utf8_lossy(&unicode_blocked.stderr)
+    );
+    assert!(
+        stdout_text(&unicode_blocked).contains(&format!("{unicode}:1:")),
+        "the finding must be labelled with the real path, not a C-quoted one: {:?}",
+        stdout_text(&unicode_blocked)
+    );
+    fs::write(project.join(unicode), "value := 1\r\n").unwrap();
+    git(&["add", unicode]);
+
+    fs::write(project.join("bad.verse"), "value := 1   \r\n").unwrap();
+    git(&["add", "bad.verse"]);
+    let blocked = run_hook(binary(), false);
+    assert_eq!(
+        blocked.status.code(),
+        Some(1),
+        "a staged V1001 finding must block the commit: {}{}",
+        stdout_text(&blocked),
+        String::from_utf8_lossy(&blocked.stderr)
+    );
+    assert!(
+        stdout_text(&blocked).contains("commit blocked: verse-lint exited 1"),
+        "the hook must name the documented exit code: {:?}",
+        stdout_text(&blocked)
+    );
+
+    // A warning-only staged file passes by default and fails under the
+    // documented option.
+    fs::write(project.join("bad.verse"), "value := 1\r\n").unwrap();
+    let long = format!("value := {}\r\n", "x".repeat(130));
+    fs::write(project.join("long.verse"), &long).unwrap();
+    git(&["add", "bad.verse", "long.verse"]);
+    let warned = run_hook(binary(), false);
+    assert_eq!(
+        warned.status.code(),
+        Some(0),
+        "a warning alone must not block a commit: {}{}",
+        stdout_text(&warned),
+        String::from_utf8_lossy(&warned.stderr)
+    );
+    let denied = run_hook(binary(), true);
+    assert_eq!(
+        denied.status.code(),
+        Some(1),
+        "VERSE_LINT_DENY_WARNINGS must block the same warning: {}{}",
+        stdout_text(&denied),
+        String::from_utf8_lossy(&denied.stderr)
+    );
+
+    // A missing binary is an incomplete inspection (2), never a silent pass.
+    let absent = run_hook("C:/nowhere/verse-lint.exe", false);
+    assert_eq!(
+        absent.status.code(),
+        Some(2),
+        "a missing tool must exit 2 rather than commit: {}{}",
+        stdout_text(&absent),
+        String::from_utf8_lossy(&absent.stderr)
+    );
+    // A staged entry whose blob no longer exists is not a clean file either: a
+    // hook that pipes nothing must fail, not pass. `--cacheinfo` puts a dangling
+    // object ID in the index without touching the worktree.
+    git(&[
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        "100644,0000000000000000000000000000000000000001,ghost.verse",
+    ]);
+    let unreadable = run_hook(binary(), false);
+    assert_eq!(
+        unreadable.status.code(),
+        Some(2),
+        "a staged file that cannot be read must exit 2: {}{}",
+        stdout_text(&unreadable),
+        String::from_utf8_lossy(&unreadable.stderr)
+    );
+
+    // An exit code the documented table does not name is an incomplete
+    // inspection, not a clean one. A tool that reads the staged bytes and then
+    // fails - a Rust panic's 101 is the realistic case - must still block the
+    // commit: recording only 1 and 2 used to leave the status at 0 here.
+    //
+    // The dangling entry above is removed first, so the 2 below is the hook's
+    // reading of 101 and not a leftover incomplete inspection. The control run
+    // proves the repository is back to "warnings only, commit allowed": if this
+    // stage were not clean, the exit-101 assertion would pass for the wrong
+    // reason.
+    git(&["update-index", "--force-remove", "ghost.verse"]);
+    let control = run_hook(binary(), false);
+    assert_eq!(
+        control.status.code(),
+        Some(0),
+        "with the dangling entry gone and no denied warning, only the exit-101 \
+         branch can make the next run exit 2: {}{}",
+        stdout_text(&control),
+        String::from_utf8_lossy(&control.stderr)
+    );
+    let failing = dir.path().join("exit101.ps1");
+    fs::write(&failing, "[Console]::In.ReadToEnd() | Out-Null\nexit 101\n").unwrap();
+    let unexpected = run_hook(&failing.to_string_lossy(), false);
+    assert_eq!(
+        unexpected.status.code(),
+        Some(2),
+        "an unexpected non-zero exit must be recorded as incomplete, never as a \
+         clean commit: {}{}",
+        stdout_text(&unexpected),
+        String::from_utf8_lossy(&unexpected.stderr)
+    );
+    let unexpected_stdout = stdout_text(&unexpected);
+    assert!(
+        unexpected_stdout.contains("verse-lint exited 101"),
+        "the hook must name the code it could not interpret: {unexpected_stdout:?}"
+    );
+    assert!(
+        unexpected_stdout.contains("commit blocked: verse-lint exited 2"),
+        "the worst recorded status is 2, and the documented message reports it: \
+         {unexpected_stdout:?}"
+    );
+    assert!(
+        stdout_text(&unexpected).contains("commit blocked: verse-lint exited 2"),
+        "the worst recorded status is 2, and the documented message reports it: \
+         {unexpected_stdout:?}"
+    );
+}
+
+/// The documented POSIX hook, extracted and run against a temporary repository.
+///
+/// The PowerShell test above covers the PowerShell script. This one covers the
+/// `sh` script, whose two repaired defects were the ones a reader cannot see by
+/// reading it: the pipeline status of `git show | tool` (which `sh` reports as
+/// the tool's, so an unreadable blob looked clean) and Git's C-quoted pathnames
+/// (which blocked every commit touching a non-ASCII `.verse` path).
+#[test]
+fn documented_posix_hook_blocks_the_staged_findings_it_must() {
+    if Command::new("git").arg("--version").output().is_err() {
+        eprintln!("skipped: git is unavailable, so the documented hook cannot run");
+        return;
+    }
+    let Some(shell) = posix_shell() else {
+        eprintln!("skipped: no POSIX sh on this host, so the documented hook cannot run");
+        return;
+    };
+    let script = block_with(DOC, "sh", "VERSE_LINT");
+    for needle in [
+        "core.quotePath=false",
+        "git show \":$file\"",
+        "$blob",
+        "commit blocked: verse-lint exited",
+    ] {
+        assert!(
+            script.contains(needle),
+            "the documented sh hook must keep {needle:?}: it is what stops Git's \
+             quoting from reaching `git show`, what checks `git show` before the \
+             tool runs, and what reports the worst status"
+        );
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let hook = dir.path().join("pre-commit.sh");
+    fs::write(&hook, format!("{script}\n")).unwrap();
+    let project = dir.path().join("project");
+    fs::create_dir(&project).unwrap();
+    let git = |args: &[&str]| {
+        let out = Command::new("git")
+            .current_dir(&project)
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    };
+    git(&["init", "--quiet"]);
+    fs::write(
+        project.join("verse.toml"),
+        "schema-version = 1\n[lint]\nselect = [\"V1001\", \"V2001\"]\n",
+    )
+    .unwrap();
+    fs::write(project.join("clean.verse"), "value := 1\r\n").unwrap();
+    git(&["add", "verse.toml", "clean.verse"]);
+
+    // `VERSE_LINT` is the documented way to point the hook at a binary that is
+    // not on PATH, so the test never depends on PATH either.
+    let run_hook = |binary: &str, deny: bool| {
+        let mut command = Command::new(&shell);
+        command
+            .current_dir(&project)
+            .arg(&hook)
+            .env("VERSE_LINT", binary)
+            .env_remove("VERSE_LINT_DENY_WARNINGS");
+        if deny {
+            command.env("VERSE_LINT_DENY_WARNINGS", "1");
+        }
+        command.output().unwrap()
+    };
+
+    let clean = run_hook(binary(), false);
+    assert_eq!(
+        clean.status.code(),
+        Some(0),
+        "a clean staged file must commit: {}{}",
+        stdout_text(&clean),
+        String::from_utf8_lossy(&clean.stderr)
+    );
+
+    // The repaired quoting failure: a staged path with a non-ASCII byte used to
+    // arrive at `git show` as a `"...\303\251..."` label, which fails, so the
+    // hook exited 2 on a clean commit and could never reach the finding below.
+    let unicode = "Content/caf\u{e9}.verse";
+    fs::create_dir(project.join("Content")).unwrap();
+    fs::write(project.join(unicode), "value := 1\r\n").unwrap();
+    git(&["add", unicode]);
+    let unicode_clean = run_hook(binary(), false);
+    assert_eq!(
+        unicode_clean.status.code(),
+        Some(0),
+        "a clean staged file whose path holds a non-ASCII byte must commit, not \
+         be reported unreadable: {}{}",
+        stdout_text(&unicode_clean),
+        String::from_utf8_lossy(&unicode_clean.stderr)
+    );
+    fs::write(project.join(unicode), "value := 1   \r\n").unwrap();
+    git(&["add", unicode]);
+    let unicode_blocked = run_hook(binary(), false);
+    assert_eq!(
+        unicode_blocked.status.code(),
+        Some(1),
+        "the same path with a V1001 finding must block the commit: {}{}",
+        stdout_text(&unicode_blocked),
+        String::from_utf8_lossy(&unicode_blocked.stderr)
+    );
+    assert!(
+        stdout_text(&unicode_blocked).contains(&format!("{unicode}:1:")),
+        "the finding must be labelled with the real path, not a C-quoted one: {:?}",
+        stdout_text(&unicode_blocked)
+    );
+    fs::write(project.join(unicode), "value := 1\r\n").unwrap();
+    git(&["add", unicode]);
+
+    // A staged entry whose blob is gone: `git show` fails, writes nothing, and
+    // the tool exits 0 on the empty buffer. Without a separate `git show` check
+    // the pipeline's status is the tool's, so the commit went through.
+    git(&[
+        "update-index",
+        "--add",
+        "--cacheinfo",
+        "100644,0000000000000000000000000000000000000001,ghost.verse",
+    ]);
+    let unreadable = run_hook(binary(), false);
+    assert_eq!(
+        unreadable.status.code(),
+        Some(2),
+        "a staged file that cannot be read must exit 2: {}{}",
+        stdout_text(&unreadable),
+        String::from_utf8_lossy(&unreadable.stderr)
+    );
+    let unreadable_stdout = stdout_text(&unreadable);
+    assert!(
+        unreadable_stdout.contains("could not read the staged content of ghost.verse"),
+        "the hook must name the blob it could not read: {unreadable_stdout:?}"
+    );
+    git(&["update-index", "--force-remove", "ghost.verse"]);
+
+    // A missing binary is 2 in both scripts, never a silent pass.
+    let absent = run_hook("C:/nowhere/verse-lint.exe", false);
+    assert_eq!(
+        absent.status.code(),
+        Some(2),
+        "a missing tool must exit 2 rather than commit: {}{}",
+        stdout_text(&absent),
+        String::from_utf8_lossy(&absent.stderr)
+    );
+
+    // A warning-only staged file passes by default and fails under the documented
+    // option, so `--deny-warnings` reaches the tool through the loop.
+    let long = format!("value := {}\r\n", "x".repeat(130));
+    fs::write(project.join("long.verse"), &long).unwrap();
+    git(&["add", "long.verse"]);
+    let warned = run_hook(binary(), false);
+    assert_eq!(
+        warned.status.code(),
+        Some(0),
+        "a warning alone must not block a commit: {}{}",
+        stdout_text(&warned),
+        String::from_utf8_lossy(&warned.stderr)
+    );
+    let denied = run_hook(binary(), true);
+    assert_eq!(
+        denied.status.code(),
+        Some(1),
+        "VERSE_LINT_DENY_WARNINGS must block the same warning: {}{}",
+        stdout_text(&denied),
+        String::from_utf8_lossy(&denied.stderr)
+    );
+
+    // An exit code the documented table does not name is an incomplete
+    // inspection, not a clean one: a Rust panic's 101 arriving as "clean" was
+    // the second half of the same `*)` gap the PowerShell hook had.
+    let failing = dir.path().join("exit101.sh");
+    fs::write(&failing, "#!/bin/sh\ncat >/dev/null\nexit 101\n").unwrap();
+    // `fs::write` creates the file without an execute bit, and a shebang does
+    // not add one. On Linux and macOS the hook runs `$VERSE_LINT` directly, so a
+    // non-executable fixture would fail at lookup or exec with a different
+    // report and never reach the `verse-lint exited 101` branch this case is
+    // about. On Windows the execute bit does not exist and `fs::write` is enough.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut permissions = fs::metadata(&failing).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&failing, permissions).unwrap();
+    }
+    let unexpected = run_hook(&failing.to_string_lossy(), false);
+    assert_eq!(
+        unexpected.status.code(),
+        Some(2),
+        "an unexpected non-zero exit must be recorded as incomplete, never as a \
+         clean commit: {}{}",
+        stdout_text(&unexpected),
+        String::from_utf8_lossy(&unexpected.stderr)
+    );
+    let unexpected_stdout = stdout_text(&unexpected);
+    assert!(
+        unexpected_stdout.contains("verse-lint exited 101"),
+        "the hook must name the code it could not interpret: {unexpected_stdout:?}"
+    );
+}

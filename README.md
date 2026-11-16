@@ -207,6 +207,7 @@ remaining diagnostics go to stderr.
 See [CLI/config and JSON contract][cli], [rule index][rules], [safe fixes][fixes],
 [pinned independent syntax snapshot][snapshot],
 [the scope graph and semantic model][semantic],
+[editor, pre-commit and CI recipes][integration-guide],
 [paired/shell integration checks][integration] and
 [local packaging and future mise usage][packaging]. No installed formatter,
 Node.js or runtime network access is needed.
@@ -308,6 +309,7 @@ repository's `docs/` directory: a relative link is dead there. They point at
 [v3003]: https://github.com/eiei114/verse-lint/blob/main/docs/rules/v3003.md
 [v1005]: https://github.com/eiei114/verse-lint/blob/main/docs/rules/v1005.md
 [integration]: https://github.com/eiei114/verse-lint/blob/main/docs/integration-testing.md
+[integration-guide]: https://github.com/eiei114/verse-lint/blob/main/docs/integration.md
 [packaging]: https://github.com/eiei114/verse-lint/blob/main/docs/packaging-and-mise.md
 [sarif]: https://github.com/eiei114/verse-lint/blob/main/docs/sarif.md
 [adr]: https://github.com/eiei114/verse-lint/blob/main/docs/adr/0001-sarif-upload-policy.md
