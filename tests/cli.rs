@@ -62,6 +62,25 @@ fn invalid_flags_fail_without_diagnostics() {
 }
 
 #[test]
+fn stdin_filepath_requires_stdin_or_show_config() {
+    // `--stdin-filepath` is only valid on a stdin run; with a real path argument
+    // the run is a file run and the virtual name must not be accepted.
+    for args in [
+        vec!["--stdin-filepath", "virtual.verse"],
+        vec!["--stdin-filepath", "virtual.verse", "."],
+    ] {
+        let out = cli(&args);
+        assert_eq!(out.status.code(), Some(2), "{args:?}");
+        assert!(out.stdout.is_empty());
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr.contains("--stdin-filepath requires stdin '-'"),
+            "the conflict must be rejected with the stdin requirement: {stderr:?}"
+        );
+    }
+}
+
+#[test]
 fn nonexistent_file_is_not_success() {
     let out = cli(&["does-not-exist.verse"]);
     assert_eq!(out.status.code(), Some(2));
