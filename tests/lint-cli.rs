@@ -134,6 +134,19 @@ fn virtual_stdin_uses_parent_config_and_is_not_a_real_write_target() {
 }
 
 #[test]
+fn stdin_virtual_filepath_labels_the_diagnostic_with_the_virtual_name() {
+    // Piped stdin plus a virtual filename: the diagnostic path is the virtual
+    // name, never a fabricated `<stdin>` label and never a write target.
+    let out = stdin(b"A := 1  \n", &["--stdin-filepath", "virtual.verse"]);
+    assert_eq!(out.status.code(), Some(1));
+    assert_eq!(
+        String::from_utf8(out.stdout).unwrap(),
+        "virtual.verse:1:7: error V1001 Trailing whitespace\n"
+    );
+    assert!(out.stderr.is_empty());
+}
+
+#[test]
 fn json_range_counts_bytes_and_unicode_scalars_without_bom() {
     let source = "\u{feff}A := \"日😀e\u{301}\"  \r\n";
     let out = stdin(

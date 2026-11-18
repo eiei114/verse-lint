@@ -57,6 +57,27 @@ fn unicode_stdin_has_regions_but_no_fabricated_file_uri_or_edits() {
     assert_eq!(run["invocations"][0]["exitCode"], 1);
 }
 #[test]
+fn stdin_virtual_filepath_reports_the_virtual_name_for_the_artifact() {
+    // Piped stdin plus a virtual filename: the SARIF artifact carries the
+    // virtual name as its descriptive stdin provenance, and the physical
+    // location is an indexed region — never a fabricated file URI.
+    let source = "A := 1  \n";
+    let (code, v) = stdin(source, &["--stdin-filepath", "virtual.verse"]);
+    assert_eq!(code, 1);
+    let run = &v["runs"][0];
+    let artifact = &run["artifacts"][0];
+    assert_eq!(
+        artifact["description"]["text"].as_str().unwrap(),
+        "Standard input (virtual.verse); virtual name only"
+    );
+    assert_eq!(artifact["sourceLanguage"].as_str().unwrap(), "verse");
+    let location = &run["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"];
+    assert!(location.get("uri").is_none());
+    assert_eq!(location["index"].as_u64().unwrap(), 0);
+    assert_eq!(run["results"][0]["ruleId"], "V1001");
+}
+
+#[test]
 fn project_uris_are_encoded_and_counts_match_json_and_text() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
