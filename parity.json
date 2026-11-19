@@ -1,7 +1,7 @@
 {
-  "corpusSha256": "6e5cab1e0cacf4a3c363cffc52201faacfb9b03f63eed28b2991f0e2c02a6be6",
-  "goldenCaseCount": 67,
+  "corpusSha256": "630588d2ed3237ccf275722ab60b8ed9bdf406f20901d113719593ddadaef76c",
+  "goldenCaseCount": 76,
   "formatterGrammarBaseRevision": "6b5433e37b52c03c4c07f9468bf7cc11e45f2f82",
-  "lastVerifiedFormatterRevision": "333cb71d85107547d48d9de2d5d0f6ee8dd4c021",
-  "lastVerifiedLinterRevision": "ea3eeee49cc0f79c9a8b42f958db7f3f32aecec3"
+  "lastVerifiedFormatterRevision": "16f9cd1f5c104511afa918d0c109f2c4fb318054",
+  "lastVerifiedLinterRevision": "ea7c0414a953c25b2e6f8fe5c8a5241b29e4a668"
 }
