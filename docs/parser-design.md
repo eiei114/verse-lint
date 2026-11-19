@@ -206,3 +206,7 @@ stay byte-identical; the default-selection SARIF runs may instead gain their
 registry-derived driver-rule entries. Those rules' own non-regression is covered
 by `tests/v3001-cli.rs`, `tests/v3002-cli.rs`, `tests/v2003-cli.rs`,
 `tests/v1004-cli.rs` and `tests/v1005-cli.rs` instead.
+
+Call arguments admit a tuple type, including in a parametric archetype
+head such as `event(tuple(int, logic)){}`. The archetype keeps its existing
+call-shaped head and braced body.

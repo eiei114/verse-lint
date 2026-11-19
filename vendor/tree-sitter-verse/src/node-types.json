@@ -252,6 +252,10 @@
         {
           "type": "named_argument",
           "named": true
+        },
+        {
+          "type": "tuple_type",
+          "named": true
         }
       ]
     }
