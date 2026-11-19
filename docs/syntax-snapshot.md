@@ -32,11 +32,11 @@ this record complete and stable when the table is edited.
 
 | Path | SHA-256 |
 |---|---|
-| grammar.js | 958dde0d37e7856e5749fa420d75c1c9709dcd44dc9db81fe89f735e2699a117 |
+| grammar.js | 0cf2967cb68c3c3868a53e7eb2f71e43a10b250b1c1fb36731ac334f810caeed |
 | tree-sitter.json | f57ee6d1a5ee6958875e13074e8cbb8d53d87bb71793291bebd9854dd87e9ad6 |
-| src/parser.c | 50be6df37568da8955b714406527d6afbb069622c0e25edf5c0e22c8e2408c06 |
+| src/parser.c | 4983a537773ffe3aefde5bb4b0a7666dac41a3e4b6fd31380d648defba676d98 |
 | src/scanner.c | 470901f9b9408fa552d7cbd14538d45362ef2fb492908643cbb1fdc465288006 |
-| src/grammar.json | 548b70ebc870ec94958b638a474825e1347aa831f46964403a8f97626aa6b551 |
+| src/grammar.json | 8d7654e1de8e2a649ca0cf17fbeca7448ebde8a80beba9f9eb7c0230ee01874c |
 | src/node-types.json | 9fdcc89c4d1fc5090da5e29749c5515b5f868248fe2d1a447d36a3ea456c8863 |
 | src/tree_sitter/alloc.h | b29c1c9fb7cc82f58c84b376df1297d6e2737a1d655fd356db0859e3c29c2fea |
 | src/tree_sitter/array.h | 5bdf6ed1a78e3409fd443e085ca967a64c188a5d082aaf7f819bccd53a471c94 |
@@ -92,7 +92,7 @@ When the formatter's grammar or corpus changes, the linter snapshot and
 The local grammar delta adds dotted local imports, initialized typed constants,
 comma-separated braced enum variants, empty class base lists, if-binding
 conditions (one item per line in the indented `if:` form), failable indexed `set` conditions, key/value iterators, block-bodied
-`case` arms, tested
+`case` arms, single-expression indented `spawn:`, tested
 indented object/array construction with anonymous field initializers, string
 literals whose first content character is an unescaped `#`, and `map{...}`
 literals, as independently documented in
@@ -103,7 +103,7 @@ notices are pinned in `vendor/tree-sitter-verse/hashes.json`. Run
 `-Regenerate` using Tree-sitter CLI 0.25.10. Normal Cargo builds require no
 Node/npm or live grammar checkout.
 
-### This regeneration (grammar, not scanner)
+### String and map regeneration (grammar, not scanner)
 
 - Upstream base revision: `6b5433e37b52c03c4c07f9468bf7cc11e45f2f82`, unchanged.
   These are local deltas on the pinned base, not a rebase onto newer upstream.
@@ -113,8 +113,7 @@ Node/npm or live grammar checkout.
   `map_entry` rule pair is added and one parse conflict is declared for it.
   `src/scanner.c` is byte-identical to the previous pinned hash
   `470901f9b9408fa552d7cbd14538d45362ef2fb492908643cbb1fdc465288006`.
-- Regenerated artifacts and their local SHA-256 are the four rows that changed
-  in the manifest table above: `grammar.js`, `src/parser.c`, `src/grammar.json`,
+- Regenerated artifacts and their local SHA-256 are the four manifest entries for `grammar.js`, `src/parser.c`, `src/grammar.json`,
   `src/node-types.json`. `hashes.json` is the single source for those values;
   `src/doc-drift-tests.rs` asserts this table against it and
   `scripts/verify-grammar.ps1` rehashes the files themselves.
