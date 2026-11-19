@@ -1,14 +1,59 @@
 {
-  "corpus_sha256": "69e688cf0d2750a4f35a84182671aa0dc71ca85c7db9e4b637ffbdf394432462",
+  "corpus_sha256": "e0185f1fe107b3471ee1e5b7b2d0f66b546457fdb271b24dcfa6c3654af59e13",
   "formatter_version": "verse-fmt 0.1.0-alpha.1",
   "linter_version": "verse-lint 0.1.0-alpha.1",
-  "formatter_sha256": "2c22edcb279b0fd69ec850f5b2a72368ff4122b63033a1c53517e8ab997fa41b",
-  "linter_sha256": "c29b4c277197f105cfe594f4b335fa35232f0382ed18471f0dd94ed466195b48",
-  "formatter_revision": "719e6897e6f9dc8aaa0ecd6062201cae8c7a76cd",
-  "linter_revision": "afc2570d1a22b81f1882cee9e505409f233ac380",
-  "cases_total": 86,
-  "cases_passed": 86,
+  "formatter_sha256": "808ebb09dbeffac5a9d2fa0b2024a3ff573c3b982418e8ed67915dc9f462d642",
+  "linter_sha256": "7ef5dcbad3eb0e98dcaa9abca3643565fd3e373d6cd92e0412b5383aa3154772",
+  "formatter_revision": "2a0427af34f470b655ad0ab9cd040784ef2ca425",
+  "linter_revision": "9d2f8e8c0302e264fd86788f9277e2a5f8665484",
+  "cases_total": 89,
+  "cases_passed": 89,
   "case_results": [
+    {
+      "id": "shallower-empty-case-wildcard",
+      "input_sha256": "5be9a7f941bb83328790522c21e495444b8e4296017a0e0ca5988e452de189de",
+      "output_sha256": "bd792f8d91c536da79ffc8709d140ae3f35acd16f8f6ef804d8f47532ac99aa2",
+      "lint_exit_codes": [
+        0,
+        0
+      ],
+      "formatter_exit_codes": [
+        0,
+        0
+      ],
+      "first_files_changed": 0,
+      "second_files_changed": 0
+    },
+    {
+      "id": "shallower-empty-case-wildcard-in-braces",
+      "input_sha256": "039ef8e4c5c6cf122b53881e8b86b630cf474ddb6d377c51e93958ee3597475f",
+      "output_sha256": "18a4be04d99df4842f6bdeba3055aa2e2435e956d5837357e7033a70d7fe8324",
+      "lint_exit_codes": [
+        0,
+        0
+      ],
+      "formatter_exit_codes": [
+        0,
+        0
+      ],
+      "first_files_changed": 0,
+      "second_files_changed": 0
+    },
+    {
+      "id": "shallower-empty-case-wildcard-at-eof",
+      "input_sha256": "2a7a072e994a737563598bb3935a169222514a57e66603bab08446adf10d32f0",
+      "output_sha256": "bcb0664fc87bfc3e00278913ff4b91c6d8e7bbf4087b024fb452490853eb6d2c",
+      "lint_exit_codes": [
+        0,
+        0
+      ],
+      "formatter_exit_codes": [
+        0,
+        0
+      ],
+      "first_files_changed": 1,
+      "second_files_changed": 0
+    },
     {
       "id": "for-header-iterable-call",
       "input_sha256": "88c9ad96a94b0a9aa370b77d121b6be01ec5b69d4e3d7ee749f158f3ae049842",

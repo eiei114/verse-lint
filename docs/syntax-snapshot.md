@@ -32,11 +32,11 @@ this record complete and stable when the table is edited.
 
 | Path | SHA-256 |
 |---|---|
-| grammar.js | f8a530fa058a31168b7f362acee4e3bf0ce1d2a9df95555feae4f5b107c684f8 |
+| grammar.js | b7f0f1b40fb9f8eb487a9d8bd0facd991e20a7b37574e3aba4f11d9761ac333d |
 | tree-sitter.json | f57ee6d1a5ee6958875e13074e8cbb8d53d87bb71793291bebd9854dd87e9ad6 |
-| src/parser.c | afada96844592a1e5ce4293778bf6ae6f9233c780d54ede3cef073afbf79b0e5 |
-| src/scanner.c | 4939d0b2e5ef023cf50ca41dc78e930f4c4fb492367d698df328a8c0d2cedc37 |
-| src/grammar.json | 9d83d266d22240d3b87c0da2509adb316cb89e795edaf5aa906fc9fc0e16d6a8 |
+| src/parser.c | fb9780065f72aed7cae906987327ae3fb3284f5bc138f963715296e9da695723 |
+| src/scanner.c | 452f94e5b8335405601fffa785f42bb2a3500920449f2cce11f9d86195bbebeb |
+| src/grammar.json | c30f4a2ab5d15518a638e6681f4261f41300ce3f49287ce418ac595bb2bf799a |
 | src/node-types.json | de8a345cdc07519b9f19415161b3a6c8f73685f7cf9caa0d32d999b9be218913 |
 | src/tree_sitter/alloc.h | b29c1c9fb7cc82f58c84b376df1297d6e2737a1d655fd356db0859e3c29c2fea |
 | src/tree_sitter/array.h | 5bdf6ed1a78e3409fd443e085ca967a64c188a5d082aaf7f819bccd53a471c94 |
