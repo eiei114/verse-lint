@@ -20,10 +20,12 @@ keep one limit per bullet.
 
 Initial supported examples include assignments, creative devices, class fields,
 methods/specifiers, using paths and nested literal/comment spans. Known rejected
-forms include `<#>` indented comments, markup, quoted/non-ASCII identifiers
-and multiline strings outside interpolation. Local dotted imports, initialized
+forms include `<#>` indented comments, markup, quoted/non-ASCII identifiers,
+multiline strings outside interpolation, and a statement line that starts with
+unary `+`/`-` after another expression (the grammar would join it as a binary
+operand, so the same guard as the formatter refuses it). Local dotted imports, initialized
 typed constants, comma-separated braced enum variants, empty class base lists,
-if-binding conditions (one item per line in the indented `if:` form), failable indexed `set` conditions, key/value iterators,
+if-binding conditions (one item per line in the indented `if:` form), failable indexed `set` conditions, key/value iterators, block-bodied `case` arms,
 tested indented object/array construction with anonymous field initializers,
 string literals whose first character is an unescaped `#`, and `map{...}`
 literals are supported by the local grammar delta; this is
