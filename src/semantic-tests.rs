@@ -298,6 +298,29 @@ fn if_condition_binding_resolves_inside_the_branches() {
 }
 
 #[test]
+fn indented_if_block_binding_resolves_in_later_items_and_branches() {
+    let (source, model) = graph(
+        "F():void =\n    if:\n        Value := Get[]\n        Other := Value?\n    then:\n        Print(Other)\n    Print(Value)\n",
+    );
+    let value = binding(&model, "Value");
+    assert_eq!(value.kind, BindingKind::Constant);
+    assert_eq!(model.scopes()[value.scope].kind, ScopeKind::If);
+    assert_eq!(
+        model.scopes()[binding(&model, "Other").scope].kind,
+        ScopeKind::If
+    );
+    assert_eq!(
+        resolved(&source, &model, "Value", 0),
+        Some((BindingKind::Constant, "Value".into()))
+    );
+    assert_eq!(
+        resolved(&source, &model, "Other", 0),
+        Some((BindingKind::Constant, "Other".into()))
+    );
+    assert_eq!(resolved(&source, &model, "Value", 1), None);
+}
+
+#[test]
 fn using_import_binds_the_local_module_name() {
     let (source, model) = graph("using { Demo.Helpers }\nF():void =\n    Print(Helpers)\n");
     let import = binding(&model, "Helpers");

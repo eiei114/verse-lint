@@ -922,7 +922,7 @@ module.exports = grammar({
         seq(
           ':',
           $._indent,
-          field('condition', $.if_condition),
+          field('condition', $.if_block_condition),
           $._dedent,
           'then',
           field('consequence', $._control_block),
@@ -935,6 +935,12 @@ module.exports = grammar({
       $._if_condition_item,
       repeat(seq(',', $._if_condition_item)),
     ),
+
+    // Indented `if:` condition block: one item per line (commas also allowed).
+    if_block_condition: $ => repeat1(seq(
+      $._if_condition_item,
+      optional(','),
+    )),
 
     _if_condition_item: $ => choice(
       seq(

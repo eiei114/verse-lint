@@ -32,12 +32,12 @@ this record complete and stable when the table is edited.
 
 | Path | SHA-256 |
 |---|---|
-| grammar.js | f23dd0a03becef8f19afd07bfcad0da509a5d201b09e29b5a130a1d4f70aa694 |
+| grammar.js | db56c787324f4f46f13d74abc2345a5a705fd147bafd2dbd97f83ac7b83cec53 |
 | tree-sitter.json | f57ee6d1a5ee6958875e13074e8cbb8d53d87bb71793291bebd9854dd87e9ad6 |
-| src/parser.c | 868a4a2d576fa01194854334da259913d3555f668ba5d4174dab2a9230528bf9 |
+| src/parser.c | 03741b8c8be0ba7295c73e95a0be1bba5ff49f7cd069d47a7f51228555caf154 |
 | src/scanner.c | 470901f9b9408fa552d7cbd14538d45362ef2fb492908643cbb1fdc465288006 |
-| src/grammar.json | 5624fb481c51bd3dd650ea4a6ffec8c77dad00c8fd1cb2384d87d0923d0fa2f9 |
-| src/node-types.json | 8a6872fe437c03e24131a39d74c5e6831cf876270e73e8df4d70d6f8c567b8ee |
+| src/grammar.json | 5376f3d87b4c409e835eaf219177c29cdc7c38203301b3cfd6d2e826400a8e05 |
+| src/node-types.json | 30330a8a57dd7ffcab8ac65c72123b81744205b1f8837241a1ddc9f4c4c8ade2 |
 | src/tree_sitter/alloc.h | b29c1c9fb7cc82f58c84b376df1297d6e2737a1d655fd356db0859e3c29c2fea |
 | src/tree_sitter/array.h | 5bdf6ed1a78e3409fd443e085ca967a64c188a5d082aaf7f819bccd53a471c94 |
 | src/tree_sitter/parser.h | 180b893c8734778fd32f372dfbc27bd6ad1cd2221f26150b31256ff6716320d2 |
@@ -91,7 +91,7 @@ When the formatter's grammar or corpus changes, the linter snapshot and
 [CONTRIBUTING](../CONTRIBUTING.md) names the exact order of operations.
 The local grammar delta adds dotted local imports, initialized typed constants,
 comma-separated braced enum variants, empty class base lists, if-binding
-conditions, failable indexed `set` conditions, key/value iterators, tested
+conditions (one item per line in the indented `if:` form), failable indexed `set` conditions, key/value iterators, tested
 indented object/array construction with anonymous field initializers, string
 literals whose first content character is an unescaped `#`, and `map{...}`
 literals, as independently documented in

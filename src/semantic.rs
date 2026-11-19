@@ -1150,8 +1150,9 @@ impl Builder<'_> {
                 let inner = self.open(ScopeKind::If, scope, node)?;
                 self.walk_children(node, inner)?;
             }
-            "if_condition" => {
-                // `if (Name := value)` declares `Name` for the branches.
+            "if_condition" | "if_block_condition" => {
+                // `if (Name := value)` and the indented `if:` block declare
+                // `Name` for the later condition items and the branches.
                 let mut cursor = node.walk();
                 for (index, child) in node.children(&mut cursor).enumerate() {
                     if !child.is_named() {
