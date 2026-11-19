@@ -32,12 +32,12 @@ this record complete and stable when the table is edited.
 
 | Path | SHA-256 |
 |---|---|
-| grammar.js | d0c563afd7fa4bac6a28dace1586894191e3aad9e84eb7a091765b0035556b3d |
+| grammar.js | c676cf6044bf61d4df0ee75b7295963d3cf1365c21041dab5f19e6df7e76176a |
 | tree-sitter.json | f57ee6d1a5ee6958875e13074e8cbb8d53d87bb71793291bebd9854dd87e9ad6 |
-| src/parser.c | ece841cb0239389fbf5c5a29a2a5a5154039669e33e0b897703500662fe4a789 |
+| src/parser.c | 46722bada7d6bcd14af35b02853011b490d585256b65a9aac19269edc360fe87 |
 | src/scanner.c | 4939d0b2e5ef023cf50ca41dc78e930f4c4fb492367d698df328a8c0d2cedc37 |
-| src/grammar.json | 19a939cfec6483136f479aa3872dd9b0f4263401187081121ff9b8e2c7837692 |
-| src/node-types.json | b8839d6564a3d181ba0234bd05a14205f10f6d74e2f4ba3e698a93bce133a020 |
+| src/grammar.json | 4f90a13141c0955f069c6688ea9c4fba4ccdb741d2b0b66d15e39ae014cb4533 |
+| src/node-types.json | 97f0741b987866862727bf1730761842c24522ad8de2ed07cf3242bddae8fdb1 |
 | src/tree_sitter/alloc.h | b29c1c9fb7cc82f58c84b376df1297d6e2737a1d655fd356db0859e3c29c2fea |
 | src/tree_sitter/array.h | 5bdf6ed1a78e3409fd443e085ca967a64c188a5d082aaf7f819bccd53a471c94 |
 | src/tree_sitter/parser.h | 180b893c8734778fd32f372dfbc27bd6ad1cd2221f26150b31256ff6716320d2 |
@@ -248,3 +248,6 @@ incomplete.
 An empty indented block can end at the same newline as its enclosing blocks.
 The scanner queues the enclosing dedents along with the phantom block's
 dedent, keeping the first following statement in its outer scope.
+
+A case arm may use an inline `set` assignment as its body. The assignment
+retains the same CST fields as a `set` inside an indented arm.
