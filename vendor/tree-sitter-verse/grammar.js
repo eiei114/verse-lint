@@ -1045,7 +1045,8 @@ module.exports = grammar({
       $._dedent,
     ),
 
-    // Arm body: inline expression, `{ ... }` block, or indented statements.
+    // An indented arm may be empty. The scanner emits its phantom block
+    // and any enclosing dedents before the next statement.
     case_arm: $ => seq(
       field('pattern', $._expression),
       '=>',
