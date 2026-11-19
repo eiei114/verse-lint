@@ -1,13 +1,13 @@
 {
-  "corpus_sha256": "4330d695f6d32c6eb78cccda9b495f1a204ac90c9c5f6f87e62d98cd070db409",
+  "corpus_sha256": "02a831157ba95edb7888053fcd5fc414bfb2c749991c86d36ba65a7e54ec3f87",
   "formatter_version": "verse-fmt 0.1.0-alpha.1",
   "linter_version": "verse-lint 0.1.0-alpha.1",
-  "formatter_sha256": "5bfeac57d64f8b494d613b59f0787468fd376d670fc9c7ed797746c02a1e60b7",
-  "linter_sha256": "466847df169932d9decd99a16bd224d26dbbdf03e59afd0386b204c526a41987",
-  "formatter_revision": "9e4df1a5286f4d285e55efb9be4fb1446cb14211",
-  "linter_revision": "ab88dbfd3f5beeb10a77a8792c719b3c60e82621",
-  "cases_total": 65,
-  "cases_passed": 65,
+  "formatter_sha256": "6466ebc1bd107f0b24668e08a14ea4160b3806c0536b1408735538b3ac63e6ee",
+  "linter_sha256": "edd1d8a214c00db699149f5947073887239bed4a35ba3605b7284a0e1a2f1636",
+  "formatter_revision": "129a8ecdf1b6572507ac69016e678ea7c7d9f7f7",
+  "linter_revision": "b92c15b382c970c807df74282c7f1e844a44b638",
+  "cases_total": 66,
+  "cases_passed": 66,
   "case_results": [
     {
       "id": "empty",
@@ -733,6 +733,21 @@
       "id": "if-block-multi-condition",
       "input_sha256": "ba46b58cd3b8abfbaca544d1b8bc397318fbad9542c3f31448441ff51e1f527f",
       "output_sha256": "6e17413ac1ffc5772a4e445b1c775d7cf48f436d224d3ed06d4cb9f4571466fd",
+      "lint_exit_codes": [
+        0,
+        0
+      ],
+      "formatter_exit_codes": [
+        0,
+        0
+      ],
+      "first_files_changed": 0,
+      "second_files_changed": 0
+    },
+    {
+      "id": "case-arm-block-bodies",
+      "input_sha256": "75be75ff34ced8be10936943827ec039cbf2c119a8bfd6bad72f3dfcb30ead04",
+      "output_sha256": "9ba8336ad82880a09213504d7461b8c797e97c0f86cc4f1219ef0aaa74a41b27",
       "lint_exit_codes": [
         0,
         0
