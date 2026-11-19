@@ -32,12 +32,12 @@ this record complete and stable when the table is edited.
 
 | Path | SHA-256 |
 |---|---|
-| grammar.js | 76b5c2f431e0c97b82618dc7900492b56dbcfc34acd4a509eea0333eec4f74b1 |
+| grammar.js | eaf5e452cd29563ac9d0832de240f595cb48846b88a76e9ea6cb9100c3afe852 |
 | tree-sitter.json | f57ee6d1a5ee6958875e13074e8cbb8d53d87bb71793291bebd9854dd87e9ad6 |
-| src/parser.c | 7b4ab498ccc92aef3f0c5819783394ae40693eb868f85be0dfac01b188f2cee9 |
+| src/parser.c | ece841cb0239389fbf5c5a29a2a5a5154039669e33e0b897703500662fe4a789 |
 | src/scanner.c | 470901f9b9408fa552d7cbd14538d45362ef2fb492908643cbb1fdc465288006 |
-| src/grammar.json | dc52986bebf3fce66d3a62e6179e231c74cf8b6cef79670f5d6a4b8c892e86e9 |
-| src/node-types.json | f28775d6b0a3fc2e12869ff7c13be9a4208d08c44659d86234194656533df25d |
+| src/grammar.json | 19a939cfec6483136f479aa3872dd9b0f4263401187081121ff9b8e2c7837692 |
+| src/node-types.json | b8839d6564a3d181ba0234bd05a14205f10f6d74e2f4ba3e698a93bce133a020 |
 | src/tree_sitter/alloc.h | b29c1c9fb7cc82f58c84b376df1297d6e2737a1d655fd356db0859e3c29c2fea |
 | src/tree_sitter/array.h | 5bdf6ed1a78e3409fd443e085ca967a64c188a5d082aaf7f819bccd53a471c94 |
 | src/tree_sitter/parser.h | 180b893c8734778fd32f372dfbc27bd6ad1cd2221f26150b31256ff6716320d2 |
@@ -239,3 +239,8 @@ that would attach to a previous expression across these newly accepted boundarie
 Call arguments admit unambiguous array types (`[]T`) and the bare `logic`
 type keyword. `logic{...}` still parses as a logic expression, and the
 archetype keeps its call-shaped head and braced body.
+
+An indented `if: … then:` and parenthesized `if (...):` can share an
+`else if` chain. Mixed alternatives preserve the condition/body ownership
+and the following sibling. The linter marks mixed-clause semantic coverage
+incomplete.
