@@ -226,3 +226,8 @@ optional commas between variants and after the final variant.
 Function signatures allow whitespace between their closing parameter
 parenthesis and first effect specifier. Comparisons retain their operator
 nodes and the remaining specifier openers retain their immediate syntax.
+
+An indented archetype may omit all field initializers. Its scanner
+indent/dedent pair still encloses the archetype and keeps following statements
+at their original scope. A guard refuses a next-line brace that would otherwise
+be attached to the empty archetype as a new construction.
