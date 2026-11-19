@@ -184,7 +184,7 @@ module.exports = grammar({
       '(',
       optional(field('parameters', $.parameter_list)),
       ')',
-      optional(field('effect_specifiers', $.specifier_list)),
+      optional(field('effect_specifiers', alias($._effect_specifier_list, $.specifier_list))),
       ':',
       field('return_type', $._type),
       optional(seq('=', field('body', $._function_body))),
@@ -201,7 +201,7 @@ module.exports = grammar({
       '(',
       optional(field('parameters', $.parameter_list)),
       ')',
-      optional(field('effect_specifiers', $.specifier_list)),
+      optional(field('effect_specifiers', alias($._effect_specifier_list, $.specifier_list))),
       ':',
       field('return_type', $._type),
       optional(seq('=', field('body', $._function_body))),
@@ -228,7 +228,7 @@ module.exports = grammar({
         '(',
         optional(field('type_params', $.parameter_list)),
         ')',
-        optional(field('effect_specifiers', $.specifier_list)),
+        optional(field('effect_specifiers', alias($._effect_specifier_list, $.specifier_list))),
       )),
       ':=',
       field('value', choice(
@@ -336,12 +336,15 @@ module.exports = grammar({
 
     specifier_list: $ => repeat1($.specifier),
 
-    specifier: $ => seq(
-      token.immediate('<'),
-      field('name', alias($._specifier_name, $.specifier_name)),
-      optional(seq('{', field('value', choice($.path_literal, $.identifier)), '}')),
-      '>',
+    // The first specifier after declaration parameters accepts whitespace.
+    // Other specifier openers retain their immediate form.
+    _effect_specifier_list: $ => seq(
+      alias($._first_effect_specifier, $.specifier),
+      repeat($.specifier),
     ),
+
+    _first_effect_specifier: $ => specifier($, '<'),
+    specifier: $ => specifier($, token.immediate('<')),
 
     _specifier_name: $ => choice(
       'abstract', 'computes', 'constructor', 'private', 'public', 'protected',
@@ -1075,3 +1078,12 @@ module.exports = grammar({
     identifier: $ => /[a-zA-Z_][a-zA-Z0-9_]*/,
   },
 });
+
+function specifier($, opener) {
+  return seq(
+    opener,
+    field('name', alias($._specifier_name, $.specifier_name)),
+    optional(seq('{', field('value', choice($.path_literal, $.identifier)), '}')),
+    '>',
+  );
+}

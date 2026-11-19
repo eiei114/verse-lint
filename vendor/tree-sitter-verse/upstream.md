@@ -64,3 +64,7 @@ form because it does not model constructor parameter and field semantics.
 
 Indented `enum:` bodies use the same variant list as braced enums, with
 optional commas between variants and after the final variant.
+
+Function signatures allow whitespace between their closing parameter
+parenthesis and first effect specifier. Comparisons retain their operator
+nodes and the remaining specifier openers retain their immediate syntax.
