@@ -231,3 +231,8 @@ An indented archetype may omit all field initializers. Its scanner
 indent/dedent pair still encloses the archetype and keeps following statements
 at their original scope. A guard refuses a next-line brace that would otherwise
 be attached to the empty archetype as a new construction.
+
+Indented `for: … do:` headers begin with an iterator. Later clauses reuse the
+parenthesized iterator and filter-binding nodes. A guard rejects same-line
+clauses without a comma and line-leading postfix openers that would otherwise
+be absorbed by the preceding expression. The same check covers a postfix on\na new line after the loop result. Loop bindings stay in the loop scope.
