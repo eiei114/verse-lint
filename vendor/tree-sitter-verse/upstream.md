@@ -19,7 +19,7 @@ explicit revision/hash change and regression tests, not a build-time download.
 The local reproducible grammar delta allows local dotted names in `using
 { ... }`, initialized typed constants at file scope and in executable blocks,
 comma-separated braced enum variants, empty class base lists, if-binding
-conditions (one item per line in the indented `if:` form), failable indexed `set` conditions, key/value iterators, indented
+conditions (one item per line in the indented `if:` form), failable indexed `set` conditions, key/value iterators, block-bodied `case` arms, indented
 object/array construction and anonymous field initializers in the tested shapes,
 string literals whose first content character is an unescaped `#`, and
 `map{Key => Value, ...}` literals, with an ABI-15 generated parser. The local
