@@ -1255,6 +1255,7 @@ impl Builder<'_> {
             | "field_initializer_block"
             | "array_literal"
             | "logic_literal"
+            | "indented_option_value"
             | "option_expression"
             | "struct_literal"
             | "object_construction"
