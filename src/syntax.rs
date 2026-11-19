@@ -177,6 +177,12 @@ fn validate(
                 "unsupported or incomplete Verse syntax; use UEFN for compiler diagnostics",
             ));
         }
+        if let Some(start) = leading_unary_continuation(node, source) {
+            return Err(Failure::new(
+                start,
+                "binary `+`/`-` operator starts a new line; a leading unary operand is ambiguous with a continued expression in the pinned grammar",
+            ));
+        }
         if let Some(message) = tree_limit(depth, shape.len()) {
             return Err(Failure::new(
                 node.start_byte() + source.body_start(),
@@ -205,6 +211,27 @@ fn validate(
             depth -= 1;
         }
     }
+}
+
+/// Same guard as formatter: newlines are not separators in the pinned
+/// grammar, so a statement line starting with unary `+`/`-` can be absorbed as
+/// the right operand of the previous line's expression without ERROR. Returns
+/// the operator offset when a binary `+`/`-` is separated from its left operand
+/// by a line break. Only the gap between the operands is scanned.
+fn leading_unary_continuation(node: tree_sitter::Node<'_>, source: &Source) -> Option<usize> {
+    if node.kind() != "binary_expression" {
+        return None;
+    }
+    let left = node.child_by_field_name("left")?;
+    let operator = node.child_by_field_name("operator")?;
+    if !matches!(operator.kind(), "+" | "-") {
+        return None;
+    }
+    let left_end = left.end_byte() + source.body_start();
+    let start = operator.start_byte() + source.body_start();
+    source.text().as_bytes()[left_end..start]
+        .contains(&b'\n')
+        .then_some(start)
 }
 
 #[cfg(test)]
@@ -327,6 +354,29 @@ mod tests {
                 "not Blocked[Value]"
             ]
         );
+    }
+
+    #[test]
+    fn a_line_starting_with_unary_plus_or_minus_is_refused_not_joined() {
+        for text in [
+            "F():void =\n    X := A\n    -2 < A\n",
+            "F():void =\n    if:\n        A := B[]\n        -2 < A\n    then:\n        G()\n",
+            "F():void =\n    case(T):\n        t.A =>\n            X := A\n            +1\n        _ => {}\n",
+        ] {
+            let source = Source::from_bytes(text.as_bytes()).unwrap();
+            let failure = Document::parse(&source).err().unwrap();
+            assert!(
+                failure.message.contains("starts a new line"),
+                "{text}: {failure:?}"
+            );
+        }
+        for text in [
+            "F():void =\n    X := A - 2\n",
+            "F():void =\n    X := A\n    Y := -2\n",
+        ] {
+            let source = Source::from_bytes(text.as_bytes()).unwrap();
+            assert!(Document::parse(&source).is_ok(), "{text}");
+        }
     }
 
     #[test]
