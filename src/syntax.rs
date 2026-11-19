@@ -587,6 +587,42 @@ mod tests {
     }
 
     #[test]
+    fn constructor_owns_archetype_without_reclassifying_a_type_function() {
+        let text = "Make<public><constructor>(Old:item)<transacts> := item:\n    Count := Old.Count\nAlias(T:type) := T\nOther():int = 1\n";
+        let (_, document) = parsed(text);
+        let root = document.root();
+        assert!(!root.has_error());
+
+        assert_eq!(root.named_child_count(), 3);
+        let constructor = root.named_child(0).unwrap();
+        assert_eq!(constructor.kind(), "type_definition");
+        assert_eq!(
+            constructor
+                .child_by_field_name("type_params")
+                .unwrap()
+                .named_child_count(),
+            1
+        );
+        assert_eq!(
+            constructor
+                .child_by_field_name("effect_specifiers")
+                .unwrap()
+                .named_child_count(),
+            1
+        );
+        let body = constructor.child_by_field_name("value").unwrap();
+        assert_eq!(body.kind(), "object_construction");
+        assert_eq!(
+            body.child_by_field_name("fields")
+                .unwrap()
+                .named_child_count(),
+            1
+        );
+        assert_eq!(root.named_child(1).unwrap().kind(), "type_definition");
+        assert_eq!(root.named_child(2).unwrap().kind(), "function_definition");
+    }
+
+    #[test]
     fn guards_recovery_and_unsupported_constructs() {
         for text in [
             "<# missing",

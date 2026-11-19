@@ -32,12 +32,12 @@ this record complete and stable when the table is edited.
 
 | Path | SHA-256 |
 |---|---|
-| grammar.js | 0016a1cfa2ca459a6fa412cc509fe0dab5e547ae8022f3ab3edfdbb745d9a8ca |
+| grammar.js | 651589960fcfd020d40a371a33e882b9be4614e34b796af4525967dce0d811b4 |
 | tree-sitter.json | f57ee6d1a5ee6958875e13074e8cbb8d53d87bb71793291bebd9854dd87e9ad6 |
-| src/parser.c | d9a5869fe024738afc61395ec1381e351f97868e05f654d3b38c4d4779c5b7f3 |
+| src/parser.c | b1003e1aae8e73babc1740552e8e39b2562dcb2b6bbeca737597cf18d4247d27 |
 | src/scanner.c | 470901f9b9408fa552d7cbd14538d45362ef2fb492908643cbb1fdc465288006 |
-| src/grammar.json | 62ecbc93fde473d71d386636e5fae20793432d5969d1687b40bcc345d1038338 |
-| src/node-types.json | c6c2ffbbcb6571b9add164d30a69b34377735e2045822b21fe8ddabaedda2fc0 |
+| src/grammar.json | 4b9ac6362f1fcd351bae3541283d1263d9d775753ebc640a696e022539e4f0e3 |
+| src/node-types.json | 0aad675583ed5a66286e8781c79b37642bd74f44314b262924d83dd7236c7c59 |
 | src/tree_sitter/alloc.h | b29c1c9fb7cc82f58c84b376df1297d6e2737a1d655fd356db0859e3c29c2fea |
 | src/tree_sitter/array.h | 5bdf6ed1a78e3409fd443e085ca967a64c188a5d082aaf7f819bccd53a471c94 |
 | src/tree_sitter/parser.h | 180b893c8734778fd32f372dfbc27bd6ad1cd2221f26150b31256ff6716320d2 |
@@ -110,6 +110,11 @@ call-shaped head and braced body.
 Parenthesized `for` headers accept a later comma-delimited filter binding.
 A direct range after `:=` retains its generator node. Filter bindings are
 visible after their initializer in the loop's scope.
+
+The parameter list in a `:=` declaration may carry effect specifiers,
+covering constructors with archetype bodies. The CST keeps the declaration,
+parameters, effects and value together. The scope graph skips this effectful
+form because it does not model constructor parameter and field semantics.
 
 ### String and map regeneration (grammar, not scanner)
 

@@ -267,6 +267,22 @@ fn for_iterator_binding_resolves_in_the_body_only() {
 }
 
 #[test]
+fn constructor_decl_with_effects_marks_semantics_incomplete() {
+    let (_, model) = graph(
+        "Make<constructor>(Old:item)<transacts> := item:\n    Count := Old.Count\nNext:int = 1\n",
+    );
+    assert!(!model.is_complete());
+    assert_eq!(model.skipped().get("effectful_type_definition"), Some(&1));
+    assert!(
+        !model
+            .bindings()
+            .iter()
+            .any(|binding| binding.name == "Make" || binding.name == "Old")
+    );
+    assert_eq!(binding(&model, "Next").kind, BindingKind::Constant);
+}
+
+#[test]
 fn for_filter_binding_is_visible_after_its_initializer_and_until_the_loop_ends() {
     let (source, model) = graph(
         "F(U:int):void =\n    for (I -> S : Ss, U := Us[I] + U, V : Values[U], U > 0):\n        G(S, V, U)\n    H(U)\n",

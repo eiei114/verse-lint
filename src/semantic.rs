@@ -1311,6 +1311,13 @@ impl Builder<'_> {
     }
 
     fn walk_type_definition(&mut self, node: Node<'_>, scope: usize) -> Result<(), Failure> {
+        if node.child_by_field_name("effect_specifiers").is_some() {
+            // The shared := node can represent a constructor with a parameter
+            // scope and archetype fields. The type/constant walker models
+            // neither part of that declaration.
+            self.skip("effectful_type_definition");
+            return Ok(());
+        }
         let value = node.child_by_field_name("value");
         let boundary = match value.map(|value| value.kind()) {
             Some("class_definition" | "struct_definition" | "interface_definition") => {

@@ -56,3 +56,8 @@ call-shaped head and braced body.
 Parenthesized `for` headers accept a later comma-delimited filter binding.
 A direct range after `:=` retains its generator node. Filter bindings are
 visible after their initializer in the loop's scope.
+
+The parameter list in a `:=` declaration may carry effect specifiers,
+covering constructors with archetype bodies. The CST keeps the declaration,
+parameters, effects and value together. The scope graph skips this effectful
+form because it does not model constructor parameter and field semantics.
