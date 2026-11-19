@@ -312,6 +312,32 @@ fn for_filter_binding_is_visible_after_its_initializer_and_until_the_loop_ends()
 }
 
 #[test]
+fn indented_for_scopes_the_iterator_and_filter_binding() {
+    let (source, model) = graph(
+        "F(Choice:int):void =\n    for:\n        Item : Items\n        Choice := Pick[Item] + Choice\n        Choice > 0\n    do:\n        Use(Item, Choice)\n    Done(Choice)\n",
+    );
+    assert!(model.is_complete());
+    for (index, kind) in [
+        BindingKind::Parameter,
+        BindingKind::ForBinding,
+        BindingKind::ForBinding,
+        BindingKind::Parameter,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        assert_eq!(
+            resolved(&source, &model, "Choice", index),
+            Some((kind, "Choice".into()))
+        );
+    }
+    assert_eq!(
+        resolved(&source, &model, "Item", 1),
+        Some((BindingKind::ForBinding, "Item".into()))
+    );
+}
+
+#[test]
 fn range_iterator_binding_resolves_and_its_iterable_stays_outer() {
     let (source, model) =
         graph("F():void =\n    Values := array{1, 2}\n    for (I : Values):\n        Print(I)\n");

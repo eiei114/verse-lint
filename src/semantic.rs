@@ -1163,6 +1163,7 @@ impl Builder<'_> {
                 let inner = self.open(ScopeKind::If, scope, node)?;
                 self.walk_children(node, inner)?;
             }
+            "else_if_clause" => self.skip("else_if_clause"),
             "if_condition" | "if_block_condition" => {
                 // `if (Name := value)` and the indented `if:` block declare
                 // `Name` for the later condition items and the branches.
@@ -1255,7 +1256,9 @@ impl Builder<'_> {
             | "field_initializer_block"
             | "array_literal"
             | "logic_literal"
+            | "indented_option_value"
             | "option_expression"
+            | "braced_expression_list"
             | "struct_literal"
             | "object_construction"
             | "parenthesized_expression"

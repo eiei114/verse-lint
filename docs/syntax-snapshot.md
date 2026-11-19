@@ -32,12 +32,12 @@ this record complete and stable when the table is edited.
 
 | Path | SHA-256 |
 |---|---|
-| grammar.js | 00da3f3a4bb91dd32b740df31aecf8bacc7b55ec00934727b1672d5a140fc903 |
+| grammar.js | f8a530fa058a31168b7f362acee4e3bf0ce1d2a9df95555feae4f5b107c684f8 |
 | tree-sitter.json | f57ee6d1a5ee6958875e13074e8cbb8d53d87bb71793291bebd9854dd87e9ad6 |
-| src/parser.c | 5f3fa782cb9925b8b99898f6a57e3f06d6c8133bbc929b730d34eb08a6d31ef6 |
-| src/scanner.c | 470901f9b9408fa552d7cbd14538d45362ef2fb492908643cbb1fdc465288006 |
-| src/grammar.json | 5c01f41c37a07bedc64e84c9fe610d40bbbc1cd8eb3c24295308e86b886d9053 |
-| src/node-types.json | 0aad675583ed5a66286e8781c79b37642bd74f44314b262924d83dd7236c7c59 |
+| src/parser.c | afada96844592a1e5ce4293778bf6ae6f9233c780d54ede3cef073afbf79b0e5 |
+| src/scanner.c | 4939d0b2e5ef023cf50ca41dc78e930f4c4fb492367d698df328a8c0d2cedc37 |
+| src/grammar.json | 9d83d266d22240d3b87c0da2509adb316cb89e795edaf5aa906fc9fc0e16d6a8 |
+| src/node-types.json | de8a345cdc07519b9f19415161b3a6c8f73685f7cf9caa0d32d999b9be218913 |
 | src/tree_sitter/alloc.h | b29c1c9fb7cc82f58c84b376df1297d6e2737a1d655fd356db0859e3c29c2fea |
 | src/tree_sitter/array.h | 5bdf6ed1a78e3409fd443e085ca967a64c188a5d082aaf7f819bccd53a471c94 |
 | src/tree_sitter/parser.h | 180b893c8734778fd32f372dfbc27bd6ad1cd2221f26150b31256ff6716320d2 |
@@ -223,3 +223,43 @@ compressed/encrypted/sparse/temporary/cloud-managed flags are refused. Tests cov
 an actual non-default primary group, basic attributes, >260-character Unicode
 paths, oversized sources and closed stdout. These are not complete SACL,
 adversarial filesystem or network-share guarantees.
+
+Indented `for: … do:` headers begin with an iterator. Later clauses reuse the
+parenthesized iterator and filter-binding nodes. A guard rejects same-line
+clauses without a comma and line-leading postfix openers that would otherwise
+be absorbed by the preceding expression. The same check covers a postfix on\na new line after the loop result. Loop bindings stay in the loop scope.
+
+A typed `var` declaration accepts `=` or `:=` before its initializer.
+Both spellings keep the same mutable binding, type and initializer fields.
+
+An `option` expression supports comma-separated values in braces and one
+expression in an indented body. The guard refuses a line-leading postfix
+that would attach to a previous expression across these newly accepted boundaries.
+
+Call arguments admit unambiguous array types (`[]T`) and the bare `logic`
+type keyword. `logic{...}` still parses as a logic expression, and the
+archetype keeps its call-shaped head and braced body.
+
+An indented `if: … then:` and parenthesized `if (...):` can share an
+`else if` chain. Mixed alternatives preserve the condition/body ownership
+and the following sibling. The linter marks mixed-clause semantic coverage
+incomplete.
+
+An empty indented block can end at the same newline as its enclosing blocks.
+The scanner queues the enclosing dedents along with the phantom block's
+dedent, keeping the first following statement in its outer scope.
+
+A case arm may use an inline `set` assignment as its body. The assignment
+retains the same CST fields as a `set` inside an indented arm.
+
+A `:=` declaration can own a braced list of two or more comma-separated
+expressions. Initializer braces with `Name := Value` keep the existing
+struct-literal or construction nodes. A line-leading bare list following a
+call stays unsupported because of the possible attachment to that call.
+
+An indented `for` header can contain a `set` clause after its iterator.
+The header retains the assignment and its operator.
+
+When an indented for header starts with `Item : Read(Values)`, the adjacent
+opener keeps the call inside the first iterator. The clause boundary guard
+continues to reject a postfix attached across a newline.
