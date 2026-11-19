@@ -32,11 +32,11 @@ this record complete and stable when the table is edited.
 
 | Path | SHA-256 |
 |---|---|
-| grammar.js | 874d6a44af95c88b07baee42386f4405ee4b6476efcce986de17cdd70f7ff6e8 |
+| grammar.js | 61823396f301cc8b0b891ccc411d49a60ff73fff4e7474ef08e39eb18ce930da |
 | tree-sitter.json | f57ee6d1a5ee6958875e13074e8cbb8d53d87bb71793291bebd9854dd87e9ad6 |
-| src/parser.c | 9a096f6143a66359cc3bba05f6e85e9b0164ce77e3684b6463abe505cba3fe23 |
+| src/parser.c | 37a7aedd9ad20598945a7ab95129ed6cbf3941dd8066a4e4d9be8ffc11a2e961 |
 | src/scanner.c | 470901f9b9408fa552d7cbd14538d45362ef2fb492908643cbb1fdc465288006 |
-| src/grammar.json | 80a52eafa3c54e19e85de087bc4af406eabe75118b52c524fb82e3d7148ddd96 |
+| src/grammar.json | e2089a30ec60b94462d5f54708fe85cf29bca3e1afc82d31615b302d46d6ab04 |
 | src/node-types.json | b8ed0eee652949e3b94531efbd98e016bf69cea4f48768bb58bc70bb62ec6388 |
 | src/tree_sitter/alloc.h | b29c1c9fb7cc82f58c84b376df1297d6e2737a1d655fd356db0859e3c29c2fea |
 | src/tree_sitter/array.h | 5bdf6ed1a78e3409fd443e085ca967a64c188a5d082aaf7f819bccd53a471c94 |
@@ -228,3 +228,6 @@ Indented `for: … do:` headers begin with an iterator. Later clauses reuse the
 parenthesized iterator and filter-binding nodes. A guard rejects same-line
 clauses without a comma and line-leading postfix openers that would otherwise
 be absorbed by the preceding expression. The same check covers a postfix on\na new line after the loop result. Loop bindings stay in the loop scope.
+
+A typed `var` declaration accepts `=` or `:=` before its initializer.
+Both spellings keep the same mutable binding, type and initializer fields.
