@@ -32,12 +32,12 @@ this record complete and stable when the table is edited.
 
 | Path | SHA-256 |
 |---|---|
-| grammar.js | 0cf2967cb68c3c3868a53e7eb2f71e43a10b250b1c1fb36731ac334f810caeed |
+| grammar.js | 00da3f3a4bb91dd32b740df31aecf8bacc7b55ec00934727b1672d5a140fc903 |
 | tree-sitter.json | f57ee6d1a5ee6958875e13074e8cbb8d53d87bb71793291bebd9854dd87e9ad6 |
-| src/parser.c | 4983a537773ffe3aefde5bb4b0a7666dac41a3e4b6fd31380d648defba676d98 |
+| src/parser.c | 5f3fa782cb9925b8b99898f6a57e3f06d6c8133bbc929b730d34eb08a6d31ef6 |
 | src/scanner.c | 470901f9b9408fa552d7cbd14538d45362ef2fb492908643cbb1fdc465288006 |
-| src/grammar.json | 8d7654e1de8e2a649ca0cf17fbeca7448ebde8a80beba9f9eb7c0230ee01874c |
-| src/node-types.json | 9fdcc89c4d1fc5090da5e29749c5515b5f868248fe2d1a447d36a3ea456c8863 |
+| src/grammar.json | 5c01f41c37a07bedc64e84c9fe610d40bbbc1cd8eb3c24295308e86b886d9053 |
+| src/node-types.json | 0aad675583ed5a66286e8781c79b37642bd74f44314b262924d83dd7236c7c59 |
 | src/tree_sitter/alloc.h | b29c1c9fb7cc82f58c84b376df1297d6e2737a1d655fd356db0859e3c29c2fea |
 | src/tree_sitter/array.h | 5bdf6ed1a78e3409fd443e085ca967a64c188a5d082aaf7f819bccd53a471c94 |
 | src/tree_sitter/parser.h | 180b893c8734778fd32f372dfbc27bd6ad1cd2221f26150b31256ff6716320d2 |
@@ -102,6 +102,31 @@ notices are pinned in `vendor/tree-sitter-verse/hashes.json`. Run
 `scripts/verify-grammar.ps1` to audit; maintainers regenerate with
 `-Regenerate` using Tree-sitter CLI 0.25.10. Normal Cargo builds require no
 Node/npm or live grammar checkout.
+
+Call arguments admit a tuple type, including in a parametric archetype
+head such as `event(tuple(int, logic)){}`. The archetype keeps its existing
+call-shaped head and braced body.
+
+Parenthesized `for` headers accept a later comma-delimited filter binding.
+A direct range after `:=` retains its generator node. Filter bindings are
+visible after their initializer in the loop's scope.
+
+The parameter list in a `:=` declaration may carry effect specifiers,
+covering constructors with archetype bodies. The CST keeps the declaration,
+parameters, effects and value together. The scope graph skips this effectful
+form because it does not model constructor parameter and field semantics.
+
+Indented `enum:` bodies use the same variant list as braced enums, with
+optional commas between variants and after the final variant.
+
+Function signatures allow whitespace between their closing parameter
+parenthesis and first effect specifier. Comparisons retain their operator
+nodes and the remaining specifier openers retain their immediate syntax.
+
+An indented archetype may omit all field initializers. Its scanner
+indent/dedent pair still encloses the archetype and keeps following statements
+at their original scope. A guard refuses a next-line brace that would otherwise
+be attached to the empty archetype as a new construction.
 
 ### String and map regeneration (grammar, not scanner)
 

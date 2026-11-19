@@ -206,3 +206,28 @@ stay byte-identical; the default-selection SARIF runs may instead gain their
 registry-derived driver-rule entries. Those rules' own non-regression is covered
 by `tests/v3001-cli.rs`, `tests/v3002-cli.rs`, `tests/v2003-cli.rs`,
 `tests/v1004-cli.rs` and `tests/v1005-cli.rs` instead.
+
+Call arguments admit a tuple type, including in a parametric archetype
+head such as `event(tuple(int, logic)){}`. The archetype keeps its existing
+call-shaped head and braced body.
+
+Parenthesized `for` headers accept a later comma-delimited filter binding.
+A direct range after `:=` retains its generator node. Filter bindings are
+visible after their initializer in the loop's scope.
+
+The parameter list in a `:=` declaration may carry effect specifiers,
+covering constructors with archetype bodies. The CST keeps the declaration,
+parameters, effects and value together. The scope graph skips this effectful
+form because it does not model constructor parameter and field semantics.
+
+Indented `enum:` bodies use the same variant list as braced enums, with
+optional commas between variants and after the final variant.
+
+Function signatures allow whitespace between their closing parameter
+parenthesis and first effect specifier. Comparisons retain their operator
+nodes and the remaining specifier openers retain their immediate syntax.
+
+An indented archetype may omit all field initializers. Its scanner
+indent/dedent pair still encloses the archetype and keeps following statements
+at their original scope. A guard refuses a next-line brace that would otherwise
+be attached to the empty archetype as a new construction.

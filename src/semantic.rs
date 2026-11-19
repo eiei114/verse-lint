@@ -150,6 +150,7 @@ pub struct Binding {
     pub scope: usize,
     /// Source byte range of the declaration name, BOM included.
     pub range: Range<usize>,
+    visible_from: usize,
     pub mutable: bool,
     /// The declaration is reachable from outside this file, by an explicit
     /// `public`/`protected` specifier or because it is a top-level type name.
@@ -524,9 +525,9 @@ impl ScopeGraph {
     /// Resolve a reference by walking its scope chain outward.
     ///
     /// Inside one scope the *last* declared binding with that name wins, and a
-    /// binding only counts once its declaration starts before the reference, so
-    /// an inner block shadows from its declaration onward while a name used
-    /// before a redeclaration keeps the outer binding. An unknown name returns
+    /// binding only counts once it is visible at the reference. Most bindings
+    /// shadow from the declaration name onward; for-clause bindings shadow
+    /// only after their iterable or initializer. An unknown name returns
     /// `None`; it is never matched to a guess.
     #[allow(dead_code)]
     pub fn resolve(&self, reference: &Reference) -> Option<&Binding> {
@@ -547,7 +548,7 @@ impl ScopeGraph {
                 let visible = if reference.receiver.is_some() {
                     true
                 } else {
-                    candidate.range.start < reference.range.start
+                    candidate.visible_from <= reference.range.start
                 };
                 if candidate.name == reference.name && visible {
                     return Some(*binding);
@@ -910,11 +911,23 @@ impl Builder<'_> {
             ));
         }
         let exported = self.is_exported(node, kind, scope);
+        let visible_from = node
+            .parent()
+            .filter(|parent| matches!(parent.kind(), "for_iterator" | "for_filter_binding"))
+            .and_then(|parent| {
+                parent.child_by_field_name(if parent.kind() == "for_iterator" {
+                    "iterable"
+                } else {
+                    "value"
+                })
+            })
+            .map_or_else(|| self.start(node) + 1, |value| self.range(value).end);
         self.bindings.push(Binding {
             name,
             kind,
             scope,
             range: self.range(node),
+            visible_from,
             mutable,
             exported,
         });
@@ -1140,7 +1153,7 @@ impl Builder<'_> {
             "for_expression" => {
                 let inner = self.open(ScopeKind::For, scope, node)?;
                 if let Some(clauses) = node.child_by_field_name("clauses") {
-                    self.walk_for_clauses(clauses, inner, scope)?;
+                    self.walk_for_clauses(clauses, inner)?;
                 }
                 if let Some(body) = node.child_by_field_name("body") {
                     self.walk(body, inner)?;
@@ -1298,6 +1311,13 @@ impl Builder<'_> {
     }
 
     fn walk_type_definition(&mut self, node: Node<'_>, scope: usize) -> Result<(), Failure> {
+        if node.child_by_field_name("effect_specifiers").is_some() {
+            // The shared := node can represent a constructor with a parameter
+            // scope and archetype fields. The type/constant walker models
+            // neither part of that declaration.
+            self.skip("effectful_type_definition");
+            return Ok(());
+        }
         let value = node.child_by_field_name("value");
         let boundary = match value.map(|value| value.kind()) {
             Some("class_definition" | "struct_definition" | "interface_definition") => {
@@ -1384,12 +1404,7 @@ impl Builder<'_> {
         Ok(())
     }
 
-    fn walk_for_clauses(
-        &mut self,
-        node: Node<'_>,
-        inner: usize,
-        outer: usize,
-    ) -> Result<(), Failure> {
+    fn walk_for_clauses(&mut self, node: Node<'_>, inner: usize) -> Result<(), Failure> {
         let mut cursor = node.walk();
         for child in node.named_children(&mut cursor) {
             if child.kind() == "for_iterator" {
@@ -1398,9 +1413,15 @@ impl Builder<'_> {
                         self.declare(inner, name, BindingKind::ForBinding, false)?;
                     }
                 }
-                // The iterable is evaluated before the bindings exist.
                 if let Some(iterable) = child.child_by_field_name("iterable") {
-                    self.walk(iterable, outer)?;
+                    self.walk(iterable, inner)?;
+                }
+            } else if child.kind() == "for_filter_binding" {
+                if let Some(name) = child.child_by_field_name("name") {
+                    self.declare(inner, name, BindingKind::ForBinding, false)?;
+                }
+                if let Some(value) = child.child_by_field_name("value") {
+                    self.walk(value, inner)?;
                 }
             } else {
                 self.walk(child, inner)?;

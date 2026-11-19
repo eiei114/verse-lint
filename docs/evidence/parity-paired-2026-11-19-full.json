@@ -1,14 +1,119 @@
 {
-  "corpus_sha256": "6e5cab1e0cacf4a3c363cffc52201faacfb9b03f63eed28b2991f0e2c02a6be6",
+  "corpus_sha256": "630588d2ed3237ccf275722ab60b8ed9bdf406f20901d113719593ddadaef76c",
   "formatter_version": "verse-fmt 0.1.0-alpha.1",
   "linter_version": "verse-lint 0.1.0-alpha.1",
-  "formatter_sha256": "6e3a2fa3deee5780bd527d0a050a0fe65bf29dd04178729619da78d65ea1c85e",
-  "linter_sha256": "a0cdaf1b631344c49f9c3de512d2844de135677d547d9d3ea1b8e4e362057788",
-  "formatter_revision": "333cb71d85107547d48d9de2d5d0f6ee8dd4c021",
-  "linter_revision": "ea3eeee49cc0f79c9a8b42f958db7f3f32aecec3",
-  "cases_total": 67,
-  "cases_passed": 67,
+  "formatter_sha256": "2879a878ec8eacd0a0827b06ceb453c4fb4d2ac4f2bd0f07cd796f6bc09f7c73",
+  "linter_sha256": "bf8d4573f884ead6f800e784b96b8427d1c8b612a16614d1853f6b17bfa1d1f7",
+  "formatter_revision": "16f9cd1f5c104511afa918d0c109f2c4fb318054",
+  "linter_revision": "ea7c0414a953c25b2e6f8fe5c8a5241b29e4a668",
+  "cases_total": 76,
+  "cases_passed": 76,
   "case_results": [
+    {
+      "id": "map-literal-pairs",
+      "input_sha256": "b590c9ca6036d26e53ec0e1660d6d2c21ad2da18a2e728672fc57bbfa9b840d6",
+      "output_sha256": "ebb27109b1b59e91ed6aaeddb70131c7e8f8e8de554a6a212404420ceddb0000",
+      "lint_exit_codes": [
+        0,
+        0
+      ],
+      "formatter_exit_codes": [
+        0,
+        0
+      ],
+      "first_files_changed": 0,
+      "second_files_changed": 0
+    },
+    {
+      "id": "empty-indented-archetype",
+      "input_sha256": "f6c84b6176af004aafc5df2ae790f481104777bd6ae50a3b5b0f5315605a0a37",
+      "output_sha256": "4d229b281865e6124dc56c1a62219b110cc2c06bb267be1da2ff27fae5ebceb1",
+      "lint_exit_codes": [
+        0,
+        0
+      ],
+      "formatter_exit_codes": [
+        0,
+        0
+      ],
+      "first_files_changed": 0,
+      "second_files_changed": 0
+    },
+    {
+      "id": "space-before-function-effects",
+      "input_sha256": "f77b788fc525920e3410b1354c2d5d022ea2ef82c0966716190a7b5b4a185c7b",
+      "output_sha256": "e9c8f1702e0cb6f06f07569fbe20e3bb31b4d7931a9d6073879e7fcd9a23a3ff",
+      "lint_exit_codes": [
+        0,
+        0
+      ],
+      "formatter_exit_codes": [
+        0,
+        0
+      ],
+      "first_files_changed": 0,
+      "second_files_changed": 0
+    },
+    {
+      "id": "indented-enum-commas",
+      "input_sha256": "37acff39849168a8c60399cd15c61ebe0edbaa21ade7545a491d6151e7a28448",
+      "output_sha256": "d302ef4ed3466d5c8eb1e83bdcbc1a224c49c73a264fd9d5b02a657d9aba3a22",
+      "lint_exit_codes": [
+        0,
+        0
+      ],
+      "formatter_exit_codes": [
+        0,
+        0
+      ],
+      "first_files_changed": 0,
+      "second_files_changed": 0
+    },
+    {
+      "id": "constructor-declaration",
+      "input_sha256": "8ca2c71c7e9e76876fcf94fed527e2d6faed46486fd44e963c8408b904ba4115",
+      "output_sha256": "e30a20a668a1e4b5e3f868ea7b5f70dfa0c82717af3b46a61b6d24fa898205b5",
+      "lint_exit_codes": [
+        0,
+        0
+      ],
+      "formatter_exit_codes": [
+        0,
+        0
+      ],
+      "first_files_changed": 0,
+      "second_files_changed": 0
+    },
+    {
+      "id": "for-filter-binding",
+      "input_sha256": "ad7fe2a857916e1d340684f88ecddb6eb476a0dc7249eb18dfd768b84ae93d55",
+      "output_sha256": "d3366a42de0092b9a743378a732e95fd56076ed02b23c277fd91de672bff58a3",
+      "lint_exit_codes": [
+        0,
+        0
+      ],
+      "formatter_exit_codes": [
+        0,
+        0
+      ],
+      "first_files_changed": 0,
+      "second_files_changed": 0
+    },
+    {
+      "id": "tuple-type-in-archetype-head",
+      "input_sha256": "6da20d458f33531f1b2fd5b4b94696d3f2d0684b427b9152ee423dff3672b4af",
+      "output_sha256": "8a0afbbc28497901518c0c52092f5474c01d36dbcccb025db147a39807538618",
+      "lint_exit_codes": [
+        0,
+        0
+      ],
+      "formatter_exit_codes": [
+        0,
+        0
+      ],
+      "first_files_changed": 0,
+      "second_files_changed": 0
+    },
     {
       "id": "empty",
       "input_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -475,6 +580,21 @@
       "second_files_changed": 0
     },
     {
+      "id": "map-literal-string-key",
+      "input_sha256": "d043b98d76551525150dbee3e3396f1166d06c94b834705cf044f36dbf41737c",
+      "output_sha256": "053c5d6ee118e27233bd7a7ddd00b427e759eb8c0906a6b424666b9918b7e077",
+      "lint_exit_codes": [
+        0,
+        0
+      ],
+      "formatter_exit_codes": [
+        0,
+        0
+      ],
+      "first_files_changed": 0,
+      "second_files_changed": 0
+    },
+    {
       "id": "option",
       "input_sha256": "c28c6b4918958c82ac033d504f6ea2be6877017b062f15dc8c173243d7969952",
       "output_sha256": "fc307bac7a3da88508dec46ad8e9ae0fb8495cf0186ec9dc8e04ddcaebf554ed",
@@ -898,6 +1018,21 @@
       "id": "range-binding-bom-crlf",
       "input_sha256": "c4b13b8aa7d58823f8b788a4bf4de8fa63d352f8213ef10de39f907877bcd4cc",
       "output_sha256": "575265a84dac56d23441914ebf8d8f4648f6fb6ebfb38de5050b82a458da0b14",
+      "lint_exit_codes": [
+        0,
+        0
+      ],
+      "formatter_exit_codes": [
+        0,
+        0
+      ],
+      "first_files_changed": 0,
+      "second_files_changed": 0
+    },
+    {
+      "id": "range-binding-intermediate",
+      "input_sha256": "a8821d0ec5bfea5b2726165c47e8550bea7123a54d45de6d9f67cc70f5817b30",
+      "output_sha256": "a8821d0ec5bfea5b2726165c47e8550bea7123a54d45de6d9f67cc70f5817b30",
       "lint_exit_codes": [
         0,
         0

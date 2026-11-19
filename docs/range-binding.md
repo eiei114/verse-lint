@@ -3,8 +3,8 @@
 The parser accepts `for (I := 1..3)` using a dedicated alternative whose
 iterable must be a `range_expression`. This is not a blanket addition of `:=`
 to all iterator separators. Intermediate bindings such as `Twice := I * 2`
-inside a header remain unsupported, as do non-range `I := Values` headers.
-These refusals describe tool coverage, not compiler invalidity.
+are accepted after the initial clause. A leading non-range `I := Values`
+still fails closed.
 
 ## Syntax evidence
 

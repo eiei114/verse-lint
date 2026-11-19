@@ -57,6 +57,7 @@ module.exports = grammar({
     [$.receiver_parameter, $.module_scoped_identifier, $._expression],
     [$.module_scoped_identifier, $._expression],
     [$._expression, $.for_iterator],
+    [$.for_filter_binding, $.for_iterator],
     [$._type, $.function_type, $.constrained_type],
     [$.type_definition, $.field_initializer],
     [$.map_literal, $._expression],
@@ -183,7 +184,7 @@ module.exports = grammar({
       '(',
       optional(field('parameters', $.parameter_list)),
       ')',
-      optional(field('effect_specifiers', $.specifier_list)),
+      optional(field('effect_specifiers', alias($._effect_specifier_list, $.specifier_list))),
       ':',
       field('return_type', $._type),
       optional(seq('=', field('body', $._function_body))),
@@ -200,7 +201,7 @@ module.exports = grammar({
       '(',
       optional(field('parameters', $.parameter_list)),
       ')',
-      optional(field('effect_specifiers', $.specifier_list)),
+      optional(field('effect_specifiers', alias($._effect_specifier_list, $.specifier_list))),
       ':',
       field('return_type', $._type),
       optional(seq('=', field('body', $._function_body))),
@@ -223,7 +224,12 @@ module.exports = grammar({
     type_definition: $ => seq(
       field('name', choice($.identifier, $.module_scoped_identifier)),
       optional(field('specifiers', $.specifier_list)),
-      optional(seq('(', optional(field('type_params', $.parameter_list)), ')')),
+      optional(seq(
+        '(',
+        optional(field('type_params', $.parameter_list)),
+        ')',
+        optional(field('effect_specifiers', alias($._effect_specifier_list, $.specifier_list))),
+      )),
       ':=',
       field('value', choice(
         $.class_definition,
@@ -289,12 +295,14 @@ module.exports = grammar({
     ),
 
     _enum_body: $ => choice(
-      seq(':', $._indent, repeat($.enum_variant), $._dedent),
-      seq('{', optional(seq(
-        $.enum_variant,
-        repeat(seq(optional(','), $.enum_variant)),
-        optional(','),
-      )), '}'),
+      seq(':', $._indent, optional($._enum_variants), $._dedent),
+      seq('{', optional($._enum_variants), '}'),
+    ),
+
+    _enum_variants: $ => seq(
+      $.enum_variant,
+      repeat(seq(optional(','), $.enum_variant)),
+      optional(','),
     ),
 
     _class_member: $ => choice(
@@ -328,12 +336,15 @@ module.exports = grammar({
 
     specifier_list: $ => repeat1($.specifier),
 
-    specifier: $ => seq(
-      token.immediate('<'),
-      field('name', alias($._specifier_name, $.specifier_name)),
-      optional(seq('{', field('value', choice($.path_literal, $.identifier)), '}')),
-      '>',
+    // The first specifier after declaration parameters accepts whitespace.
+    // Other specifier openers retain their immediate form.
+    _effect_specifier_list: $ => seq(
+      alias($._first_effect_specifier, $.specifier),
+      repeat($.specifier),
     ),
+
+    _first_effect_specifier: $ => specifier($, '<'),
+    specifier: $ => specifier($, token.immediate('<')),
 
     _specifier_name: $ => choice(
       'abstract', 'computes', 'constructor', 'private', 'public', 'protected',
@@ -778,7 +789,7 @@ module.exports = grammar({
         seq(
           ':',
           $._indent,
-          field('fields', $.field_initializer_block),
+          optional(field('fields', $.field_initializer_block)),
           $._dedent,
         ),
       ),
@@ -813,6 +824,7 @@ module.exports = grammar({
 
     _argument: $ => choice(
       $.named_argument,
+      $.tuple_type,
       $._expression,
     ),
 
@@ -962,7 +974,7 @@ module.exports = grammar({
 
     for_clause_list: $ => seq(
       $._for_clause,
-      repeat(seq(',', $._for_clause)),
+      repeat(seq(',', choice($._for_clause, $.for_filter_binding))),
     ),
 
     _for_clause: $ => choice(
@@ -970,13 +982,19 @@ module.exports = grammar({
       $._expression,
     ),
 
+    for_filter_binding: $ => seq(
+      field('name', $.identifier),
+      ':=',
+      field('value', $._expression),
+    ),
+
     for_iterator: $ => choice(
-      // Bounded range generator; ordinary := bindings are not iterators.
-      seq(
+      // Keep the range-generator reading when both := forms can match.
+      prec.dynamic(1, seq(
         field('variable', $.identifier),
         ':=',
         field('iterable', $.range_expression),
-      ),
+      )),
       seq(
         field('key', $.identifier),
         '->',
@@ -1060,3 +1078,12 @@ module.exports = grammar({
     identifier: $ => /[a-zA-Z_][a-zA-Z0-9_]*/,
   },
 });
+
+function specifier($, opener) {
+  return seq(
+    opener,
+    field('name', alias($._specifier_name, $.specifier_name)),
+    optional(seq('{', field('value', choice($.path_literal, $.identifier)), '}')),
+    '>',
+  );
+}

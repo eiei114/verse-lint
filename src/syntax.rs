@@ -44,6 +44,32 @@ pub struct Document {
     body_start: usize,
 }
 
+const EMPTY_ARCHETYPE_BRACE_MESSAGE: &str =
+    "an empty indented archetype may have absorbed a braced expression on the next line";
+
+fn empty_archetype_brace_continuation(
+    node: tree_sitter::Node<'_>,
+    source: &Source,
+) -> Option<usize> {
+    if node.kind() != "object_construction" {
+        return None;
+    }
+    let head = node.child_by_field_name("type")?;
+    if head.kind() != "object_construction" || head.child_by_field_name("fields").is_some() {
+        return None;
+    }
+    let mut head_children = head.walk();
+    let colon = head
+        .children(&mut head_children)
+        .find(|child| child.kind() == ":")?;
+    let mut children = node.walk();
+    let brace = node
+        .children(&mut children)
+        .find(|child| child.kind() == "{")?;
+    (brace.start_position().row > colon.start_position().row)
+        .then_some(source.body_start() + brace.start_byte())
+}
+
 impl Document {
     pub fn parse(source: &Source) -> Result<Self, Failure> {
         Self::parse_with_budget(source, PARSE_BUDGET)
@@ -182,6 +208,9 @@ fn validate(
                 start,
                 "binary `+`/`-` operator starts a new line; a leading unary operand is ambiguous with a continued expression in the pinned grammar",
             ));
+        }
+        if let Some(start) = empty_archetype_brace_continuation(node, source) {
+            return Err(Failure::new(start, EMPTY_ARCHETYPE_BRACE_MESSAGE));
         }
         if let Some(message) = tree_limit(depth, shape.len()) {
             return Err(Failure::new(
@@ -498,6 +527,252 @@ mod tests {
                 expected,
                 "field {field}"
             );
+        }
+    }
+
+    #[test]
+    fn tuple_type_is_owned_by_the_archetype_head() {
+        let text = "c := class:\n    E:event(tuple(int, logic)) = event(tuple(int, logic)){}\n    N:int = 1\n";
+        let (_, document) = parsed(text);
+        let root = document.root();
+        assert!(!root.has_error());
+
+        let class = root
+            .named_child(0)
+            .unwrap()
+            .child_by_field_name("value")
+            .unwrap();
+        assert_eq!(class.named_child_count(), 2);
+        let field = class.named_child(0).unwrap();
+        let declared_type = field.child_by_field_name("type").unwrap();
+        assert_eq!(
+            declared_type
+                .child_by_field_name("argument")
+                .unwrap()
+                .kind(),
+            "tuple_type"
+        );
+        let initializer = field.child_by_field_name("default").unwrap();
+        assert_eq!(initializer.kind(), "object_construction");
+        let head = initializer.child_by_field_name("type").unwrap();
+        assert_eq!(head.kind(), "call_expression");
+        let arguments = head.child_by_field_name("arguments").unwrap();
+        assert_eq!(arguments.named_child_count(), 1);
+        assert_eq!(arguments.named_child(0).unwrap().kind(), "tuple_type");
+        assert_eq!(class.named_child(1).unwrap().kind(), "field_declaration");
+    }
+
+    #[test]
+    fn for_filter_binding_owns_its_value_and_keeps_body_separate() {
+        let text =
+            "F():void =\n    for (I -> S : Ss, U := Us[I], U > 0):\n        G(S, U)\n    H()\n";
+        let (_, document) = parsed(text);
+        let root = document.root();
+        assert!(!root.has_error());
+
+        let body = root
+            .named_child(0)
+            .unwrap()
+            .child_by_field_name("body")
+            .unwrap();
+        assert_eq!(body.named_child_count(), 2);
+        let loop_node = body.named_child(0).unwrap();
+        let clauses = loop_node.child_by_field_name("clauses").unwrap();
+        assert_eq!(clauses.named_child_count(), 3);
+        assert_eq!(clauses.named_child(0).unwrap().kind(), "for_iterator");
+        let binding = clauses.named_child(1).unwrap();
+        assert_eq!(binding.kind(), "for_filter_binding");
+        assert_eq!(
+            binding
+                .child_by_field_name("name")
+                .unwrap()
+                .utf8_text(text.as_bytes())
+                .unwrap(),
+            "U"
+        );
+        assert_eq!(
+            binding
+                .child_by_field_name("value")
+                .unwrap()
+                .utf8_text(text.as_bytes())
+                .unwrap(),
+            "Us[I]"
+        );
+        assert_eq!(clauses.named_child(2).unwrap().kind(), "binary_expression");
+        assert_eq!(
+            loop_node
+                .child_by_field_name("body")
+                .unwrap()
+                .named_child_count(),
+            1
+        );
+        assert_eq!(
+            body.named_child(1)
+                .unwrap()
+                .utf8_text(text.as_bytes())
+                .unwrap(),
+            "H()"
+        );
+    }
+
+    #[test]
+    fn constructor_owns_archetype_without_reclassifying_a_type_function() {
+        let text = "Make<public><constructor>(Old:item)<transacts> := item:\n    Count := Old.Count\nAlias(T:type) := T\nOther():int = 1\n";
+        let (_, document) = parsed(text);
+        let root = document.root();
+        assert!(!root.has_error());
+
+        assert_eq!(root.named_child_count(), 3);
+        let constructor = root.named_child(0).unwrap();
+        assert_eq!(constructor.kind(), "type_definition");
+        assert_eq!(
+            constructor
+                .child_by_field_name("type_params")
+                .unwrap()
+                .named_child_count(),
+            1
+        );
+        assert_eq!(
+            constructor
+                .child_by_field_name("effect_specifiers")
+                .unwrap()
+                .named_child_count(),
+            1
+        );
+        let body = constructor.child_by_field_name("value").unwrap();
+        assert_eq!(body.kind(), "object_construction");
+        assert_eq!(
+            body.child_by_field_name("fields")
+                .unwrap()
+                .named_child_count(),
+            1
+        );
+        assert_eq!(root.named_child(1).unwrap().kind(), "type_definition");
+        assert_eq!(root.named_child(2).unwrap().kind(), "function_definition");
+    }
+
+    #[test]
+    fn commas_in_indented_enum_keep_variants_and_next_definition_separate() {
+        let text = "shade := enum:\n    Light,\n    Grey\n    Dark,\nNext:int = 1\n";
+        let (_, document) = parsed(text);
+        let root = document.root();
+        assert!(!root.has_error());
+
+        assert_eq!(root.named_child_count(), 2);
+        let variants = root
+            .named_child(0)
+            .unwrap()
+            .child_by_field_name("value")
+            .unwrap();
+        assert_eq!(variants.kind(), "enum_definition");
+        assert_eq!(variants.named_child_count(), 3);
+        for (index, name) in ["Light", "Grey", "Dark"].into_iter().enumerate() {
+            let variant = variants.named_child(index).unwrap();
+            assert_eq!(variant.kind(), "enum_variant");
+            assert_eq!(
+                variant
+                    .child_by_field_name("name")
+                    .unwrap()
+                    .utf8_text(text.as_bytes())
+                    .unwrap(),
+                name
+            );
+        }
+        assert_eq!(root.named_child(1).unwrap().kind(), "constant_declaration");
+    }
+
+    #[test]
+    fn spaced_effect_specifiers_stay_on_the_signature() {
+        let text = "F(N:int) <transacts><decides>:int =\n    F(0) < transacts > G(1)\n    N\nA := F(0) < G(1)\n";
+        let (_, document) = parsed(text);
+        let root = document.root();
+        assert!(!root.has_error());
+
+        assert_eq!(root.named_child_count(), 2);
+        let function = root.named_child(0).unwrap();
+        assert_eq!(function.kind(), "function_definition");
+        let list = function.child_by_field_name("effect_specifiers").unwrap();
+        assert_eq!(list.kind(), "specifier_list");
+        assert_eq!(list.named_child_count(), 2);
+        for specifier in [list.named_child(0).unwrap(), list.named_child(1).unwrap()] {
+            assert_eq!(specifier.kind(), "specifier");
+        }
+        let body = function.child_by_field_name("body").unwrap();
+        assert_eq!(body.named_child_count(), 2);
+        let first_statement = body.named_child(0).unwrap();
+        assert_eq!(first_statement.kind(), "binary_expression");
+        assert_eq!(
+            first_statement
+                .child_by_field_name("operator")
+                .unwrap()
+                .kind(),
+            "<"
+        );
+        assert_eq!(
+            body.named_child(1)
+                .unwrap()
+                .utf8_text(text.as_bytes())
+                .unwrap(),
+            "N"
+        );
+        let comparison = root
+            .named_child(1)
+            .unwrap()
+            .child_by_field_name("value")
+            .unwrap();
+        assert_eq!(comparison.kind(), "binary_expression");
+        assert_eq!(
+            comparison.child_by_field_name("operator").unwrap().kind(),
+            "<"
+        );
+    }
+
+    #[test]
+    fn empty_archetype_ends_before_its_sibling_statement() {
+        let text = "F():item =\n    A:item = item:\n    B:item = item:\n        Count := 1\n    return A\n";
+        let (_, document) = parsed(text);
+        let root = document.root();
+        assert!(!root.has_error());
+
+        let body = root
+            .named_child(0)
+            .unwrap()
+            .child_by_field_name("body")
+            .unwrap();
+        assert_eq!(body.named_child_count(), 3);
+        let empty = body
+            .named_child(0)
+            .unwrap()
+            .child_by_field_name("value")
+            .unwrap();
+        assert_eq!(empty.kind(), "object_construction");
+        assert!(empty.child_by_field_name("fields").is_none());
+        let filled = body
+            .named_child(1)
+            .unwrap()
+            .child_by_field_name("value")
+            .unwrap();
+        assert_eq!(filled.kind(), "object_construction");
+        assert_eq!(
+            filled
+                .child_by_field_name("fields")
+                .unwrap()
+                .named_child_count(),
+            1
+        );
+        assert_eq!(body.named_child(2).unwrap().kind(), "return_expression");
+    }
+
+    #[test]
+    fn refuses_expression_continuations_after_an_empty_indented_archetype() {
+        for (suffix, message) in [
+            ("{Count := 1}", EMPTY_ARCHETYPE_BRACE_MESSAGE),
+            ("-2", "a leading unary operand is ambiguous"),
+        ] {
+            let text = format!("F():void =\n    A:item = item:\n    {suffix}\n");
+            let source = Source::from_bytes(text.as_bytes()).unwrap();
+            let refusal = Document::parse(&source).expect_err("continuation must refuse");
+            assert!(refusal.message.contains(message), "{refusal:?}");
         }
     }
 
