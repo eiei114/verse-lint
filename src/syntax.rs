@@ -227,11 +227,13 @@ fn leading_unary_continuation(node: tree_sitter::Node<'_>, source: &Source) -> O
     if !matches!(operator.kind(), "+" | "-") {
         return None;
     }
+    // A dedent can put trailing newline bytes in the left node.
+    let bytes = source.text().as_bytes();
+    let left_start = left.start_byte() + source.body_start();
     let left_end = left.end_byte() + source.body_start();
+    let content_end = left_start + bytes[left_start..left_end].trim_ascii_end().len();
     let start = operator.start_byte() + source.body_start();
-    source.text().as_bytes()[left_end..start]
-        .contains(&b'\n')
-        .then_some(start)
+    bytes[content_end..start].contains(&b'\n').then_some(start)
 }
 
 #[cfg(test)]
@@ -360,6 +362,8 @@ mod tests {
     fn a_line_starting_with_unary_plus_or_minus_is_refused_not_joined() {
         for text in [
             "F():void =\n    X := A\n    -2 < A\n",
+            "F()<suspends>:void =\n    spawn:\n        G()\n    -2\n",
+            "F()<suspends>:void =\r\n    spawn:\r\n        G()\r\n    +2\r\n",
             "F():void =\n    if:\n        A := B[]\n        -2 < A\n    then:\n        G()\n",
             "F():void =\n    case(T):\n        t.A =>\n            X := A\n            +1\n        _ => {}\n",
         ] {
