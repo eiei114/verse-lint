@@ -50,7 +50,9 @@ build time.
    Add `--dry-run` to preview the candidate; it runs the full harness but writes
    neither the pin nor the report.
 4. Commit the updated `parity.json` and the generated report with the linter
-   change. Record both full 40-character revisions, the corpus hash, and case
+   change. Write the matching summary report beside it, replace the previous
+   pair, and point `tests/test_parity_pin.py` and `docs/integration-testing.md`
+   at the new file names. Record both full 40-character revisions, the corpus hash, and case
    counts in the pull request. A revision in `parity.json` that no committed
    report names is an unverified claim.
 5. Run `scripts/verify.ps1` and include its result in the pull request.
