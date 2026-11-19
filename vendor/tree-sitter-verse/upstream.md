@@ -45,10 +45,14 @@ This parser is not a Verse compiler. Recovery still requires the independent
 lexical/syntax/structure guard; see `../../docs/parser-design.md`.
 
 P1 additionally accepts `identifier := range_expression` in for_iterator only.
-No scanner change or general header binding alternative accompanies this delta.
+The scanner is unchanged.
 ABI15 artifacts were regenerated with Tree-sitter CLI 0.25.10; hashes.json pins
 the changed grammar and generated outputs. See `../../docs/range-binding.md`.
 
 Call arguments admit a tuple type, including in a parametric archetype
 head such as `event(tuple(int, logic)){}`. The archetype keeps its existing
 call-shaped head and braced body.
+
+Parenthesized `for` headers accept a later comma-delimited filter binding.
+A direct range after `:=` retains its generator node. Filter bindings are
+visible after their initializer in the loop's scope.

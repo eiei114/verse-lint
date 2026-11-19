@@ -1125,6 +1125,10 @@
           "named": true
         },
         {
+          "type": "for_filter_binding",
+          "named": true
+        },
+        {
           "type": "for_iterator",
           "named": true
         }
@@ -1159,6 +1163,32 @@
         "types": [
           {
             "type": "for_clause_list",
+            "named": true
+          }
+        ]
+      }
+    }
+  },
+  {
+    "type": "for_filter_binding",
+    "named": true,
+    "fields": {
+      "name": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "identifier",
+            "named": true
+          }
+        ]
+      },
+      "value": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "_expression",
             "named": true
           }
         ]

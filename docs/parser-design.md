@@ -210,3 +210,7 @@ by `tests/v3001-cli.rs`, `tests/v3002-cli.rs`, `tests/v2003-cli.rs`,
 Call arguments admit a tuple type, including in a parametric archetype
 head such as `event(tuple(int, logic)){}`. The archetype keeps its existing
 call-shaped head and braced body.
+
+Parenthesized `for` headers accept a later comma-delimited filter binding.
+A direct range after `:=` retains its generator node. Filter bindings are
+visible after their initializer in the loop's scope.

@@ -73,7 +73,6 @@ fn unsupported_range_headers_prevent_fixing_original_bytes() {
         ":= 1..3",
         "I := 1..3,",
         "I := Values",
-        "I := 1..3, Twice := I * 2",
     ] {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("range.verse");
