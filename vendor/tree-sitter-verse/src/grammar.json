@@ -4148,7 +4148,7 @@
                     "name": "condition",
                     "content": {
                       "type": "SYMBOL",
-                      "name": "if_condition"
+                      "name": "if_block_condition"
                     }
                   },
                   {
@@ -4223,6 +4223,30 @@
           }
         }
       ]
+    },
+    "if_block_condition": {
+      "type": "REPEAT1",
+      "content": {
+        "type": "SEQ",
+        "members": [
+          {
+            "type": "SYMBOL",
+            "name": "_if_condition_item"
+          },
+          {
+            "type": "CHOICE",
+            "members": [
+              {
+                "type": "STRING",
+                "value": ","
+              },
+              {
+                "type": "BLANK"
+              }
+            ]
+          }
+        ]
+      }
     },
     "_if_condition_item": {
       "type": "CHOICE",
