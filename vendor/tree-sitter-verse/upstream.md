@@ -61,3 +61,6 @@ The parameter list in a `:=` declaration may carry effect specifiers,
 covering constructors with archetype bodies. The CST keeps the declaration,
 parameters, effects and value together. The scope graph skips this effectful
 form because it does not model constructor parameter and field semantics.
+
+Indented `enum:` bodies use the same variant list as braced enums, with
+optional commas between variants and after the final variant.
