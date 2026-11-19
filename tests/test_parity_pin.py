@@ -27,8 +27,8 @@ PIN = {
 }
 
 # The committed harness report that the repository pin must quote.
-EVIDENCE = ROOT / "docs" / "evidence" / "parity-paired-2026-11-19-full.json"
-EVIDENCE_SUMMARY = ROOT / "docs" / "evidence" / "parity-paired-2026-11-19.json"
+EVIDENCE = ROOT / "docs" / "evidence" / "parity-paired-2026-11-19-case-layout-full.json"
+EVIDENCE_SUMMARY = ROOT / "docs" / "evidence" / "parity-paired-2026-11-19-case-layout.json"
 
 
 class ParityPinReaderTests(unittest.TestCase):

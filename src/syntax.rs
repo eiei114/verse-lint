@@ -103,6 +103,86 @@ fn option_value_is_indented(option: tree_sitter::Node<'_>) -> bool {
         .is_some_and(|value| value.kind() == "indented_option_value")
 }
 
+const CASE_INDENT_BOUNDARY_MESSAGE: &str = "ambiguous indentation around an empty case arm";
+
+// A case frame's first arm column is sufficient for most layouts. For a
+// shallower empty wildcard, verify its ownership against the source line
+// containing the colon, which can differ from the enclosing scanner frame.
+fn shallow_empty_case_arm(
+    node: tree_sitter::Node<'_>,
+    bytes: &[u8],
+) -> Result<Option<(usize, usize)>, usize> {
+    if node.kind() != "case_expression" {
+        return Ok(None);
+    }
+    let mut cursor = node.walk();
+    let mut arms = node
+        .named_children(&mut cursor)
+        .filter(|child| child.kind() == "case_arm");
+    let Some(first) = arms.next() else {
+        return Ok(None);
+    };
+    let Some(last) = arms.last() else {
+        return Ok(None);
+    };
+    let start = last.start_byte();
+    let width = last.start_position().column;
+    let first_width = first.start_position().column;
+    if width >= first_width {
+        return Ok(None);
+    }
+
+    let Some(pattern) = last.child_by_field_name("pattern") else {
+        return Ok(None);
+    };
+    let Some(body) = last.child_by_field_name("body") else {
+        return Ok(None);
+    };
+    let mut cursor = body.walk();
+    if &bytes[pattern.byte_range()] != b"_"
+        || body.kind() != "indented_block"
+        || body
+            .named_children(&mut cursor)
+            .any(|child| !child.is_extra())
+    {
+        return Ok(None);
+    }
+
+    let mut cursor = node.walk();
+    let colon = node.children(&mut cursor).find(|child| child.kind() == ":");
+    let Some(colon) = colon else {
+        return Err(start);
+    };
+    let header = &bytes[..colon.start_byte()];
+    let header_line = header
+        .rsplit(|byte| matches!(byte, b'\n' | b'\r'))
+        .next()
+        .unwrap_or_default();
+    let header_width = header_line.iter().take_while(|&&b| b == b' ').count();
+    let mut cursor = last.walk();
+    let Some(arrow) = last
+        .children(&mut cursor)
+        .find(|child| child.kind() == "=>")
+    else {
+        return Err(start);
+    };
+    let tail = &bytes[arrow.end_byte()..];
+    let next = tail
+        .split(|byte| matches!(byte, b'\n' | b'\r'))
+        .skip(1)
+        .find(|line| !line.trim_ascii().is_empty());
+    if width <= header_width
+        || header_line.get(header_width) == Some(&b'\t')
+        || next.is_some_and(|line| {
+            let next_width = line.iter().take_while(|&&b| b == b' ').count();
+            next_width > header_width || line.get(next_width) == Some(&b'\t')
+        })
+    {
+        return Err(start);
+    }
+    Ok(Some((start, first_width)))
+}
+
 fn ambiguous_expression_boundary(
     node: tree_sitter::Node<'_>,
     bytes: &[u8],
@@ -292,6 +372,12 @@ fn validate(
             return Err(Failure::new(
                 node.start_byte() + source.body_start(),
                 "unsupported or incomplete Verse syntax; use UEFN for compiler diagnostics",
+            ));
+        }
+        if let Err(offset) = shallow_empty_case_arm(node, bytes) {
+            return Err(Failure::new(
+                source.body_start() + offset,
+                CASE_INDENT_BOUNDARY_MESSAGE,
             ));
         }
         if let Some(start) = leading_unary_continuation(node, source) {
@@ -891,6 +977,56 @@ mod tests {
                 error.message.contains(INDENTED_EXPRESSION_BOUNDARY_MESSAGE),
                 "{tail}: {error:?}"
             );
+        }
+    }
+
+    #[test]
+    fn shallower_empty_wildcard_is_a_sibling_and_ends_the_case() {
+        let text = "Paint():void =\n    case(Tone):\n        1 =>\n            Mix()\n     _ =>\n    Seal()\n";
+        assert!(Document::parse(&Source::from_bytes(text.as_bytes()).unwrap()).is_ok());
+        let mut parser = Parser::new();
+        // SAFETY: same statically linked grammar as production.
+        parser
+            .set_language(&Language::new(unsafe {
+                LanguageFn::from_raw(tree_sitter_verse)
+            }))
+            .unwrap();
+        let tree = parser.parse(text, None).unwrap();
+        let function = tree.root_node().named_child(0).unwrap();
+        let body = function.child_by_field_name("body").unwrap();
+        assert_eq!(body.named_child_count(), 2);
+        let case = body.named_child(0).unwrap();
+        assert_eq!(case.kind(), "case_expression");
+        assert_eq!(case.named_child_count(), 3);
+        let first = case.named_child(1).unwrap();
+        let wildcard = case.named_child(2).unwrap();
+        assert_eq!(wildcard.kind(), "case_arm");
+        assert_eq!(wildcard.start_position().column, 5);
+        assert_eq!(
+            first
+                .child_by_field_name("body")
+                .unwrap()
+                .named_child_count(),
+            1
+        );
+        let empty = wildcard.child_by_field_name("body").unwrap();
+        assert_eq!(empty.kind(), "indented_block");
+        assert_eq!(empty.named_child_count(), 0);
+        assert_eq!(body.named_child(1).unwrap().kind(), "call_expression");
+    }
+
+    #[test]
+    fn shallow_wildcard_refuses_unverified_case_boundaries() {
+        for text in [
+            // The wildcard must extend the line that contains the colon.
+            "Paint():void =\n    case(Tone):\n        1 => Mix()\n    _ =>\n    Seal()\n",
+            // This next line would start the wildcard's actual body.
+            "Paint():void =\n    case(Tone):\n        1 => Mix()\n     _ =>\n      Seal()\n",
+            // The multiline header puts the colon farther in than the wildcard.
+            "Paint():void =\n    case(\n        Tone\n      ):\n        1 => Mix()\n     _ =>\n    Seal()\n",
+        ] {
+            let source = Source::from_bytes(text.as_bytes()).unwrap();
+            assert!(Document::parse(&source).is_err(), "{text}");
         }
     }
 

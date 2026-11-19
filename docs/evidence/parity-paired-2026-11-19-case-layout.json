@@ -1,0 +1,18 @@
+{
+  "reportSchema": "verse-pair-convergence/1",
+  "recordedFrom": "scripts/verify-pair.py",
+  "recordedOn": "2026-11-19",
+  "note": "Committed evidence for the revisions declared in parity.json. The run executed at linter revision 9d2f8e8c0302e264fd86788f9277e2a5f8665484 with clean checkouts on both sides. The pin update that cites it is a declaration-only descendant of that commit. Regenerate with scripts/verify-pair.py against clean checkouts.",
+  "corpus_sha256": "e0185f1fe107b3471ee1e5b7b2d0f66b546457fdb271b24dcfa6c3654af59e13",
+  "formatter_version": "verse-fmt 0.1.0-alpha.1",
+  "linter_version": "verse-lint 0.1.0-alpha.1",
+  "formatter_sha256": "808ebb09dbeffac5a9d2fa0b2024a3ff573c3b982418e8ed67915dc9f462d642",
+  "linter_sha256": "7ef5dcbad3eb0e98dcaa9abca3643565fd3e373d6cd92e0412b5383aa3154772",
+  "formatter_revision": "2a0427af34f470b655ad0ab9cd040784ef2ca425",
+  "linter_revision": "9d2f8e8c0302e264fd86788f9277e2a5f8665484",
+  "cases_total": 89,
+  "cases_passed": 89,
+  "golden_cases": 89,
+  "refusal_cases": 25,
+  "corpus_cases": 114
+}
