@@ -1258,6 +1258,7 @@ impl Builder<'_> {
             | "logic_literal"
             | "indented_option_value"
             | "option_expression"
+            | "braced_expression_list"
             | "struct_literal"
             | "object_construction"
             | "parenthesized_expression"

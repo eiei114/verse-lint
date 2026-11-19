@@ -237,6 +237,7 @@ module.exports = grammar({
         $.enum_definition,
         $.interface_definition,
         $.module_definition,
+        $.braced_expression_list,
         $._expression,
       )),
     ),
@@ -803,6 +804,13 @@ module.exports = grammar({
     field_initializer_block: $ => seq(
       $.field_initializer,
       repeat($.field_initializer),
+    ),
+
+    braced_expression_list: $ => seq(
+      '{',
+      $._expression,
+      repeat1(seq(',', $._expression)),
+      '}',
     ),
 
     struct_literal: $ => seq(
