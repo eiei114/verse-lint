@@ -32,12 +32,12 @@ this record complete and stable when the table is edited.
 
 | Path | SHA-256 |
 |---|---|
-| grammar.js | 25244477f9252807f8fbb0664a6db0f9a65cb55ae7a6617c052240a1e6dad5da |
+| grammar.js | fb75d08cf82f1dda3cb54979ea920a132196f8252649abe97500dc9db5101ab6 |
 | tree-sitter.json | f57ee6d1a5ee6958875e13074e8cbb8d53d87bb71793291bebd9854dd87e9ad6 |
-| src/parser.c | 0529211a45d60d6cb252f8bf8088df53e181664a5413676f8b4415f85271bb68 |
-| src/scanner.c | dc89faa123d4710b31eefd2827cd426fdbad4390f15b3971f665b8ba89c7f19d |
-| src/grammar.json | e6e01874095dc0aa3de48ef5b64b380d756f031c5519092da9d15c0941aeceda |
-| src/node-types.json | 62869e1a14357279a7731b9048aa70281e9ef5443f4a690f4e3df43bac8af3a3 |
+| src/parser.c | 449287c50e0a3e6bacb874220684277ac1683fea19666fabcd7395e3527cd0a1 |
+| src/scanner.c | e176d6c7d07f251f3bc286985c6759da85852550f1b1da376ecd88b8faf3f035 |
+| src/grammar.json | 9bf99a0dabcfb9b9e76d71e31ca123ee2d1db7af22913b2fe2824a855f5b21c8 |
+| src/node-types.json | 5d4b2199d3a83bf9013a5a976eb3cebda9dd5c5c794e2f877db3afa0e71f897e |
 | src/tree_sitter/alloc.h | b29c1c9fb7cc82f58c84b376df1297d6e2737a1d655fd356db0859e3c29c2fea |
 | src/tree_sitter/array.h | 5bdf6ed1a78e3409fd443e085ca967a64c188a5d082aaf7f819bccd53a471c94 |
 | src/tree_sitter/parser.h | 180b893c8734778fd32f372dfbc27bd6ad1cd2221f26150b31256ff6716320d2 |
@@ -298,3 +298,24 @@ ends it before operators: it owns the whole expression on its line
 `(A; B)`. A typed constant, a field and a function or extension body may use
 `:=` as well as `=`. A named argument may omit `?`. `defer` takes a colon,
 brace or dot block like the other control expressions.
+
+An attribute keeps a braced argument list in preference to a braced literal
+that could start the next item, and it may take an indented block of field
+initializers (`@editable:` followed by `Hint := true`). Attributes may prefix an
+enum variant. Specifiers accept an accessor argument (`<getter(GetCount)>`,
+`<setter(SetCount)>`). A struct or interface may have an empty base list, a class
+body may hold a `block:` clause, and an indented `if:` condition block may stand
+without `then`. A parenthesized `for` header may take `do` with an inline
+expression or a block, a dot body may hold `set`, and a parameter may be typed
+by a function signature (`Callback(:int):void`).
+
+The scanner reads a `<#` comment wherever the grammar's lexer would otherwise
+see `<`: after horizontal space, on a later line at file scope, and on the next
+content line of a block when the indentation does not change. Only the comment
+bytes form the token. Before this, a block comment anywhere but at the very
+start of a scan was split into `<`, a line comment and stray tokens.
+
+A type body and an indented field-initializer block accept `;` after an item.
+An indented archetype (`point:` followed by `X := 1`) carries a dynamic
+preference over a typed definition with `:=`, so a single-field archetype is
+not read as `point:X := 1` across the line break.

@@ -1,4 +1,8 @@
 //! Original ambiguous comment example, not copied from a private project.
+//!
+//! The example joins two statements across a block comment that spans the
+//! line break. The scanner reads the comment at its true boundary, and the
+//! unseparated-item guard refuses the pair before inspection or fix.
 use std::{fs, process::Command};
 
 const MISMATCH: &str = "F():void =\n    if:\n        A := First[] <# keep\n        comment #> B := Second[]\n    then:\n        Print(\"yes\")\n";
@@ -23,7 +27,10 @@ fn mismatched_block_comment_fails_before_inspection_or_fix() {
         let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
         assert_eq!(report["summary"]["complete"], false);
         assert_eq!(report["summary"]["filesChanged"], 0);
-        assert!(String::from_utf8_lossy(&out.stdout).contains("block comment boundary"));
+        assert!(
+            String::from_utf8_lossy(&out.stdout)
+                .contains("ambiguous adjacent statements on one logical line")
+        );
         assert_eq!(fs::read(&path).unwrap(), source.as_bytes());
     }
 }
@@ -84,7 +91,7 @@ fn earliest_mismatch_position_is_deterministic_with_bom_and_crlf() {
         assert_eq!(out.status.code(), Some(2), "{out:?}");
         assert!(
             String::from_utf8_lossy(&out.stdout)
-                .contains("3:22: unsupported block comment boundary"),
+                .contains("4:20: ambiguous adjacent statements on one logical line"),
             "{out:?}"
         );
         if let Some(ref bytes) = previous {

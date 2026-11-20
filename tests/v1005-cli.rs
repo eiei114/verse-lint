@@ -420,8 +420,10 @@ fn an_unanalysable_file_gets_an_execution_error_and_no_v1005() {
     for body in [
         // Unclosed delimiter: the lexer refuses the whole source.
         &b"A := (1\n\n"[..],
-        // Unterminated block comment: the parse refuses the whole source.
-        b"A := 1\n<# unterminated #>\n\n",
+        // Unterminated block comment: the lexer refuses the whole source.
+        // (A closed comment on its own line is ordinary trivia now that the
+        // scanner reads it after a newline.)
+        b"A := 1\n<# unterminated\n\n",
     ] {
         let dir = project("main.verse", body);
         let (code, report) = json(dir.path(), &["main.verse", "--select", "V1005"]);

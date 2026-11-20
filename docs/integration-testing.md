@@ -187,9 +187,9 @@ and the corpus's declared golden set. Each refusal names the reason and leaves
 `parity.json` untouched. A pinned hash never replaces running the harness.
 
 The report behind the current pin is committed as
-[`docs/evidence/parity-paired-2026-11-21-ue6-core-full.json`](evidence/parity-paired-2026-11-21-ue6-core-full.json),
+[`docs/evidence/parity-paired-2026-11-21-ue6-attrs-full.json`](evidence/parity-paired-2026-11-21-ue6-attrs-full.json),
 with a summary at
-[`parity-paired-2026-11-21-ue6-core.json`](evidence/parity-paired-2026-11-21-ue6-core.json).
+[`parity-paired-2026-11-21-ue6-attrs.json`](evidence/parity-paired-2026-11-21-ue6-attrs.json).
 The revisions declared in `parity.json` must be named by committed evidence;
 an unrecorded run in a discussion comment is not evidence. A pin can never name
 the commit that contains it, so record the linter revision the harness actually
