@@ -1,13 +1,13 @@
 {
-  "corpus_sha256": "f42624ef3d9d866d21b10f5fa2640f9138b75471659b7062b599b1fdeb25becc",
+  "corpus_sha256": "293d69707debea45a143b606e23093d62b5049c60398b76cc818977e52599b21",
   "formatter_version": "verse-fmt 0.1.0-alpha.1",
   "linter_version": "verse-lint 0.1.0-alpha.1",
-  "formatter_sha256": "4916aac65b7ef0554a6e4118f70c374f465817d8fa6d788fd219ae615f1e606b",
-  "linter_sha256": "bd1340310731406bbea78a1e4cf84576810a71590b7c490eaa1f2fd946b2a8c5",
-  "formatter_revision": "c7d73abab60864710315990fa4342391e6a908b8",
-  "linter_revision": "5f587c2b22c39c277e74d1d3ada6cc327bedfa51",
-  "cases_total": 117,
-  "cases_passed": 117,
+  "formatter_sha256": "aa0c55ba3b963a0d4d00b97485468b6ec5a39a1813a0ed4548dcd0afd931deb7",
+  "linter_sha256": "4d3d2011e77d2f0513770edf4dfbd1f22abb37bcbb411751596c2a25969a44e1",
+  "formatter_revision": "b2c8d760870119d29f2f023498c39c53534bbfa4",
+  "linter_revision": "7c596b40748696c5817e605324003751b23b52b7",
+  "cases_total": 121,
+  "cases_passed": 121,
   "case_results": [
     {
       "id": "shallower-empty-case-wildcard",
@@ -1753,6 +1753,66 @@
       "id": "archetype-colon-single-field",
       "input_sha256": "d432da29c8531006b276e162e02d994ea02e5369b8be5798fe91c36a2666d7e2",
       "output_sha256": "b56c9e2cb352466c8e433807f691ab8b91647664b2afa7cbd56bd431f7d2e045",
+      "lint_exit_codes": [
+        0,
+        0
+      ],
+      "formatter_exit_codes": [
+        0,
+        0
+      ],
+      "first_files_changed": 0,
+      "second_files_changed": 0
+    },
+    {
+      "id": "inline-set-body",
+      "input_sha256": "0563fa4f5dfd57848c40f20d3243695cb42ad0bd44eb02be5660350b749bcaf9",
+      "output_sha256": "30fe7de3d96bb28e7273c232083ea4c9503327a1b0fbf2e724dbfe6414f84c70",
+      "lint_exit_codes": [
+        0,
+        0
+      ],
+      "formatter_exit_codes": [
+        0,
+        0
+      ],
+      "first_files_changed": 0,
+      "second_files_changed": 0
+    },
+    {
+      "id": "named-function-type",
+      "input_sha256": "0f4c968dd6d357dfbf9e12fb0d25f01a66b2ac0050b0fe05be65245ea31a5ac7",
+      "output_sha256": "d77f56ba62aaf5f80042811107bd949a33069e9534e3854e4a912ec450faf37b",
+      "lint_exit_codes": [
+        0,
+        0
+      ],
+      "formatter_exit_codes": [
+        0,
+        0
+      ],
+      "first_files_changed": 0,
+      "second_files_changed": 0
+    },
+    {
+      "id": "grouped-where-parameter",
+      "input_sha256": "7f0a04f9dda58d1d1e7e3eed8cc129141196381023c99c0ec13f9ab8492e038c",
+      "output_sha256": "79df8b6ca512204c2654b3365b58e99f7b06ef2e49eb76f4cf716c2bfd4cf929",
+      "lint_exit_codes": [
+        0,
+        0
+      ],
+      "formatter_exit_codes": [
+        0,
+        0
+      ],
+      "first_files_changed": 0,
+      "second_files_changed": 0
+    },
+    {
+      "id": "scoped-expression",
+      "input_sha256": "4bb792386d544fa34ef073124e1b33f0232b4de975c9ab653df885b9a26bd7a7",
+      "output_sha256": "9677f50af89f3d06b43d85997f7b6b9db81bf12e32b39e2377a0a23eb73fe3ef",
       "lint_exit_codes": [
         0,
         0
