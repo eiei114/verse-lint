@@ -307,6 +307,158 @@ impl Document {
     }
 }
 
+/// `@name Def` on one line: an attribute prefixes the definition after it,
+/// so the two siblings are not an ambiguous split. Only a declaration (or a
+/// further attribute) may follow; a braced literal or any other expression
+/// after an attribute still fails the guard, so a misparsed `@name{...}` can
+/// never pass as two harmless siblings.
+fn prefix_attribute(left: tree_sitter::Node<'_>, right: tree_sitter::Node<'_>) -> bool {
+    left.kind() == "attribute"
+        && matches!(
+            right.kind(),
+            "attribute"
+                | "type_definition"
+                | "function_definition"
+                | "extension_function_definition"
+                | "var_declaration"
+                | "constant_declaration"
+                | "field_declaration"
+        )
+}
+
+/// True when nothing but spaces and comments lies between the last
+/// significant token that ends by `left_end` and `right_start`: the two items
+/// share one logical line. A block comment that spans lines is not a line
+/// break (`A := 1 <# a\n #> B := 2` is one line of two statements), so only a
+/// newline outside comments, or one of `separators`, separates them.
+fn shares_logical_line(
+    tokens: &[Token],
+    source: &Source,
+    left_end: usize,
+    right_start: usize,
+    separators: &[&str],
+) -> bool {
+    let last = tokens[..tokens.partition_point(|t| t.range.end <= left_end)]
+        .iter()
+        .rev()
+        .find(|t| !t.kind.is_trivia() && !t.kind.is_comment())
+        .map_or(0, |t| t.range.end);
+    !tokens[tokens.partition_point(|t| t.range.start < last)..]
+        .iter()
+        .take_while(|t| t.range.start < right_start)
+        .any(|t| {
+            t.kind == lex::Kind::Newline
+                || (t.kind == lex::Kind::Code && separators.contains(&t.text(source)))
+        })
+}
+
+/// Containers whose items must each start on their own logical line (or be
+/// separated by `;`, or `,` where the container allows it).
+fn item_separators(kind: &str) -> Option<&'static [&'static str]> {
+    match kind {
+        "indented_block" | "colon_block" | "brace_block" => Some(&[";"]),
+        "class_definition"
+        | "struct_definition"
+        | "interface_definition"
+        | "module_definition"
+        | "field_initializer_block" => Some(&[";"]),
+        // Condition items may also use `,`, and an item's own `:=` binds its
+        // name to its value.
+        "if_block_condition" => Some(&[";", ",", ":="]),
+        _ => None,
+    }
+}
+
+/// The first item of `node` that shares a logical line with the item before
+/// it. Header fields of a type definition (its specifiers and bases) are not
+/// items, and a prefix attribute may share the line of the item it prefixes.
+fn unseparated_item(
+    node: tree_sitter::Node<'_>,
+    tokens: &[Token],
+    source: &Source,
+) -> Option<usize> {
+    let separators = item_separators(node.kind())?;
+    let mut cursor = node.walk();
+    let mut previous: Option<tree_sitter::Node<'_>> = None;
+    if !cursor.goto_first_child() {
+        return None;
+    }
+    loop {
+        let child = cursor.node();
+        let header = matches!(cursor.field_name(), Some("specifiers" | "base"));
+        if child.is_named() && !child.is_extra() && !header {
+            if let Some(left) = previous {
+                let end = left.end_byte() + source.body_start();
+                let start = child.start_byte() + source.body_start();
+                if shares_logical_line(tokens, source, end, start, separators)
+                    && !prefix_attribute(left, child)
+                {
+                    return Some(start);
+                }
+            }
+            previous = Some(child);
+        }
+        if !cursor.goto_next_sibling() {
+            return None;
+        }
+    }
+}
+
+/// Where the tree still carries an error that no visible node shows: descend
+/// through the first child that has one and report the end of the deepest
+/// such node, which is where a hidden MISSING token sits.
+fn hidden_error_offset(root: tree_sitter::Node<'_>) -> Option<usize> {
+    if !root.has_error() {
+        return None;
+    }
+    let mut node = root;
+    loop {
+        let mut cursor = node.walk();
+        let Some(child) = node
+            .children(&mut cursor)
+            .find(|child| child.has_error() || child.is_missing())
+        else {
+            return Some(node.end_byte());
+        };
+        node = child;
+    }
+}
+
+const SPLIT_TYPE_ANNOTATION_MESSAGE: &str = "type annotation continues on the next line; `name:` followed by an indented block is a block, not a type";
+
+/// A declaration whose type starts on a later line than its `:`. Verse reads
+/// `point:` followed by an indented block as a construction, so a tree that
+/// joined the two lines into one typed definition is not trusted.
+fn split_type_annotation(
+    node: tree_sitter::Node<'_>,
+    tokens: &[Token],
+    source: &Source,
+) -> Option<usize> {
+    if !matches!(
+        node.kind(),
+        "constant_declaration" | "field_declaration" | "var_declaration" | "positional_parameter"
+    ) {
+        return None;
+    }
+    let ty = node.child_by_field_name("type")?;
+    let mut cursor = node.walk();
+    let colon = node
+        .children(&mut cursor)
+        .take_while(|child| child.start_byte() < ty.start_byte())
+        .filter(|child| child.kind() == ":")
+        .last()?;
+    let from = colon.end_byte() + source.body_start();
+    let to = ty.start_byte() + source.body_start();
+    tokens[tokens.partition_point(|t| t.range.start < from)..]
+        .iter()
+        .take_while(|t| t.range.start < to)
+        .any(|t| t.kind == lex::Kind::Newline)
+        .then_some(to)
+}
+
+const UNSEPARATED_ITEMS_MESSAGE: &str =
+    "ambiguous adjacent statements on one logical line; separate them with a newline or `;`";
+
 /// The adjacent-statement guard that already ran before this slice, extracted
 /// verbatim so [`Document::parse`] can keep the tree it validated.
 fn check_adjacent_statements(
@@ -323,18 +475,13 @@ fn check_adjacent_statements(
         if let Some(left) = previous {
             let end = left.end_byte() + source.body_start();
             let start = node.start_byte() + source.body_start();
-            if source.position(end.saturating_sub(1)).0 == source.position(start).0 {
-                let first = tokens.partition_point(|t| t.range.end <= end);
-                let separated = tokens[first..]
-                    .iter()
-                    .take_while(|t| t.range.start < start)
-                    .any(|t| t.kind == lex::Kind::Code && t.text(source) == ";");
-                if !separated {
-                    return Err(Failure::new(
-                        start,
-                        "ambiguous adjacent top-level statements; inline binary function bodies are unsupported by the pinned grammar",
-                    ));
-                }
+            if shares_logical_line(tokens, source, end, start, &[";"])
+                && !prefix_attribute(left, node)
+            {
+                return Err(Failure::new(
+                    start,
+                    "ambiguous adjacent top-level statements; inline binary function bodies are unsupported by the pinned grammar",
+                ));
             }
         }
         previous = Some(node);
@@ -403,6 +550,12 @@ fn validate(
                 INDENTED_EXPRESSION_BOUNDARY_MESSAGE,
             ));
         }
+        if let Some(start) = unseparated_item(node, tokens, source) {
+            return Err(Failure::new(start, UNSEPARATED_ITEMS_MESSAGE));
+        }
+        if let Some(start) = split_type_annotation(node, tokens, source) {
+            return Err(Failure::new(start, SPLIT_TYPE_ANNOTATION_MESSAGE));
+        }
         if let Some(start) = empty_archetype_brace_continuation(node, source) {
             return Err(Failure::new(start, EMPTY_ARCHETYPE_BRACE_MESSAGE));
         }
@@ -426,6 +579,15 @@ fn validate(
                 break;
             }
             if !cursor.goto_parent() {
+                // The cursor never visits hidden terminals, so a MISSING
+                // `_indent`/`_dedent` inserted during recovery is invisible to
+                // the walk above; the tree's own error flag still records it.
+                if let Some(offset) = hidden_error_offset(tree.root_node()) {
+                    return Err(Failure::new(
+                        offset + source.body_start(),
+                        "unsupported or incomplete Verse syntax; use UEFN for compiler diagnostics",
+                    ));
+                }
                 if let Some((start, _)) = unmatched_comments.into_iter().min() {
                     return Err(Failure::new(
                         start,

@@ -147,6 +147,30 @@ No formatter layout pass runs during lint. Current tests are parser/tool tests;
 formatter probe ran on Rust 1.98.1; current verification explicitly resolves
 the pinned Rust 1.97.0 instead of trusting PATH ordering.
 
+### Fixed: block comments after code, and statements joined across one
+
+The scanner used to read a `<# ... #>` comment only at the very start of a
+scan, so a comment after code, on a later line at file scope or inside a block
+became `<`, a `#` line comment and stray tokens, and the file was refused. It
+now reads the comment wherever the grammar would otherwise see `<`.
+
+That exposed a hole in the adjacent-statement guard: it compared physical
+lines, so `A := 1 <# a` followed by `#> B := 2` looked like two lines although
+the comment spans the break and the official grammar rejects the pair. The
+guard now decides "one logical line" from the token stream (only a newline
+outside comments, or `;`, separates), and the same check covers the items of
+blocks, indented `if:` conditions and type bodies with its own message. An
+attribute may share the line of the declaration it prefixes. The top-level
+guard keeps its existing wording byte for byte (see
+[the snapshot record](syntax-snapshot.md)).
+
+Two more checks came from inspecting trees rather than outputs. The CST walk
+never visits hidden terminals, so a MISSING `_indent`/`_dedent` that recovery
+inserted was invisible to it; the tree's own error flag is now checked after
+the walk. And a declaration whose type starts on a later line than its `:` is
+refused, because `point:` followed by an indented block is a construction, not
+a typed definition spanning lines.
+
 ## Retained CST and the semantic layer
 
 `Document` now retains the parsed tree alongside `tokens` and `shape`, so the

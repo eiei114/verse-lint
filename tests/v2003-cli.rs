@@ -275,8 +275,10 @@ fn an_unanalysable_file_gets_an_execution_error_and_no_v2003() {
     for body in [
         // Unclosed delimiter: the lexer refuses the whole source.
         &b"A := (1\r\nB := 2\n"[..],
-        // Unterminated block comment: the parse refuses the whole source.
-        b"A := 1\r\n<# unterminated #>B := 2\n",
+        // Unterminated block comment: the lexer refuses the whole source.
+        // (A closed comment after a line break is ordinary trivia now that
+        // the scanner reads it there.)
+        b"A := 1\r\n<# unterminated\r\nB := 2\n",
     ] {
         let dir = project("main.verse", body);
         let (code, report) = json(dir.path(), &["main.verse", "--select", "V2003"]);
