@@ -145,10 +145,11 @@ text pipelines can recode bytes before the tool receives them.
 
 What the pinned grammar does and does not inspect is recorded in
 [parser design][parser]. In short: string literals whose content starts with an
-unescaped `#` (`A := "# text"`) and `map{...}` literals (`A := map{"x" => 1}`)
-are inspected; `<#>` digest-style comments and top-level inline binary function
-bodies (`Add(X:int,Y:int):int = X+Y`) are refused with a message that names the
-construct, and the refusal is tested rather than incidental. Rejection is a
+unescaped `#` (`A := "# text"`), `map{...}` literals (`A := map{"x" => 1}`)
+and top-level inline binary function bodies (`Add(X:int,Y:int):int = X+Y`) are
+inspected; `<#>` digest-style comments and unseparated statements on one line
+(`A := 1 B := 2`) are refused with a message that names the construct, and the
+refusal is tested rather than incidental. Rejection is a
 coverage statement, never a claim that UEFN would reject the source.
 
 Defaults: V1001 trailing whitespace, V1002 final newline, V1003 tab indentation.

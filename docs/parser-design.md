@@ -111,33 +111,31 @@ construct until its boundary rule is settled deliberately in both tools,
 including the interaction between `hash_gt_comment` and the external block
 comment scanner. Loosening the guard to reduce a refusal is not that settlement.
 
-### Decided, not fixed: inline binary function bodies
+### Fixed: inline binary function bodies
 
-A top-level inline binary body such as `Add(X:int,Y:int):int = X+Y` was split by
-the pinned grammar into a function returning `X` plus a sibling unary `+Y`
-**without** any `ERROR` node, which is the one failure mode a lossless CST walk
-cannot see. The shared adjacent-statement guard rejects unseparated adjacent
-top-level nodes on one physical line, and that guard stays.
+A top-level inline binary body such as `Add(X:int,Y:int):int = X+Y` used to be
+split by the pinned grammar into a function returning `X` plus a sibling unary
+`+Y` **without** any `ERROR` node. The cause was the precedence
+`_function_body` carried so that a `(` on the next line could not continue an
+inline body as a call: the same precedence also ended the body before every
+operator.
 
 Naming `$.binary_expression` as its own `_function_body` alternative was tried
-and does reduce `X+Y` (and `X - Y`, `X * Y`, single same-line operators
-generally) into one body, but it also changed which *other* adjacent-statement
-shapes the grammar produces, so the guard would have had to weaken to keep
-`= X+Y+Z` refused. A grammar change that buys one shape while making a second
-refusal less reliable trades a visible limitation for a quieter one. The guard
-therefore keeps **both** behaviours, and this slice records the outcome as a
-known, tested limitation instead of an open question:
+first. It reduced `X+Y` but changed which *other* adjacent-statement shapes the
+grammar produced, so the guard would have had to weaken to keep `= X+Y+Z`
+refused, and it was withdrawn.
 
-- `Add(X:int,Y:int):int = X+Y` is refused with a message naming inline binary
-  function bodies;
-- nested and spaced binary bodies (`X * Y`, `1 < 2`, `X + Y + Z` inside an
-  indented block, parenthesised `(X+Y)`) stay supported;
-- `tests/coverage-gaps.rs` pins the refusal and the supported neighbours,
-  including the cross-line `(` / `.` continuation that the guard's precedence
-  protects.
+The paired formatter change moves the boundary into the scanner instead. The
+external `_call_open` token matches a `(` only when no newline separates it from
+the previous token, so a `(` on the next line always starts a new item, as in
+the official grammar, and the body precedence no longer has to stop at
+operators. `= X+Y`, `= X+Y+Z`, `= point{...}` and `= external {}` are each one
+body. The adjacent-statement guard is unchanged: it still refuses unseparated
+statements on one line (`A := 1 B := 2`), and its message keeps the
+`ambiguous adjacent top-level statements` prefix.
 
-This is a coverage statement, not a compiler diagnosis: `X+Y` is valid Verse and
-the tool does not claim otherwise.
+`tests/coverage-gaps.rs` pins both sides: the refused unseparated pairs, the
+inspected inline bodies, and the cross-line `(` and `.` neighbours.
 
 Some refusals are for valid Verse: rejection means tool coverage is incomplete,
 not that UEFN would reject the construct. Unicode inside literals/comments is

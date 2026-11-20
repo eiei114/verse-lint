@@ -8,3 +8,7 @@
 # directory that starts succeeding would make the sweep fail for the right
 # reason, but the sweep is about unchanged bytes, not about re-pinning an
 # accepted construct.
+#
+# `refuse-inline-binary.verse` (`Add(X:int,Y:int):int = X+Y`) was removed when the
+# grammar began inspecting inline binary function bodies: it no longer refuses,
+# and `tests/coverage-gaps.rs` covers the accepted shape.

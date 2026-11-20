@@ -32,12 +32,12 @@ this record complete and stable when the table is edited.
 
 | Path | SHA-256 |
 |---|---|
-| grammar.js | b7f0f1b40fb9f8eb487a9d8bd0facd991e20a7b37574e3aba4f11d9761ac333d |
+| grammar.js | 25244477f9252807f8fbb0664a6db0f9a65cb55ae7a6617c052240a1e6dad5da |
 | tree-sitter.json | f57ee6d1a5ee6958875e13074e8cbb8d53d87bb71793291bebd9854dd87e9ad6 |
-| src/parser.c | fb9780065f72aed7cae906987327ae3fb3284f5bc138f963715296e9da695723 |
-| src/scanner.c | 452f94e5b8335405601fffa785f42bb2a3500920449f2cce11f9d86195bbebeb |
-| src/grammar.json | c30f4a2ab5d15518a638e6681f4261f41300ce3f49287ce418ac595bb2bf799a |
-| src/node-types.json | de8a345cdc07519b9f19415161b3a6c8f73685f7cf9caa0d32d999b9be218913 |
+| src/parser.c | 0529211a45d60d6cb252f8bf8088df53e181664a5413676f8b4415f85271bb68 |
+| src/scanner.c | dc89faa123d4710b31eefd2827cd426fdbad4390f15b3971f665b8ba89c7f19d |
+| src/grammar.json | e6e01874095dc0aa3de48ef5b64b380d756f031c5519092da9d15c0941aeceda |
+| src/node-types.json | 62869e1a14357279a7731b9048aa70281e9ef5443f4a690f4e3df43bac8af3a3 |
 | src/tree_sitter/alloc.h | b29c1c9fb7cc82f58c84b376df1297d6e2737a1d655fd356db0859e3c29c2fea |
 | src/tree_sitter/array.h | 5bdf6ed1a78e3409fd443e085ca967a64c188a5d082aaf7f819bccd53a471c94 |
 | src/tree_sitter/parser.h | 180b893c8734778fd32f372dfbc27bd6ad1cd2221f26150b31256ff6716320d2 |
@@ -147,12 +147,11 @@ be attached to the empty archetype as a new construction.
   reproducible here and the identical scanner/grammar.json pair is not a
   coincidence.
 
-Both tools guard unseparated same-line top-level nodes, because the pinned
-grammar can split an inline binary function body into unrelated nodes without
-ERROR. **This slice does not remove that guard.** See
-[parser design](parser-design.md#decided-not-fixed-inline-binary-function-bodies)
-for the attempt, why it was withdrawn, and the tested behaviour that replaces
-an open question. `map{...}` has positive regressions instead of a negative one
+Both tools guard unseparated same-line top-level nodes, because newlines are
+not separators in the pinned grammar and `A := 1 B := 2` parses as two
+siblings without ERROR. Inline binary function bodies no longer reach that
+guard; [parser design](parser-design.md#fixed-inline-binary-function-bodies)
+records the earlier attempt and the scanner boundary that replaced it. `map{...}` has positive regressions instead of a negative one
 now that it parses.
 
 Read-only practical inspection additionally exposed those grammar gaps. The
@@ -186,6 +185,15 @@ follow-up, tracked by GitHub issue #2 (`[parity] verse-fmt と grammar snapshot 
 corpus hash の同期運用`). `scripts/verify-parity.ps1` still passes: it checks the
 declaration's structure and the reachability of the recorded linter revision,
 and claims no convergence.
+
+The formatter reworded its adjacent-statement guard when inline binary bodies
+became one definition: it now says the pinned grammar split one line into
+several statements without a `;`. The linter keeps its earlier wording byte for
+byte, because `tests/fixtures/baseline/` pins refusal output against the merge
+base and that sweep has no reviewed way to accept a reworded refusal. Both
+messages keep the `ambiguous adjacent top-level statements` prefix that scripts
+match on. The linter's remaining suffix about inline binary bodies is stale and
+should change together with such a mechanism, not by weakening the sweep.
 
 ## Independently retained block-comment boundary guard
 
@@ -271,3 +279,22 @@ space indentation and a bare wildcard arrow at this boundary. The
 scanner keeps the case frame open while closing any preceding arm body.
 The source check verifies the boundary using the line with the colon,
 including when the header spans multiple lines.
+
+A qualified name `(scope:)name` is an expression, so `(super:)Show()`,
+`(local:)Size` and `(/Example.org/Geometry:)point{}` parse as a call, a
+reference and a construction. A qualified generic type keeps the qualified name
+as its `generic_type` name instead of nesting the type under the qualifier.
+
+The scanner emits the external `_call_open` token for a `(` reached without
+crossing a newline. Calls, declaration parameter lists, generic type arguments
+and for-header iterable calls use it, so a `(` on the next line starts a new
+item, as in the official grammar, while `Sum (1, 2)` stays a call. With that
+boundary in place an inline function body no longer needs a precedence that
+ends it before operators: it owns the whole expression on its line
+(`Add(X:int,Y:int):int = X+Y`, `= point{...}`, `= external {}`).
+
+`;` separates statements at file scope and in blocks, the items of an
+`if (...)` condition and a `for (...)` header, and a parenthesized sequence
+`(A; B)`. A typed constant, a field and a function or extension body may use
+`:=` as well as `=`. A named argument may omit `?`. `defer` takes a colon,
+brace or dot block like the other control expressions.

@@ -50,11 +50,13 @@ fn retains_the_tree_without_changing_parse_outcomes() {
     assert_eq!(document.body_start(), source.body_start());
 
     // Every input rejected before this slice still fails, from the same guards.
+    // (Inline binary function bodies left this set when the grammar gave the
+    // body its whole expression.)
     for text in [
         "A := <p>text</p>\n",
         "得点 := 1\n",
         "A:int=\n",
-        "Add(X:int,Y:int):int = X+Y\n",
+        "A := 1 B := 2\n",
         "<# missing",
     ] {
         let source = Source::from_bytes(text.as_bytes()).unwrap();

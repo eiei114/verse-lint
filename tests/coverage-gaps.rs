@@ -123,17 +123,19 @@ fn extreme_indentation_fails_closed_without_scanner_serialization_overflow() {
     assert!(!String::from_utf8_lossy(&out.stderr).contains("panicked"));
 }
 
-/// The adjacent-statement guard's decision for inline binary function bodies is
-/// part of the coverage contract, not an accident: a single same-line binary
-/// body is refused with a message that names the construct, and the neighbours
-/// that do have a complete CST are still inspected.
+/// The adjacent-statement guard refuses unseparated statements on one line by
+/// name. Inline binary function bodies left that set when the grammar gave an
+/// inline body its whole expression; they are inspected like any other body.
 #[test]
-fn inline_binary_function_bodies_stay_a_named_refusal() {
-    for source in [
-        "Add(X:int,Y:int):int = X+Y\n",
-        "Sub(X:int,Y:int):int = X - Y\n",
-        "F():int = 1 + 2\n",
-        "F():int = X+Y;\n",
+fn unseparated_statements_stay_a_named_refusal_and_inline_bodies_are_inspected() {
+    for (source, refused) in [
+        ("A := 1 B := 2\n", true),
+        ("Run():void = Print(\"a\") Print(\"b\")\n", true),
+        ("Add(X:int,Y:int):int = X+Y\n", false),
+        ("Sub(X:int,Y:int):int = X - Y\n", false),
+        ("F():int = 1 + 2\n", false),
+        ("F():int = X+Y;\n", false),
+        ("F():int = X+Y+Z\n", false),
     ] {
         let dir = tempfile::tempdir().unwrap();
         let out = Command::new(env!("CARGO_BIN_EXE_verse-lint"))
@@ -154,14 +156,19 @@ fn inline_binary_function_bodies_stay_a_named_refusal() {
                 child.wait_with_output().unwrap()
             })
             .unwrap();
-        assert_eq!(out.status.code(), Some(2), "{source}: {out:?}");
         let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-        assert_eq!(report["summary"]["complete"], false, "{source}");
-        let message = report["executionErrors"][0]["message"].as_str().unwrap();
-        assert!(
-            message.contains("inline binary function bodies"),
-            "{source}: {message}"
-        );
+        if refused {
+            assert_eq!(out.status.code(), Some(2), "{source}: {out:?}");
+            assert_eq!(report["summary"]["complete"], false, "{source}");
+            let message = report["executionErrors"][0]["message"].as_str().unwrap();
+            assert!(
+                message.contains("ambiguous adjacent top-level statements"),
+                "{source}: {message}"
+            );
+        } else {
+            assert_ne!(out.status.code(), Some(2), "{source}: {out:?}");
+            assert_eq!(report["summary"]["complete"], true, "{source}: {report}");
+        }
     }
 
     // Complete CSTs keep working, so the refusal above is about the split — not

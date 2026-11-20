@@ -168,7 +168,7 @@ fn dump_fails_closed_on_inputs_that_today_fail_coverage_validation() {
         ("markup.verse", "A := <p>text</p>\n"),
         ("unicode.verse", "得点 := 1\n"),
         ("incomplete.verse", "A:int=\n"),
-        ("inline-binary.verse", "Add(X:int,Y:int):int = X+Y\n"),
+        ("unseparated.verse", "A := 1 B := 2\n"),
         ("digest.verse", "<#> digest\n    detail\nA := 1\n"),
     ] {
         std::fs::write(directory.path().join(name), source).unwrap();
