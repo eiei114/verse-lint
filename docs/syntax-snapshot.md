@@ -32,12 +32,12 @@ this record complete and stable when the table is edited.
 
 | Path | SHA-256 |
 |---|---|
-| grammar.js | fb75d08cf82f1dda3cb54979ea920a132196f8252649abe97500dc9db5101ab6 |
+| grammar.js | 56eaf940a883c83af58b9c8d8bd0db8d45e0cba75160d2759e26c92e51c22bda |
 | tree-sitter.json | f57ee6d1a5ee6958875e13074e8cbb8d53d87bb71793291bebd9854dd87e9ad6 |
-| src/parser.c | 449287c50e0a3e6bacb874220684277ac1683fea19666fabcd7395e3527cd0a1 |
+| src/parser.c | 2e54e0f8e0b8783aec0ce75c9feaaa6b7541981ecbf9eff58c561fc2f8fb3c48 |
 | src/scanner.c | e176d6c7d07f251f3bc286985c6759da85852550f1b1da376ecd88b8faf3f035 |
-| src/grammar.json | 9bf99a0dabcfb9b9e76d71e31ca123ee2d1db7af22913b2fe2824a855f5b21c8 |
-| src/node-types.json | 5d4b2199d3a83bf9013a5a976eb3cebda9dd5c5c794e2f877db3afa0e71f897e |
+| src/grammar.json | b377134d8396d1b699ca590b04adc7b2cad6f70045af1b9aa1dc2fa4c1e8d1e8 |
+| src/node-types.json | bfd104e9c2248b6f4f7dc513239f466dac56f25a75e75d79cadf77710e41b9d2 |
 | src/tree_sitter/alloc.h | b29c1c9fb7cc82f58c84b376df1297d6e2737a1d655fd356db0859e3c29c2fea |
 | src/tree_sitter/array.h | 5bdf6ed1a78e3409fd443e085ca967a64c188a5d082aaf7f819bccd53a471c94 |
 | src/tree_sitter/parser.h | 180b893c8734778fd32f372dfbc27bd6ad1cd2221f26150b31256ff6716320d2 |
@@ -319,3 +319,8 @@ A type body and an indented field-initializer block accept `;` after an item.
 An indented archetype (`point:` followed by `X := 1`) carries a dynamic
 preference over a typed definition with `:=`, so a single-field archetype is
 not read as `point:X := 1` across the line break.
+
+An inline function body may be a `set` statement. A function type may name its
+function (`type{f(X:int):int}`) as well as use `_`. A parenthesized parameter
+group may carry its own `where` clause, and `scoped{/Path, ...}` is an access
+scope expression.
