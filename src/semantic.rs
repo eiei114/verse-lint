@@ -1240,6 +1240,7 @@ impl Builder<'_> {
                 }
             }
             "parameter_list" | "tuple_parameter" => self.walk_parameters(node, scope)?,
+            "function_parameter" => self.walk_function_parameter(node, scope)?,
             "positional_parameter"
             | "named_parameter"
             | "receiver_parameter"
@@ -1439,7 +1440,48 @@ impl Builder<'_> {
             match child.kind() {
                 "parameter_list" | "tuple_parameter" => self.walk_parameters(child, scope)?,
                 "where_clause" => self.skip("where_clause"),
+                "function_parameter" => self.walk_function_parameter(child, scope)?,
                 _ => self.walk_parameter(child, scope)?,
+            }
+        }
+        Ok(())
+    }
+
+    /// `Callback(Arg:int):int`: `Callback` is a parameter of the enclosing
+    /// function. The names inside its signature are not, so only the
+    /// signature's types and defaults are walked.
+    fn walk_function_parameter(&mut self, node: Node<'_>, scope: usize) -> Result<(), Failure> {
+        let mut cursor = node.walk();
+        for (index, part) in node.children(&mut cursor).enumerate() {
+            if !part.is_named() {
+                continue;
+            }
+            match node.field_name_for_child(index as u32) {
+                Some("name") => self.declare(scope, part, BindingKind::Parameter, false)?,
+                Some("parameters") => self.walk_signature(part, scope)?,
+                _ => self.walk(part, scope)?,
+            }
+        }
+        Ok(())
+    }
+
+    /// A callback signature: every name in it belongs to the signature, so
+    /// none is declared; types, effects and defaults are still walked.
+    fn walk_signature(&mut self, node: Node<'_>, scope: usize) -> Result<(), Failure> {
+        let mut cursor = node.walk();
+        for (index, part) in node.children(&mut cursor).enumerate() {
+            if !part.is_named() || node.field_name_for_child(index as u32) == Some("name") {
+                continue;
+            }
+            match part.kind() {
+                "parameter_list"
+                | "tuple_parameter"
+                | "positional_parameter"
+                | "anonymous_parameter"
+                | "named_parameter"
+                | "function_parameter" => self.walk_signature(part, scope)?,
+                "where_clause" => self.skip("where_clause"),
+                _ => self.walk(part, scope)?,
             }
         }
         Ok(())

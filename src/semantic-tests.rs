@@ -554,6 +554,23 @@ fn unused_names(model: &ScopeGraph, parameters: bool) -> Vec<&str> {
 }
 
 #[test]
+fn a_callback_signature_declares_only_the_callback() {
+    // `Arg` names the callback's own parameter; it is not a parameter of
+    // `Apply`, so it can never be reported as Apply's unused parameter.
+    let (source, model) = graph("Apply(Callback(Arg:int):int):int = Callback(1)\n");
+    assert!(model.is_complete());
+    assert!(model.bindings().iter().all(|binding| binding.name != "Arg"));
+    assert_eq!(
+        resolved(&source, &model, "Callback", 0),
+        Some((BindingKind::Parameter, "Callback".into()))
+    );
+    assert!(unused_names(&model, true).is_empty());
+    let (_, unnamed) = graph("Apply(Callback(:int):void, Value:int):void = Callback(Value)\n");
+    assert!(unnamed.is_complete());
+    assert!(unused_names(&unnamed, true).is_empty());
+}
+
+#[test]
 fn unused_reports_function_body_locals_and_nothing_else() {
     let (_, model) = graph(concat!(
         "Top:int = 1\n",
