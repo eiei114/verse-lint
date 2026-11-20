@@ -264,8 +264,9 @@ impl Document {
                 Some(ParseOptions::new().progress_callback(&mut cancel)),
             )
             .ok_or_else(|| Failure::new(0, "parse budget exceeded; source was not changed"))?;
-        // Same guard as formatter: upstream may split inline X+Y into sibling
-        // statements without ERROR; no safe lint/fix claim for that structure.
+        // Same guard as formatter: newlines are not separators, so a line with
+        // two statements and no `;` (`A := 1 B := 2`) parses as siblings without
+        // ERROR; no safe lint/fix claim for that structure.
         // Extracted into its own scope so no CST cursor outlives it and keeps the
         // tree borrowed by the `Document` that now owns it.
         check_adjacent_statements(&tree, source, &tokens)?;
@@ -790,7 +791,30 @@ mod tests {
 
     #[test]
     fn indented_for_refuses_ambiguous_clause_boundaries() {
-        for joined in ["(0)", "[0]", "{Value := 0}"] {
+        // A parenthesis on the next line cannot join the previous clause: it
+        // is its own filter clause, as in the official grammar.
+        let (_, document) = parsed(
+            "F():void =\n    for:\n        Item : Items\n        (0)\n    do:\n        Use(Item)\n",
+        );
+        let clauses = document
+            .root()
+            .named_child(0)
+            .unwrap()
+            .child_by_field_name("body")
+            .unwrap()
+            .named_child(0)
+            .unwrap()
+            .child_by_field_name("clauses")
+            .unwrap();
+        let mut cursor = clauses.walk();
+        assert_eq!(
+            clauses
+                .named_children(&mut cursor)
+                .map(|child| child.kind())
+                .collect::<Vec<_>>(),
+            ["for_iterator", "parenthesized_expression"]
+        );
+        for joined in ["[0]", "{Value := 0}"] {
             let text = format!(
                 "F():void =\n    for:\n        Item : Items\n        {joined}\n    do:\n        Use(Item)\n"
             );
@@ -1397,7 +1421,7 @@ mod tests {
             "using { }\n",
             "shade := enum{Light,,Dark}\n",
             "shade := enum{,Light}\n",
-            "Add(X:int,Y:int):int = X+Y\n",
+            "A := 1 B := 2\n",
         ] {
             let source = Source::from_bytes(text.as_bytes()).unwrap();
             assert!(Document::parse(&source).is_err(), "{text}");
