@@ -9,7 +9,7 @@
   hardened to bound its serialized indentation stack.
 - Base parser.c SHA-256: `48d6a8af6ecbb12260f0d563d6c7d81c8ce37e33984ebd7e56ab23ad58c56b2e`
 - Base scanner.c SHA-256: `19cde62cd35695010453006f19601393a82747231ddfecd81a6a5eff70e59712`
-- Local scanner.c SHA-256: `470901f9b9408fa552d7cbd14538d45362ef2fb492908643cbb1fdc465288006`
+- Local scanner.c SHA-256: `dc89faa123d4710b31eefd2827cd426fdbad4390f15b3971f665b8ba89c7f19d`
 
 Generated C is vendored so builds need neither Node.js nor network access to
 the upstream grammar. Cargo dependencies still need a cache or registry access.
