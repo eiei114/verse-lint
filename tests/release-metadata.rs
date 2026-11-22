@@ -213,6 +213,86 @@ fn readme_installation_names_every_path_and_its_availability() {
     }
 }
 
+/// The README states what the tool does not establish and what must be true before
+/// an alpha is announced, so a reader landing on it cannot conclude the work is done.
+#[test]
+fn readme_states_known_limitations_and_the_release_gate() {
+    let readme = read("README.md");
+    let section = |heading: &str| -> String {
+        readme
+            .split_once(&format!("\n{heading}\n"))
+            .unwrap_or_else(|| panic!("README.md must have a `{heading}` section"))
+            .1
+            .split("\n## ")
+            .next()
+            .unwrap_or_default()
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let limitations = section("## Known limitations");
+    for (needle, why) in [
+        ("Unreleased alpha", "the alpha status"),
+        (
+            "No UEFN compiler acceptance has been performed",
+            "the absent UEFN acceptance",
+        ),
+        ("no git tag", "the absent tag"),
+        ("[parser design][parser]", "what the grammar inspects"),
+        (
+            "[`docs/grammar-coverage.md`][fmt-coverage]",
+            "the coverage table",
+        ),
+        (
+            "report nothing on an incomplete model",
+            "the semantic-rule caveat",
+        ),
+        (
+            "Clean-machine operation is unverified",
+            "the clean-machine status",
+        ),
+        (
+            "mise installation is documented but untested",
+            "the mise status",
+        ),
+    ] {
+        assert!(
+            limitations.contains(needle),
+            "README.md Known limitations must state {why} (`{needle}`)"
+        );
+    }
+    let gate = section("## Release gate");
+    for needle in [
+        "Verification gates",
+        "Human-owned gates",
+        "[the release checklist][checklist]",
+    ] {
+        assert!(
+            gate.contains(needle),
+            "README.md Release gate must contain `{needle}`"
+        );
+    }
+    let related = section("## Related tool");
+    assert!(
+        related.contains("[verse-fmt][fmt]") && related.contains("independent"),
+        "README.md must link the sibling formatter and state that the tools are independent"
+    );
+    let lowered = readme.to_lowercase();
+    for claim in [
+        "accepted by uefn",
+        "uefn acceptance is complete",
+        "uefn acceptance passed",
+        "production ready",
+        "production-ready",
+        "clean-machine verified",
+    ] {
+        assert!(
+            !lowered.contains(claim),
+            "README.md must not claim `{claim}`; no UEFN acceptance has been performed"
+        );
+    }
+}
+
 /// `CHANGELOG.md` exists and records only what is already on `main`.
 #[test]
 fn changelog_opens_with_an_unreleased_section() {
