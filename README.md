@@ -8,7 +8,8 @@ Linter for Epic Games' Verse language and UEFN projects.
 > A paired 64-case formatter convergence harness and PowerShell/cmd smoke matrix
 > pass locally. UEFN compiler acceptance, broad-project readiness and
 > distribution checks remain pending. This is not a Verse compiler or a
-> supported stable release.
+> supported stable release. See [Known limitations](#known-limitations) and the
+> [Release gate](#release-gate).
 
 ## Installation
 
@@ -263,6 +264,70 @@ your permissions and licence. This is a style linter — its findings are not
 security findings, and error-level style alerts in a Security tab would be
 misleading.
 
+## Known limitations
+
+Read this before you rely on a clean result.
+
+- **Unreleased alpha.** There is no stable release, no published crate, no git
+  tag and no GitHub Release. Nothing here is a supported distribution.
+- **No UEFN compiler acceptance has been performed.** Passing tests are
+  parser and linter tests. They are not evidence that UEFN accepts the input,
+  and a rule finding is never a claim that UEFN would reject or accept the code.
+- **Unsupported constructs are refused, not guessed at.** Unknown or incomplete
+  syntax is an execution error (exit 2). Digest-style `<#>` comments and
+  unseparated statements on one line are refused with a message that names the
+  construct. What the pinned grammar does and does not inspect is in
+  [parser design][parser]. This linter has no coverage table of its own; the
+  sibling formatter's table of supported and refused forms,
+  [`docs/grammar-coverage.md`][fmt-coverage], is the machine-checked record, and
+  its grammar snapshot is independent of this one.
+- **Semantic rules are opt-in and report nothing on an incomplete model.** V3001,
+  V3002 and V3003 stay silent for a file whose scope graph is incomplete, so
+  silence is not proof of a clean file. `--semantic-coverage` measures what the
+  model saw; `--require-complete-semantics` turns an incomplete source into a
+  failure.
+- **Paired convergence is a local harness.** It runs the formatter and this
+  linter together over a fixed set of cases; it is not evidence about broad
+  projects.
+- **Clean-machine operation is unverified.** Running without Cargo and with only
+  the MSVC runtime has not been checked on a machine that lacks the build tools.
+- **mise installation is documented but untested.** See [packaging][packaging];
+  no release asset exists for mise to install.
+
+## Release gate
+
+An alpha release is not announced until every item below is true. The two
+groups differ in who can close them.
+
+Verification gates are re-runnable checks that CI or a maintainer can repeat:
+
+- `pwsh -NoProfile -File scripts/verify.ps1` passes on the commit to release.
+- The paired formatter convergence check (`scripts/verify-pair.py`) passes
+  against the sibling formatter checkout.
+- The suite that guards the README, the packaging metadata and the workflows
+  passes, so no workflow gains a publish, tag or release step.
+
+Human-owned gates are decisions that CI cannot make and that no workflow in this
+repository performs:
+
+- Real UEFN acceptance: a human-run UEFN check that formatter and linter
+  results agree with the compiler (plan items F08 and L07).
+- Distribution readiness: a clean-machine run, a tested mise install and the
+  release procedure (plan items F09 and L08), with the steps in [the release
+  checklist][checklist].
+- The decision to tag, release or publish. CI never does any of these.
+
+The F08/L07 and F09/L08 items are in the maintainer's implementation plan, which
+is not part of this repository.
+
+## Related tool
+
+[verse-fmt][fmt] is the sibling formatter for the same language. The two tools
+are independent: neither depends on the other at runtime, each pins its own
+grammar snapshot, and they serve different purposes (diagnostics here,
+formatting there). The formatter contract they share is checked at development
+time only.
+
 ## Development
 
 Windows x64 is the initial test and distribution target. Rust 1.97.0 (MSVC),
@@ -318,3 +383,5 @@ repository's `docs/` directory: a relative link is dead there. They point at
 [cli-github]: https://github.com/eiei114/verse-lint/blob/main/docs/cli.md#github-annotations
 [cli-explain]: https://github.com/eiei114/verse-lint/blob/main/docs/cli.md#reading-a-rule-with---explain-rule
 [contributing]: https://github.com/eiei114/verse-lint/blob/main/CONTRIBUTING.md
+[fmt]: https://github.com/eiei114/verse-fmt
+[fmt-coverage]: https://github.com/eiei114/verse-fmt/blob/main/docs/grammar-coverage.md
