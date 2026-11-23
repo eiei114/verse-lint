@@ -176,6 +176,20 @@ fn explain_conflicts_with_a_source_run_and_the_other_run_free_surfaces() {
 }
 
 #[test]
+fn explain_is_inert_with_deny_warnings_and_verbose() {
+    let directory = tempfile::tempdir().unwrap();
+    let plain = run(directory.path(), &["--explain", "V2001"]);
+    assert_eq!(plain.status.code(), Some(0), "{plain:?}");
+    let flagged = run(
+        directory.path(),
+        &["--explain", "V2001", "--deny-warnings", "--verbose"],
+    );
+    assert_eq!(flagged.status, plain.status);
+    assert_eq!(flagged.stdout, plain.stdout);
+    assert_eq!(flagged.stderr, plain.stderr);
+}
+
+#[test]
 fn explain_is_help_visible_and_inert_with_color() {
     let directory = tempfile::tempdir().unwrap();
     let help = stdout(&run(directory.path(), &["--help"]));
