@@ -118,6 +118,62 @@ fn project_uris_are_encoded_and_counts_match_json_and_text() {
     assert_eq!(sarif["properties"]["summary"], j["summary"]);
     assert_eq!(sarif["results"][1]["level"], "warning");
 }
+
+#[test]
+fn artifact_indices_resolve_across_files_regardless_of_cli_input_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let files = ["日 space.verse", "a-clean.verse", "z-single.verse"];
+    fs::write(root.join(files[0]), "A := 1  \n# TODO later\n").unwrap();
+    fs::write(root.join(files[1]), "B := 2\n").unwrap();
+    fs::write(root.join(files[2]), "C := 3").unwrap();
+
+    let mut reversed = files;
+    reversed.reverse();
+    for paths in [files, reversed] {
+        let out = Command::new(env!("CARGO_BIN_EXE_verse-lint"))
+            .current_dir(root)
+            .args(paths)
+            .args(["--select=V1001,V1002,V2002", "--output-format=sarif"])
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1), "{paths:?}: {out:?}");
+        let sarif: Value =
+            serde_json::from_slice(&out.stdout).unwrap_or_else(|e| panic!("{e}: {out:?}"));
+        let run = &sarif["runs"][0];
+        assert_eq!(run["invocations"][0]["executionSuccessful"], true);
+        assert_eq!(run["invocations"][0]["exitCode"], 1);
+        assert_eq!(run["properties"]["summary"]["filesChecked"], 3);
+
+        // Sort order is by source path, not encoded URI or CLI argument order.
+        let artifacts = run["artifacts"].as_array().unwrap();
+        assert_eq!(artifacts.len(), 2);
+        for (artifact, uri) in artifacts
+            .iter()
+            .zip(["z-single.verse", "%E6%97%A5%20space.verse"])
+        {
+            assert_eq!(artifact["location"]["uri"], uri);
+            assert_eq!(artifact["location"]["uriBaseId"], "%SRCROOT%");
+        }
+
+        let mut bindings: Vec<_> = run["results"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|result| {
+                let location = &result["locations"][0]["physicalLocation"]["artifactLocation"];
+                let index = usize::try_from(location["index"].as_u64().unwrap()).unwrap();
+                let artifact = &artifacts[index]["location"];
+                assert_eq!(location["uri"], artifact["uri"]);
+                assert_eq!(location["uriBaseId"], artifact["uriBaseId"]);
+                (result["ruleId"].as_str().unwrap(), index)
+            })
+            .collect();
+        bindings.sort_unstable();
+        assert_eq!(bindings, [("V1001", 1), ("V1002", 0), ("V2002", 1)]);
+    }
+}
+
 #[test]
 fn driver_rule_metadata_matches_docs_defaults_and_selection_order() {
     let dir = tempfile::tempdir().unwrap();
