@@ -556,8 +556,10 @@ than a project, so it conflicts with `paths`, `--fix`, `--diff`,
 `--output-format`, `--select`, `--ignore`, `--show-suppressed`, `--show-config`,
 `--dump-scopes`, `--semantic-coverage` and `--require-complete-semantics`; each
 rejection is exit 2 and prints no rule document. The output is plain text in
-every case — `--color` is accepted and inert here, so a `--color always` run
-still emits no ANSI — and a successful explain always exits 0.
+every case: `--color` is accepted but has no effect, even with `--color always`.
+`--deny-warnings` and `--verbose` are also accepted but have no effect in explain
+mode: no lint warnings are evaluated and no files are discovered. A successful
+explain always exits 0.
 
 ## `--dump-scopes` (unstable, for rule authors)
 
