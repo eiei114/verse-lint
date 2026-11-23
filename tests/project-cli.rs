@@ -152,6 +152,49 @@ fn config_search_git_boundary_explicit_override_and_show_config() {
 }
 
 #[test]
+fn config_utf8_bom_applies_non_default_setting() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::write(
+        root.join("verse.toml"),
+        b"\xEF\xBB\xBF[lint]\nmax-line-length=99\n",
+    )
+    .unwrap();
+
+    let out = run(root, &["--show-config"]);
+    assert_eq!(out.status.code(), Some(0), "{out:?}");
+    let effective: toml::Value = toml::from_str(std::str::from_utf8(&out.stdout).unwrap()).unwrap();
+    assert_eq!(effective["lint"]["max-line-length"].as_integer(), Some(99));
+}
+
+#[test]
+fn config_invalid_utf8_fails_before_linting() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    fs::write(root.join("a.verse"), "A := 1\n").unwrap();
+    // A lossy decoder would leave an otherwise valid TOML comment.
+    fs::write(
+        root.join("verse.toml"),
+        b"[lint]\nmax-line-length=99\n# \xFF\n",
+    )
+    .unwrap();
+
+    let (out, report) = json(root, &["a.verse"]);
+    assert_eq!(out.status.code(), Some(2), "{report}");
+    assert_eq!(report["summary"]["complete"], false);
+    assert_eq!(report["summary"]["filesChecked"], 0);
+    assert!(
+        report["executionErrors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|error| error["message"].as_str())
+            .any(|message| message.contains("configuration must be UTF-8")),
+        "{report}"
+    );
+}
+
+#[test]
 fn config_schema_and_sections_fail_closed_except_sibling_table() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
