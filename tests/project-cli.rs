@@ -248,6 +248,59 @@ fn json_envelopes_cover_cli_errors_and_are_deterministic() {
 }
 
 #[test]
+fn clap_error_recovers_json_from_either_format_spelling() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    // This source would produce a lint diagnostic if project discovery ran.
+    fs::write(root.join("a.verse"), "A := 1 \n").unwrap();
+    for args in [
+        &["--bad-flag", "--output-format", "json"][..],
+        &["--bad-flag", "--output-format=json"][..],
+    ] {
+        let out = run(root, args);
+        assert_eq!(out.status.code(), Some(2), "{args:?}: {out:?}");
+        // JSON reports also render execution errors on stderr. Parse all of
+        // stdout so an extra envelope or text on that stream fails the test.
+        let report: Value = serde_json::from_slice(&out.stdout)
+            .unwrap_or_else(|err| panic!("{args:?}: {err}: {out:?}"));
+        assert_eq!(report["schemaVersion"], 1);
+        assert_eq!(report["summary"]["complete"], false);
+        assert_eq!(report["summary"]["filesChecked"], 0);
+        assert!(report["diagnostics"].as_array().unwrap().is_empty());
+        let errors = report["executionErrors"].as_array().unwrap();
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].get("path").is_none());
+        let message = errors[0]["message"].as_str().unwrap();
+        assert!(message.contains("--bad-flag"), "{args:?}: {message}");
+    }
+}
+
+#[test]
+fn clap_error_ignores_conflicting_formats_and_format_shaped_filenames() {
+    let dir = tempfile::tempdir().unwrap();
+    // The bad flag precedes the formats or the `--` delimiter, so none of
+    // those later arguments needs to be rejected for clap to fail.
+    for args in [
+        &[
+            "--bad-flag",
+            "--output-format=json",
+            "--output-format",
+            "sarif",
+        ][..],
+        &["--bad-flag", "--", "--output-format=json"][..],
+        &["--bad-flag", "--", "--output-format", "json"][..],
+    ] {
+        let out = run(dir.path(), args);
+        assert_eq!(out.status.code(), Some(2), "{args:?}: {out:?}");
+        assert!(out.stdout.is_empty(), "{args:?}: {out:?}");
+        let stderr = String::from_utf8(out.stderr).unwrap();
+        assert!(stderr.starts_with("error:"), "{args:?}: {stderr}");
+        assert!(stderr.contains("--bad-flag"), "{args:?}: {stderr}");
+        assert!(stderr.contains("Usage:"), "{args:?}: {stderr}");
+    }
+}
+
+#[test]
 fn zero_sources_unexpanded_globs_and_diagnostic_limit_are_errors() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path();
