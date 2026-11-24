@@ -300,6 +300,53 @@ fn unparseable_input_fails_closed_with_no_summary() {
     }
 }
 
+#[test]
+fn later_source_decode_failure_discards_partial_semantic_dumps() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path();
+    let good = "a-good.verse";
+    let bad = "z-invalid-utf8.verse";
+    std::fs::write(root.join("verse.toml"), "").unwrap();
+    std::fs::write(root.join(good), "F(X:int):void =\n    Print(X)\n").unwrap();
+    std::fs::write(root.join(bad), b"# invalid byte: \xff\n").unwrap();
+
+    for surface in ["--dump-scopes", "--semantic-coverage"] {
+        let out = run(root, &[good, surface], None);
+        assert_eq!(out.status.code(), Some(0), "{surface}: {out:?}");
+        assert!(out.stderr.is_empty(), "{surface}: {out:?}");
+        let document: Value = serde_json::from_slice(&out.stdout)
+            .unwrap_or_else(|e| panic!("{surface}: {e}: {out:?}"));
+        assert_eq!(document["schemaVersion"], 1, "{surface}: {document}");
+        assert_eq!(
+            document["summary"]["sourcesAnalyzed"], 1,
+            "{surface}: {document}"
+        );
+        let files = document["files"].as_array().unwrap();
+        assert_eq!(files.len(), 1, "{surface}: {document}");
+        assert_eq!(files[0]["path"], good, "{surface}: {document}");
+        if surface == "--dump-scopes" {
+            assert!(files[0]["scopes"].as_array().unwrap().len() > 1);
+        } else {
+            schema()
+                .validate(&document)
+                .expect("coverage document schema");
+        }
+
+        // Discovery sorts by project-relative label, so the good source has
+        // already contributed to the collector when the bad source fails.
+        let out = run(root, &[good, bad, surface], None);
+        assert_eq!(out.status.code(), Some(2), "{surface}: {out:?}");
+        assert!(out.stdout.is_empty(), "{surface} leaked stdout: {out:?}");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert!(
+            stderr
+                .lines()
+                .any(|line| line.contains(bad) && line.contains("source must be valid UTF-8")),
+            "{surface}: {stderr}"
+        );
+    }
+}
+
 /// Discovery is shared with a lint run, so the reported file set follows
 /// `[files] exclude`, `verse-lint.ignore` and `--no-ignore-file`.
 #[test]
